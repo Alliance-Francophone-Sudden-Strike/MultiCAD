@@ -5,7 +5,9 @@ It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) â
 
 > [!NOTE]
 > This fork main goal is to produce the same multi resolution `.dll` as the parent project but without the menu version check. It should allow community to use the custom resolution `.dll` next to a custom menu `.dll` without conflicts.
+>
 > This fork also allow the user to force a profile override for the game and menu modules, allowing potential custom builds of `game*.dll` and `menu*.dll`. This feature targets advanced users who need to run modified or repacked versions of the game and menu DLLs. **Use with caution.**
+>
 > An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.
 
 ## Supported Games
