@@ -218,6 +218,9 @@ private:
         return path; // no trailing slash
     }
 
+public:
+
+    // Public: ProfileOverride reads its own keys from the same ini.
     static std::string GetIniPath()
     {
         // Resolve our own module from an in-module address (name-agnostic).

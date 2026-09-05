@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "PatchInstallers.h"
 #include "AudioHelper.h"
+#include "GameModuleNames.h"
+#include "ProfileOverride.h"
 #include "UIFilter.h"
 
 bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const std::wstring& path)
@@ -10,6 +12,18 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     DllVersionDetector& detector = DllVersionDetector::GetInstance();
     GameVersion version = detector.GetOrDetectGameVersion(DllType::Game, path, base, size);
     DetectionStatus status = detector.GetDetectionStatus(DllType::Game);
+
+    // "[Game] GameProfile=" forces a profile onto a dll we couldn't identify. Only once the
+    // file was read and hashed, otherwise ModuleInfo has nothing to patch against.
+    if (status == DetectionStatus::Supported || status == DetectionStatus::UnsupportedHash)
+    {
+        const GameVersion forced = ProfileOverride::GetProfileOverride(DllType::Game);
+        if (forced != GameVersion::UNKNOWN)
+        {
+            version = forced;
+            status = DetectionStatus::Supported;
+        }
+    }
 
     ProfileFactory factory;
     auto profile = factory.create(version);
@@ -39,7 +53,10 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     }
     case DetectionStatus::UnsupportedHash:
     {
-        ShowErrorAsync("MultiCAD couldn't identify game dll and doesn't try to patch it. The game will NOT work correctly. \nTo add support, contact the author of the mod.");
+        ShowErrorAsync("MultiCAD couldn't identify game dll and doesn't try to patch it. The game will NOT work correctly."
+            "\nTo add support, contact the author of the mod and give them this hash:\n"
+            + detector.GetLastHashString(DllType::Game)
+            + "\n\nIf you already know which version it is, set GameProfile in the [Game] section of the game ini. See the readme.");
         Screen::UpdateToOrigSize();
         return false;
     }
@@ -48,7 +65,9 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     // Apply the game resolution now - must not happen during the menu (fixed size).
     Screen::ApplyGameResolution();
 
-    const auto& module = detector.GetModuleInfo(DllType::Game);
+    ModuleInfo module = detector.GetModuleInfo(DllType::Game);
+    module.version = version;   // may be the forced one; ModuleInfo::valid() checks it
+
     GameDllHooks::init(module.base);
     state.patchEngine.emplace(
         std::make_unique<MemoryRelocator>(),
@@ -93,37 +112,42 @@ bool InstallMenuPatches(TargetState& state, uintptr_t base, size_t size, const s
     GameVersion version = detector.GetOrDetectGameVersion(DllType::Menu, path, base, size);
     DetectionStatus status = detector.GetDetectionStatus(DllType::Menu);
 
+    // "[Game] MenuProfile=" forces a profile onto a dll we couldn't identify. Only once the
+    // file was read and hashed, otherwise ModuleInfo has nothing to patch against.
+    if (status == DetectionStatus::Supported || status == DetectionStatus::UnsupportedHash)
+    {
+        const GameVersion forced = ProfileOverride::GetProfileOverride(DllType::Menu);
+        if (forced != GameVersion::UNKNOWN)
+        {
+            version = forced;
+            status = DetectionStatus::Supported;
+        }
+    }
+
     ProfileFactory factory;
     auto profile = factory.create(version);
 
+    // Every menu profile is cosmetic - a splash text hook, plus erasing the old HD mod's
+    // on-screen text. Skipping it on an unrecognized dll costs nothing and gates nothing,
+    // so this stays silent: no dialog, just no menu patches.
     switch (status)
     {
     case DetectionStatus::NotDetected:
-    {
-        ShowErrorAsync("MultiCAD couldn't detect menu dll hash for some reason.");
-        return false;
-    }
     case DetectionStatus::NotCalculated:
-    {
-        ShowErrorAsync("MultiCAD couldn't calculate menu dll hash for some reason.");
+    case DetectionStatus::UnsupportedHash:
         return false;
-    }
     case DetectionStatus::Supported:
     {
         // I check profile version separately, because dll can be identified, but there can be no profile for this version
-        if (!profile->isUnknown())
-            break;
-        ShowErrorAsync("MultiCAD identified menu dll, but doesn't have patches for it. \nTo add support, contact the author of the mod.");
-        return false;
-    }
-    case DetectionStatus::UnsupportedHash:
-    {
-        ShowErrorAsync("MultiCAD couldn't identify menu dll and doesn't try to patch it. \nTo add support, contact the author of the mod.");
-        return false;
+        if (profile->isUnknown())
+            return false;
+        break;
     }
     }
 
-    const auto& module = detector.GetModuleInfo(DllType::Menu);
+    ModuleInfo module = detector.GetModuleInfo(DllType::Menu);
+    module.version = version;   // may be the forced one; ModuleInfo::valid() checks it
+
     MenuDllHooks::init(module.base);
     state.patchEngine.emplace(
         std::make_unique<MemoryRelocator>(),
@@ -135,7 +159,7 @@ bool InstallMenuPatches(TargetState& state, uintptr_t base, size_t size, const s
         MenuDllHooks::shutdown();
         state.patchEngine.reset();
 
-        ShowErrorAsync("Couldn't patch game dll due to some error. Contact the author.");
+        ShowErrorAsync("Couldn't patch menu dll due to some error. Contact the author.");
         return false;
     }
 
@@ -153,6 +177,26 @@ bool UninstallMenuPatches(TargetState& state)
     MenuDllHooks::shutdown();
 
     return true;
+}
+
+// DllMonitor searches each target's name part inside the loaded module's file name and
+// stops at the first hit, so a configured name that already contains a built-in part is
+// covered by that one and must not be registered twice.
+static bool MatchesAnyTarget(const std::vector<TargetInfo>& targets, const std::wstring& moduleName)
+{
+    std::wstring lower = moduleName;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::towlower);
+
+    for (const TargetInfo& target : targets)
+    {
+        std::wstring part = target.namePart;
+        std::transform(part.begin(), part.end(), part.begin(), ::towlower);
+
+        if (!part.empty() && lower.find(part) != std::wstring::npos)
+            return true;
+    }
+
+    return false;
 }
 
 std::vector<TargetInfo> CreatePatchTargets()
@@ -232,6 +276,27 @@ std::vector<TargetInfo> CreatePatchTargets()
         menuTargetBlackSea.onLoaded = InstallMenuPatches;
         menuTargetBlackSea.onUnloaded = UninstallMenuPatches;
         targets.push_back(std::move(menuTargetBlackSea));
+    }
+
+    // Whatever "[StartUp] Module1/Module2" actually names, for the installs where that is
+    // not a "menu*"/"game*" file - a replacement front end such as RUI.dll. Added last, so
+    // a stock install matches its built-in part first and nothing changes there.
+    {
+        const auto addConfigured = [&targets](DllType type, auto onLoaded, auto onUnloaded)
+        {
+            std::wstring name = GameModules::GetConfiguredName(type);
+            if (name.empty() || MatchesAnyTarget(targets, name))
+                return;
+
+            TargetInfo configured;
+            configured.namePart = std::move(name);
+            configured.onLoaded = onLoaded;
+            configured.onUnloaded = onUnloaded;
+            targets.push_back(std::move(configured));
+        };
+
+        addConfigured(DllType::Menu, InstallMenuPatches, UninstallMenuPatches);
+        addConfigured(DllType::Game, InstallGamePatches, UninstallGamePatches);
     }
 
     return targets;

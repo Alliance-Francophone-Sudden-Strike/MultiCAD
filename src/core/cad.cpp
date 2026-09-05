@@ -2,6 +2,8 @@
 #include "cad.h"
 #include "renderer.h"
 #include "DllVersionDetector.h"
+#include "GameModuleNames.h"
+#include "ProfileOverride.h"
 
 static ModuleStateLong  g_moduleStateLong;
 static ModuleStateShort g_moduleStateShort;
@@ -122,13 +124,64 @@ void* InitModuleStateShort()
     return &g_moduleStateShort.windowRect;
 }
 
-void* InitializeModule()
+// Sudden Strike Gold (en/de/fr) and Gold HD 1.2 use the long module state.
+// Everything else - including Gold ru, which was a debug build - uses the short one.
+constexpr bool IsLongModuleState(const GameVersion version)
 {
-#pragma comment(linker, "/EXPORT:" "CADraw_Init=" __FUNCDNAME__)
+    switch (version)
+    {
+    case GameVersion::SS_GOLD_EN:
+    case GameVersion::SS_GOLD_DE:
+    case GameVersion::SS_GOLD_FR:
+    case GameVersion::SS_GOLD_HD_1_2_RU:
+    case GameVersion::SS_GOLD_HD_1_2_INT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// The module state picks the layout of the function table the game calls, so getting it
+// wrong is fatal - and it has to be decided before any dll is loaded. Strongest signal
+// first: an explicit ini override, then the game dll (whose hash tells the Gold builds
+// apart from everything else), then the menu dll, then short - right for every version
+// but Gold. Silent when nothing matches: short is the common case, and the game dll is
+// warned about properly in InstallGamePatches once it actually loads.
+static GameVersion ResolveModuleStateVersion()
+{
+    if (const GameVersion forced = ProfileOverride::GetProfileOverride(DllType::Game); forced != GameVersion::UNKNOWN)
+        return forced;
+
+    if (const GameVersion forced = ProfileOverride::GetProfileOverride(DllType::Menu); forced != GameVersion::UNKNOWN)
+        return forced;
 
     DllVersionDetector& detector = DllVersionDetector::GetInstance();
 
-    bool res = detector.DetectFileDllVersion(DllType::Menu, ToDllName(DllType::Menu));
+    // Each probe walks the whole game tree, so stop at the first name that matches. The
+    // name the ini gives goes first: it is the file the game itself loads, where the parts
+    // below are a guess that finds nothing on an install using its own module names.
+    const std::wstring configuredGame = GameModules::GetConfiguredName(DllType::Game);
+
+    bool res = !configuredGame.empty() && detector.DetectFileDllVersion(DllType::Game, configuredGame);
+    if (!res)
+        res = detector.DetectFileDllVersion(DllType::Game, ToDllName(DllType::Game));
+    if (!res)
+        res = detector.DetectFileDllVersion(DllType::Game, ToDllName(DllType::GameGulfWar));
+    if (!res)
+        res = detector.DetectFileDllVersion(DllType::Game, ToDllName(DllType::GameBlackGold));
+    if (!res)
+        res = detector.DetectFileDllVersion(DllType::Game, ToDllName(DllType::GameEurope2015));
+    if (!res)
+        res = detector.DetectFileDllVersion(DllType::Game, ToDllName(DllType::GameBlackSea));
+
+    if (const GameVersion gameDllVersion = detector.GetGameVersion(DllType::Game); gameDllVersion != GameVersion::UNKNOWN)
+        return gameDllVersion;
+
+    const std::wstring configuredMenu = GameModules::GetConfiguredName(DllType::Menu);
+
+    res = !configuredMenu.empty() && detector.DetectFileDllVersion(DllType::Menu, configuredMenu);
+    if (!res)
+        res = detector.DetectFileDllVersion(DllType::Menu, ToDllName(DllType::Menu));
     if (!res)
         res = detector.DetectFileDllVersion(DllType::Menu, ToDllName(DllType::MenuGulfWar));
     if (!res)
@@ -138,34 +191,14 @@ void* InitializeModule()
     if (!res)
         res = detector.DetectFileDllVersion(DllType::Menu, ToDllName(DllType::MenuBlackSea));
 
-    const GameVersion menuDllVersion = detector.GetGameVersion(DllType::Menu);
+    return detector.GetGameVersion(DllType::Menu);
+}
 
-    // Add here menu dll versions from DllVersionDetector.h
-    switch (menuDllVersion)
-    {
-    case GameVersion::SS_GOLD_EN:
-    case GameVersion::SS_GOLD_DE:
-    case GameVersion::SS_GOLD_FR:
-    case GameVersion::SS_GOLD_HD_1_2_RU:
-    case GameVersion::SS_GOLD_HD_1_2_INT:
-    {
-        return InitModuleStateLong();
-    }
-    case GameVersion::UNKNOWN:
-    {
-        ShowErrorNow("MultiCAD couldn't identify game version and uses default CAD dll. \nTo add support, contact the author of the mod.");
-        [[fallthrough]];
-    }
-    case GameVersion::SS_V1_0:
-    case GameVersion::SS_V1_2:
-    case GameVersion::SS_GOLD_RU:
-    case GameVersion::SS_HD_V1_1_RU:
-    case GameVersion::SS_HD_V1_1_EN:
-    case GameVersion::SS_2:
-    case GameVersion::SS_RW_V2_3:
-    case GameVersion::SS_RW_V2_4:
-    case GameVersion::SS_EUROPE_2015:
-    default:
-        return InitModuleStateShort();
-    }
+void* InitializeModule()
+{
+#pragma comment(linker, "/EXPORT:" "CADraw_Init=" __FUNCDNAME__)
+
+    return IsLongModuleState(ResolveModuleStateVersion())
+        ? InitModuleStateLong()
+        : InitModuleStateShort();
 }

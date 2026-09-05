@@ -15,7 +15,8 @@ const U8 kImageSpriteItemExtendedMask       = 0xC0;
 
 #define SHADEPIXEL(pixel, mask) (((pixel) & (mask)) >> 1)
 
-void ShowErrorNow(const std::string_view& message, bool isCritical = false);
+void ShowErrorNow(const std::string& message, bool isCritical = false);
 
-void ShowErrorAsync(const std::string_view& message, bool isCritical = false);
+// Takes the text by value: the message box runs on a detached thread that outlives the caller.
+void ShowErrorAsync(std::string message, bool isCritical = false);
 

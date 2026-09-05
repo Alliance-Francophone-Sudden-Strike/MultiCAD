@@ -100,6 +100,7 @@
     <ClInclude Include="patcher\DllHooksBase.h" />
     <ClInclude Include="patcher\DllMonitor.h" />
     <ClInclude Include="patcher\DllVersionDetector.h" />
+    <ClInclude Include="patcher\GameModuleNames.h" />
     <ClInclude Include="patcher\GameDllHooks.h" />
     <ClInclude Include="patcher\GameGlobals.h" />
     <ClInclude Include="patcher\LdrNotification.h" />
@@ -108,6 +109,7 @@
     <ClInclude Include="patcher\PatchEngine.h" />
     <ClInclude Include="patcher\PatchInstallers.h" />
     <ClInclude Include="patcher\PatchTypes.h" />
+    <ClInclude Include="patcher\ProfileOverride.h" />
     <ClInclude Include="profiles\ProfileBase.h" />
     <ClInclude Include="profiles\ProfileFactory.h" />
     <ClInclude Include="profiles\Profiles.h" />

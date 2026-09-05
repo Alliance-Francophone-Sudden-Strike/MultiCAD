@@ -84,6 +84,12 @@
     <ClInclude Include="patcher\PatchTypes.h">
       <Filter>Header Files\Patcher</Filter>
     </ClInclude>
+    <ClInclude Include="patcher\ProfileOverride.h">
+      <Filter>Header Files\Patcher</Filter>
+    </ClInclude>
+    <ClInclude Include="patcher\GameModuleNames.h">
+      <Filter>Header Files\Patcher</Filter>
+    </ClInclude>
     <ClInclude Include="patcher\CodePatcher.h">
       <Filter>Header Files\Patcher</Filter>
     </ClInclude>

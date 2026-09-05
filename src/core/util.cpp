@@ -2,16 +2,17 @@
 #include "util.h"
 #include <thread>
 
-void ShowErrorNow(const std::string_view& message, bool isCritical)
+void ShowErrorNow(const std::string& message, bool isCritical)
 {
-    MessageBoxA(NULL, message.data(), "MultiCAD error", MB_OK | MB_ICONERROR);
+    MessageBoxA(NULL, message.c_str(), "MultiCAD error", MB_OK | MB_ICONERROR);
     if (isCritical)
         ExitProcess(EXIT_FAILURE);
 }
 
-void ShowErrorAsync(const std::string_view& message, bool isCritical)
+void ShowErrorAsync(std::string message, bool isCritical)
 {
-    std::thread([message, isCritical]() {
+    // The thread outlives the caller, so it has to own the text.
+    std::thread([message = std::move(message), isCritical]() {
         ShowErrorNow(message, isCritical);
         }).detach();
 }

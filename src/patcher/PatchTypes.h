@@ -101,6 +101,21 @@ constexpr const wchar_t* ToDllName(DllType type)
     }
 }
 
+constexpr bool IsMenuDll(const DllType type)
+{
+    switch (type)
+    {
+    case DllType::Menu:
+    case DllType::MenuGulfWar:
+    case DllType::MenuBlackGold:
+    case DllType::MenuEurope2015:
+    case DllType::MenuBlackSea:
+        return true;
+    default:
+        return false;
+    }
+}
+
 struct ModuleInfo
 {
     uintptr_t   base{};

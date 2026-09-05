@@ -21,6 +21,8 @@ public:
 
     DetectionStatus GetDetectionStatus(const DllType type) const;
     GameVersion GetGameVersion(const DllType type) const;
+    // Hex sha256 of the section that was hashed, for the "contact the author" message.
+    std::string GetLastHashString(const DllType type) const;
     GameVersion GetOrDetectGameVersion(const DllType type, const std::wstring& modulePath, const uintptr_t moduleBase, const size_t imageSize);
     ModuleInfo GetModuleInfo(const DllType type) const;
 
@@ -35,6 +37,8 @@ private:
     {
         DetectionStatus status{ DetectionStatus::NotDetected };
         ModuleInfo info;
+        std::wstring path;      // file the status describes; a different one is re-hashed
+        std::string hashHex;    // empty unless the hash was computed
     };
 
     static constexpr std::array<DllVersion, 16> gameDllVersions_ = { {

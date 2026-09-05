@@ -12,12 +12,29 @@ DllVersionDetector& DllVersionDetector::GetInstance()
     return instance;
 }
 
+static std::string ToHexString(const std::array<uint8_t, 32>& hash)
+{
+    static constexpr char kDigits[] = "0123456789abcdef";
+
+    std::string out;
+    out.reserve(hash.size() * 2);
+    for (const uint8_t b : hash)
+    {
+        out.push_back(kDigits[b >> 4]);
+        out.push_back(kDigits[b & 0x0F]);
+    }
+
+    return out;
+}
+
 void DllVersionDetector::DetectDllVersion(const DllType type, const std::wstring& modulePath, const uintptr_t moduleBase, const size_t imageSize)
 {
     auto& state = states_[type];
     state.info.type = type;
     state.info.base = moduleBase;
     state.info.imageSize = imageSize;
+    state.path = modulePath;
+    state.hashHex.clear();
 
     std::array<uint8_t, 32> hash;
     if (!AnalyzeDll(modulePath, hash, state.info))
@@ -26,6 +43,8 @@ void DllVersionDetector::DetectDllVersion(const DllType type, const std::wstring
         state.info.version = GameVersion::UNKNOWN;
         return;
     }
+
+    state.hashHex = ToHexString(hash);
 
     for (const auto& kv : GetVersions(type))
     {
@@ -53,10 +72,22 @@ GameVersion DllVersionDetector::GetGameVersion(const DllType type) const
     return it != states_.end() ? it->second.info.version : GameVersion::UNKNOWN;
 }
 
+std::string DllVersionDetector::GetLastHashString(const DllType type) const
+{
+    auto it = states_.find(type);
+    return it != states_.end() ? it->second.hashHex : std::string{};
+}
+
 GameVersion DllVersionDetector::GetOrDetectGameVersion(const DllType type, const std::wstring& modulePath, const uintptr_t moduleBase, const size_t imageSize)
 {
     auto it = states_.find(type);
-    if (it != states_.end() && it->second.status != DetectionStatus::NotDetected && it->second.status != DetectionStatus::NotCalculated)
+
+    // A stored status only applies to the file it was computed from. DetectFileDllVersion
+    // returns the first matching dll in the tree, which on a mod install is not always the
+    // one that ends up loaded - hash that one instead of inheriting the wrong verdict.
+    const bool samePath = it != states_.end() && _wcsicmp(it->second.path.c_str(), modulePath.c_str()) == 0;
+
+    if (samePath && it->second.status != DetectionStatus::NotDetected && it->second.status != DetectionStatus::NotCalculated)
     {
         const uintptr_t diff = moduleBase - it->second.info.base;
         it->second.info.relocVA += diff;
