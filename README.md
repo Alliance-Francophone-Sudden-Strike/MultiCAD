@@ -61,21 +61,16 @@ It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) �
 
 ## Installation
 
-1. Download the latest precompiled `cadMulti.dll` file from the [Releases](../../releases/latest) page.
-2. Place `cadMulti.dll` into the folder containing the original `cad*.dll` files (typically the game directory).
-3. Open the game's ini in the game folder — `sudtest.ini` for Sudden Strike, or `gulfwar.ini`, `blackgold.ini`, `blacksea.ini`, `euro2015.ini` for the Confrontation titles — and set **at least one** `SSDraw` entry to `cadMulti.dll`. Example:
+1. Download the latest precompiled `cadMulti_mt.dll` file from the [Releases](../../releases/latest) page.
+2. Place `cadMulti_mt.dll` into the folder containing the original `cad*.dll` files (typically the game directory).
+3. Open the game's ini in the game folder — `sudtest.ini` for Sudden Strike, or `gulfwar.ini`, `blackgold.ini`, `blacksea.ini`, `euro2015.ini` for the Confrontation titles — and set **at least one** `SSDraw` entry to `cadMulti_mt.dll`. Example:
    > ```ini
    > [Game]
    > SSDraw1=cad640.dll
    > SSDraw2=cad1024.dll
-   > SSDraw3=cadMulti.dll
+   > SSDraw3=cadMulti_mt.dll
    > ```
 4. Launch the game.
-
-> 💡 Note: If the game fails to launch or closes immediately with no error, it usually means the required Microsoft Visual C++ runtime is missing. You have two options to fix this:
->
-> 1. Install the Microsoft Visual C++ 2015-2022 Redistributable: [vc_redist.x86.exe](https://aka.ms/vc14/vc_redist.x86.exe).
-> 2. Alternatively, use [cadMulti_mt.dll](../../releases/latest), which works without installing any additional runtime (slightly larger than cadMulti.dll)
 
 ## Configuration
 
@@ -90,7 +85,7 @@ To set a specific resolution, add a `Resolution` line **anywhere after** the `[G
 > Resolution=1600x900
 > SSDraw1=cad640.dll
 > SSDraw2=cad1024.dll
-> SSDraw3=cadMulti.dll
+> SSDraw3=cadMulti_mt.dll
 > ```
 >
 > Restart the game to apply the change.
