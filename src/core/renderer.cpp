@@ -1495,6 +1495,11 @@ bool lockDxSurface()
 // 0x10002970
 void unlockDxSurface()
 {
+    Zoom::GetState().finishPresentation(
+        g_moduleState->surface.renderer,
+        g_moduleState->pitch,
+        Screen::width_,
+        Screen::height_);
     g_moduleState->directX.surface->Unlock(NULL);
 
     g_moduleState->surface.renderer = NULL;

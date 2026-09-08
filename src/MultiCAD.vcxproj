@@ -96,6 +96,7 @@
     <ClInclude Include="core\types.h" />
     <ClInclude Include="core\util.h" />
     <ClInclude Include="core\version.h" />
+    <ClInclude Include="core\Zoom.h" />
     <ClInclude Include="patcher\CodePatcher.h" />
     <ClInclude Include="patcher\DllHooksBase.h" />
     <ClInclude Include="patcher\DllMonitor.h" />

@@ -17,6 +17,8 @@ struct HookSpec
 {
     uintptr_t targetRva;
     uintptr_t detour;
+    uint8_t opcode{ 0xE9 }; // jmp rel32
+    size_t overwriteSize{ 5 };
 };
 
 struct PatchSpec

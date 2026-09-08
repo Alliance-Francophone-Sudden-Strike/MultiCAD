@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "GameDllHooks.h"
+#include "renderer.h"
 #include "UiFilter.h"
 #include "types.h"
 
@@ -1236,8 +1237,240 @@ void __declspec(noinline) __stdcall  GameDllHooks::sub_1005C170_fr()
 }
 
 
+void GameDllHooks::prepareGlobalUi(
+    UIRenderElement* ui,
+    void(__stdcall* fn)())
+{
+    bool isolate = false;
+    for (; ui; ui = ui->prev)
+        isolate |= ui->type == 40;
+
+    // ponytail: Fusion mixes type-40 text into the circular world surface, so
+    // present it natively and resume zoom after one clean frame.
+    Zoom::GetState().beginFrame(isolate);
+
+    if (isolate)
+    {
+        Zoom::GetState().beginWorldIsolation(
+            g_rendererState.surfaces.main,
+            g_rendererState.surfaces.back,
+            static_cast<size_t>(Screen::width_) * (Screen::height_ + 1));
+    }
+    fn();
+    if (isolate)
+    {
+        Zoom::GetState().finishWorldIsolation(
+            g_rendererState.surfaces.main,
+            g_rendererState.surfaces.back);
+    }
+}
+
+void GameDllHooks::prepareUiElements(UiElementBase* ui)
+{
+    bool isolated = false;
+    for (; ui; ui = ui->prev)
+    {
+        const bool isolate = !ui->uiEventArea || ui->uiEventArea->tag != 'FILD';
+        if (isolate && !isolated)
+        {
+            Zoom::GetState().beginWorldIsolation(
+                g_rendererState.surfaces.main,
+                g_rendererState.surfaces.back,
+                static_cast<size_t>(Screen::width_) * (Screen::height_ + 1));
+        }
+        else if (!isolate && isolated)
+        {
+            Zoom::GetState().finishWorldIsolation(
+                g_rendererState.surfaces.main,
+                g_rendererState.surfaces.back);
+        }
+        isolated = isolate;
+        ui->vtable->fn_A1000(ui);
+    }
+    if (isolated)
+        Zoom::GetState().finishWorldIsolation(
+            g_rendererState.surfaces.main,
+            g_rendererState.surfaces.back);
+}
+
+void GameDllHooks::updateEntitiesUnderMouse(
+    int* mouseX,
+    int* mouseY,
+    UiEventArea* areas,
+    void(__cdecl* fn)())
+{
+    const int physicalX = *mouseX;
+    const int physicalY = *mouseY;
+    const bool map = battlefieldAt(areas, physicalX, physicalY) != nullptr ||
+        Zoom::GetState().battlefieldDragging();
+    if (map)
+    {
+        *mouseX = Zoom::GetState().mapX(physicalX);
+        *mouseY = Zoom::GetState().mapY(physicalY);
+    }
+
+    fn();
+
+    if (map)
+    {
+        *mouseX = physicalX;
+        *mouseY = physicalY;
+    }
+}
+
+void GameDllHooks::updateBattlefieldHover(
+    int* mouseX,
+    int* mouseY,
+    UiEventArea* areas,
+    int active,
+    void(__cdecl* fn)(int))
+{
+    const int physicalX = *mouseX;
+    const int physicalY = *mouseY;
+    const bool map = battlefieldAt(areas, physicalX, physicalY) != nullptr ||
+        Zoom::GetState().battlefieldDragging();
+    if (map)
+    {
+        *mouseX = Zoom::GetState().mapX(physicalX);
+        *mouseY = Zoom::GetState().mapY(physicalY);
+    }
+
+    fn(active);
+
+    if (map)
+    {
+        *mouseX = physicalX;
+        *mouseY = physicalY;
+    }
+}
+
+void GameDllHooks::calculateCursorTypeAtZoom(
+    int x,
+    int y,
+    int* result,
+    UiEventArea* areas,
+    void(__cdecl* fn)(int, int, int*))
+{
+    if (battlefieldAt(areas, x, y))
+    {
+        x = Zoom::GetState().mapX(x);
+        y = Zoom::GetState().mapY(y);
+    }
+    fn(x, y, result);
+}
+
+bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
+{
+    Zoom::State& zoom = Zoom::GetState();
+    const Zoom::Transform transform = zoom.transform();
+    const int width = data.surfaceWidth;
+    const int height = data.surfaceHeight;
+
+    if (zoom.mode() == Zoom::Mode::Off || zoom.suppressed() ||
+        (zoom.scale() == Zoom::kMinScale && zoom.presentedScale() == Zoom::kMinScale) ||
+        !g_moduleState || !g_moduleState->surface.renderer ||
+        width != Screen::width_ || height != Screen::height_ ||
+        (width & 15) != 0 || (height & 7) != 0 ||
+        transform.destination.width <= 0 || transform.destination.height <= 0 ||
+        transform.destination.x < 0 || transform.destination.y < 0 ||
+        transform.destination.x + transform.destination.width > width ||
+        transform.destination.y + transform.destination.height > height)
+    {
+        return false;
+    }
+
+    const size_t pixels = static_cast<size_t>(width) * height;
+    if (!zoom.ensureBuffers(pixels))
+        return false;
+
+    Pixel* const clean = zoom.cleanBuffer();
+    Pixel* const world = zoom.worldBuffer();
+
+    void* const renderer = g_moduleState->surface.renderer;
+    const uint32_t pitch = g_moduleState->pitch;
+    g_moduleState->surface.renderer = world;
+    g_moduleState->pitch = width * sizeof(Pixel);
+    copyMainSurfaceToRendererWithWarFog(0, 0, width - 1, height - 1);
+    g_moduleState->surface.renderer = renderer;
+    g_moduleState->pitch = pitch;
+
+    zoom.beginPresentation(
+        g_moduleState->surface.renderer,
+        g_moduleState->pitch,
+        width,
+        height);
+
+    const auto rendererRow = [](int y)
+    {
+        return reinterpret_cast<Pixel*>(
+            reinterpret_cast<uintptr_t>(g_moduleState->surface.renderer) +
+            g_moduleState->pitch * y);
+    };
+
+    // The native cursor restores its previous save-under pixels before drawing.
+    // Presentation already redraws the world, so erase the old cursor here and
+    // suppress that stale restore below.
+    if (data.cursorSavedPixels && data.cursorSavedX && data.cursorSavedY &&
+        data.cursorSavedWidth && data.cursorSavedHeight)
+    {
+        const int savedX = *data.cursorSavedX;
+        const int savedY = *data.cursorSavedY;
+        const int savedWidth = *data.cursorSavedWidth;
+        const int savedHeight = *data.cursorSavedHeight;
+        const int left = std::max(0, savedX);
+        const int top = std::max(0, savedY);
+        const int right = std::min(width, savedX + savedWidth);
+        const int bottom = std::min(height, savedY + savedHeight);
+        for (int y = top; y < bottom; ++y)
+        {
+            const Pixel* const saved = data.cursorSavedPixels + (y - savedY) * 64 + left - savedX;
+            std::copy(saved, saved + right - left, clean + y * width + left);
+            std::copy(saved, saved + right - left, rendererRow(y) + left);
+        }
+    }
+
+    for (int y = transform.destination.y;
+        y < transform.destination.y + transform.destination.height; ++y)
+    {
+        Pixel* const destination = rendererRow(y);
+        const Pixel* const source = world + transform.sourceY(y) * width;
+        for (int x = transform.destination.x;
+            x < transform.destination.x + transform.destination.width; ++x)
+            destination[x] = source[transform.sourceX(x)];
+    }
+
+    // Panels redraw incrementally, so keep their previous pixels until native
+    // UI rendering updates them below.
+    for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+    {
+        if (GetUIFilter().shouldIgnore(ui->type) ||
+            (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
+            continue;
+
+        const int left = std::max(0, ui->leftX);
+        const int top = std::max(0, ui->topY);
+        const int right = std::min(width, ui->rightX + 1);
+        const int bottom = std::min(height, ui->bottomY + 1);
+        for (int y = top; y < bottom; ++y)
+            std::copy(clean + y * width + left, clean + y * width + right, rendererRow(y) + left);
+    }
+
+    return true;
+}
+
 void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
+    const bool zoomed = prepareZoomPresentation(data);
+
+    if (zoomed)
+    {
+        Zoom::GetState().markPresented();
+        if (data.cursorSavedHeight)
+            *data.cursorSavedHeight = 0;
+        if (data.cursorRedrawFlag)
+            *data.cursorRedrawFlag = 1;
+    }
+
     for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
     {
         if (GetUIFilter().shouldIgnoreDecor(uiObj->type))
@@ -1251,7 +1484,18 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     auto sub_100564F0 = data.getFirstDecorUi;
     auto sub_10056530 = data.getNextDecorUi;
 
-    sub_1006AEA0();
+    const bool preserveWorld = !zoomed && Zoom::GetState().mode() != Zoom::Mode::Off;
+    if (preserveWorld)
+    {
+        Zoom::GetState().beginWorldIsolation(
+            g_rendererState.surfaces.main,
+            g_rendererState.surfaces.back,
+            static_cast<size_t>(Screen::width_) * (Screen::height_ + 1));
+    }
+    if (!zoomed)
+    {
+        sub_1006AEA0();
+    }
 
 
     GameData2 gd{};
@@ -1284,11 +1528,20 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     {
         do
         {
-            if (gd.cellMask == 16)
-                cad_2B90(gd.alignX, gd.alignY, gd.allowX, gd.allowY);
-            else
-                cad_2A90(gd.alignX, gd.alignY, gd.allowX - gd.alignX + 1, gd.allowY - gd.alignY + 1);
+            if (!zoomed)
+            {
+                if (gd.cellMask == 16)
+                    cad_2B90(gd.alignX, gd.alignY, gd.allowX, gd.allowY);
+                else
+                    cad_2A90(gd.alignX, gd.alignY, gd.allowX - gd.alignX + 1, gd.allowY - gd.alignY + 1);
+            }
         } while (sub_10056530(div16Ptr, &gd));
+    }
+    if (preserveWorld)
+    {
+        Zoom::GetState().finishWorldIsolation(
+            g_rendererState.surfaces.main,
+            g_rendererState.surfaces.back);
     }
 
     const int x1 = std::min((data.surfaceWidth - 1) >> 4, *div16Ptr - 1);
@@ -3706,13 +3959,21 @@ void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& 
         if (!isInside)
             continue;
 
+        if (Zoom::GetState().scale() != Zoom::kMinScale && area->tag == 'FILD' &&
+            !Zoom::GetState().battlefieldDragging() &&
+            battlefieldAt(uiEventAreas, mouseX, mouseY) != area)
+            continue;
+
         if (area->flags & data.eventTag)
         {
+            const bool battlefield = area->tag == 'FILD';
+            const int eventX = battlefield ? Zoom::GetState().mapX(mouseX) : mouseX;
+            const int eventY = battlefield ? Zoom::GetState().mapY(mouseY) : mouseY;
             writeEventToRingBuffer(
                 area->tag,
                 data.eventTag,
-                mouseX - left,
-                mouseY - top);
+                eventX - left,
+                eventY - top);
 
             // Stop propagation
             if (area->flags & UI_STOP_PROPAGATION)
@@ -3754,11 +4015,14 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
 
         if (wasInside && !isInside && (area->flags & UI_MOUSE_LEAVE))
         {
+            const bool battlefield = area->tag == 'FILD';
+            const int eventX = battlefield ? Zoom::GetState().mapX(data.mouseX) : data.mouseX;
+            const int eventY = battlefield ? Zoom::GetState().mapY(data.mouseY) : data.mouseY;
             writeEventToRingBuffer(
                 area->tag,
                 UI_MOUSE_LEAVE,
-                data.mouseX - left,
-                data.mouseY - top);
+                eventX - left,
+                eventY - top);
         }
     }
 
@@ -3794,14 +4058,22 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
         if (!isInside)
             continue;
 
+        if (Zoom::GetState().scale() != Zoom::kMinScale && area->tag == 'FILD' &&
+            !Zoom::GetState().battlefieldDragging() &&
+            battlefieldAt(uiEventAreas, data.mouseX, data.mouseY) != area)
+            continue;
+
         // MouseEnter
         if (!wasInside && (area->flags & UI_MOUSE_ENTER))
         {
+            const bool battlefield = area->tag == 'FILD';
+            const int eventX = battlefield ? Zoom::GetState().mapX(data.mouseX) : data.mouseX;
+            const int eventY = battlefield ? Zoom::GetState().mapY(data.mouseY) : data.mouseY;
             writeEventToRingBuffer(
                 area->tag,
                 UI_MOUSE_ENTER,
-                data.mouseX - left,
-                data.mouseY - top);
+                eventX - left,
+                eventY - top);
         }
 
         // MouseMove / Hover
@@ -3809,11 +4081,14 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
         {
             if (area->flags & UI_MOUSE_MOVE)
             {
+                const bool battlefield = area->tag == 'FILD';
+                const int eventX = battlefield ? Zoom::GetState().mapX(data.mouseX) : data.mouseX;
+                const int eventY = battlefield ? Zoom::GetState().mapY(data.mouseY) : data.mouseY;
                 writeEventToRingBuffer(
                     area->tag,
                     UI_MOUSE_MOVE,
-                    data.mouseX - left,
-                    data.mouseY - top);
+                    eventX - left,
+                    eventY - top);
             }
 
             if (area->flags & UI_STOP_PROPAGATION)
@@ -3822,6 +4097,25 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
             }
         }
     }
+}
+
+GameDllHooks::UiEventArea* GameDllHooks::battlefieldAt(UiEventArea* areas, int x, int y)
+{
+    UiEventArea* battlefield = nullptr;
+    for (UiEventArea* area = areas; area; area = area->next)
+    {
+        if ((area->flags & UI_DISABLED) || GetUIFilter().shouldIgnoreByTag(area->tag))
+            continue;
+
+        if (x >= area->x && y >= area->y &&
+            x < area->x + area->width && y < area->y + area->height)
+        {
+            if (area->tag != 'FILD')
+                return nullptr;
+            battlefield = area;
+        }
+    }
+    return battlefield;
 }
 
 int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const DispatchWndMessageData& data)
@@ -3849,6 +4143,10 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
     auto const multiByteToWideCharOr = data.multiByteToWideCharOr;
 
     static bool altPressed = false;
+    Zoom::State& zoom = Zoom::GetState();
+
+    if (a2 == WM_KILLFOCUS || a2 == WM_CANCELMODE || a2 == WM_CAPTURECHANGED)
+        zoom.cancelInput();
 
     DWORD tick;
 
@@ -3876,6 +4174,10 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
         case WM_LBUTTONDOWN:
         {
+            zoom.setDragButton(
+                Zoom::State::LeftButton,
+                true,
+                battlefieldAt(data.uiEventAreas, *mouseX, *mouseY) != nullptr);
             dispatchMouseButtonEvent(8);
 
             if (*dword_11070710)
@@ -3901,6 +4203,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
         case WM_LBUTTONUP:
             dispatchMouseButtonEvent(16);
+            zoom.setDragButton(Zoom::State::LeftButton, false);
             break;
 
         case WM_LBUTTONDBLCLK:
@@ -3909,6 +4212,10 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
         case WM_RBUTTONDOWN:
         {
+            zoom.setDragButton(
+                Zoom::State::RightButton,
+                true,
+                battlefieldAt(data.uiEventAreas, *mouseX, *mouseY) != nullptr);
             dispatchMouseButtonEvent(32);
 
             if (*dword_11070710)
@@ -3931,11 +4238,35 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
         case WM_RBUTTONUP:
             dispatchMouseButtonEvent(64);
+            zoom.setDragButton(Zoom::State::RightButton, false);
             break;
 
         case WM_RBUTTONDBLCLK:
             dispatchMouseButtonEvent(256);
             break;
+
+        case WM_MOUSEWHEEL:
+        {
+            if (UiEventArea* area = battlefieldAt(data.uiEventAreas, *mouseX, *mouseY))
+            {
+                zoom.setBattlefield({ area->x, area->y, area->width, area->height });
+                zoom.addWheelDelta(GET_WHEEL_DELTA_WPARAM(a3));
+            }
+            break;
+        }
+
+        case WM_MBUTTONDOWN:
+        {
+            if (!zoom.dragging())
+            {
+                if (UiEventArea* area = battlefieldAt(data.uiEventAreas, *mouseX, *mouseY))
+                {
+                    zoom.setBattlefield({ area->x, area->y, area->width, area->height });
+                    zoom.resetScale();
+                }
+            }
+            break;
+        }
 
         default:
             break;

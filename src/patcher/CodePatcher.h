@@ -19,21 +19,25 @@ private:
             if (h.targetRva == 0 || h.detour == 0)
                 continue;
 
+            if (h.overwriteSize < jumpSize)
+                return false;
+
             uint8_t* target = reinterpret_cast<uint8_t*>(mod.base + h.targetRva);
             uint8_t* detour = reinterpret_cast<uint8_t*>(h.detour);
 
             DWORD oldProtect{};
-            if (!VirtualProtect(target, jumpSize, PAGE_EXECUTE_READWRITE, &oldProtect))
+            if (!VirtualProtect(target, h.overwriteSize, PAGE_EXECUTE_READWRITE, &oldProtect))
                 return false;
 
             intptr_t relAddr = reinterpret_cast<intptr_t>(detour) -
                 reinterpret_cast<intptr_t>(target) - jumpSize;
 
-            target[0] = 0xE9; // jmp rel32
+            target[0] = h.opcode;
             *reinterpret_cast<int32_t*>(target + 1) = static_cast<int32_t>(relAddr);
+            std::fill(target + jumpSize, target + h.overwriteSize, 0x90);
 
-            VirtualProtect(target, jumpSize, oldProtect, &oldProtect);
-            FlushInstructionCache(GetCurrentProcess(), target, jumpSize);
+            VirtualProtect(target, h.overwriteSize, oldProtect, &oldProtect);
+            FlushInstructionCache(GetCurrentProcess(), target, h.overwriteSize);
         }
         return true;
     }

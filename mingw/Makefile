@@ -10,6 +10,7 @@
 # Outputs land in bin/ and obj/ - both already covered by .gitignore.
 
 CXX     := i686-w64-mingw32-g++
+HOST_CXX ?= c++
 WINDRES := i686-w64-mingw32-windres
 STRIP   := i686-w64-mingw32-strip
 
@@ -43,7 +44,7 @@ GCC_LIBDIR := $(dir $(shell $(CXX) -print-libgcc-file-name))
 
 SRC_FILES := $(shell find $(SRCDIR) -type f 2>/dev/null)
 
-.PHONY: all mt clean test prep
+.PHONY: all mt clean test zoom-test prep
 all: bin/cadMulti_mt.dll bin/cadMulti.dll
 mt:  bin/cadMulti_mt.dll
 
@@ -82,12 +83,17 @@ bin/cadMulti.dll: $(OBJS) $(RES)
 
 # LoadLibrary smoke test under Wine. Runs from bin/ so cadMulti.dll finds its
 # sidecar runtime DLLs (mirrors dropping everything into the game folder).
-test: all
+test: zoom-test all
 	@i686-w64-mingw32-gcc -m32 -O2 $(HERE)loadtest.c -o bin/loadtest.exe
 	@cd bin && for d in cadMulti_mt.dll cadMulti.dll; do \
 	    echo "== $$d =="; WINEDEBUG=-all wine loadtest.exe "$$d" || exit 1; \
 	 done
 	@rm -f bin/loadtest.exe
+
+zoom-test:
+	@mkdir -p obj
+	$(HOST_CXX) -std=c++20 -Wall -Wextra -pedantic -I$(SRCDIR)/core ../tests/zoom_test.cpp -o obj/zoom_test
+	obj/zoom_test
 
 clean:
 	rm -rf obj bin

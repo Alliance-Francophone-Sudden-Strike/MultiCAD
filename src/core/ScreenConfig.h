@@ -2,6 +2,7 @@
 
 #include "types.h"
 #include "util.h"
+#include "Zoom.h"
 
 namespace Graphics
 {
@@ -120,6 +121,17 @@ public:
 
         const std::string value = std::to_string(width) + "x" + std::to_string(height);
         WritePrivateProfileStringA("Game", "Resolution", value.c_str(), iniPath.c_str());
+    }
+
+    static Zoom::Mode GetZoomMode()
+    {
+        const std::string iniPath = GetIniPath();
+        if (iniPath.empty())
+            return Zoom::Mode::Off;
+
+        char buffer[16]{};
+        GetPrivateProfileStringA("Game", "ZoomMode", "off", buffer, sizeof(buffer), iniPath.c_str());
+        return Zoom::ParseMode(buffer);
     }
 
 private:

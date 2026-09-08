@@ -970,6 +970,7 @@ private:
     struct DrawDecorUiElementData
     {
         UIRenderElement* uiRenderElem;
+        UiElementBase* uiElement;
         int* closedAreaGameDataArray;
         uintptr_t cadPtr;
 
@@ -979,6 +980,12 @@ private:
         void(__stdcall* blendMainWithWarFog)();
         int(__thiscall* getFirstDecorUi)(int*, GameData2*);
         int(__thiscall* getNextDecorUi)(int*, GameData2*);
+        int* cursorRedrawFlag;
+        int* cursorSavedX;
+        int* cursorSavedY;
+        int* cursorSavedWidth;
+        int* cursorSavedHeight;
+        Pixel* cursorSavedPixels;
     };
 
     struct AddUiElementData
@@ -1037,6 +1044,7 @@ private:
 
         int screenHeight;
         int screenWidth;
+        UiEventArea* uiEventAreas;
 
         int(__cdecl* addUiEventArea)(UiEventArea*);
         int(__cdecl* removeUiEventAreaSafe)(UiEventArea*);
@@ -1165,6 +1173,7 @@ public:
         DrawDecorUiElementData data
         {
             g->getValue<UIRenderElement*>(A.pointedUiElem + 0xC),
+            g->getValue<UiElementBase*>(A.pointedUiElem + 0x8),
             g->getPtr<int>(A.closedAreaGameDataArray),
             g->getValue<uintptr_t>(A.cadPtr),
 
@@ -1174,9 +1183,67 @@ public:
             g->getFn<void(__stdcall)()>(A.fnBlendMainWithWarFog),
             g->getFn<int(__thiscall)(int*, GameData2*)>(A.fnGetFirstDecorUi),
             g->getFn<int(__thiscall)(int*, GameData2*)>(A.fnGetNextDecorUi),
+            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E860) : nullptr,
+            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E850) : nullptr,
+            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E854) : nullptr,
+            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E858) : nullptr,
+            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E85C) : nullptr,
+            V == GameVersion::SS_2 ? g->getPtr<Pixel>(0x106C848) : nullptr,
         };
 
         drawDecorUiElements(data);
+    }
+    template<GameVersion V>
+    static void __declspec(noinline) __stdcall prepareGlobalUi_ver()
+    {
+        static_assert(V == GameVersion::SS_2, "Global UI boundary is only verified for the SS2/Fusion renderer");
+        auto* const g = globals_;
+        prepareGlobalUi(
+            g->getValue<UIRenderElement*>(UiTraits<V>::addresses.pointedUiElem + 0xC),
+            g->getFn<void(__stdcall)()>(0x9B120));
+    }
+    template<GameVersion V>
+    static void __declspec(noinline) __stdcall prepareUiElements_ver()
+    {
+        static_assert(V == GameVersion::SS_2, "Pre-UI boundary is only verified for the SS2/Fusion renderer");
+        auto* const g = globals_;
+        prepareUiElements(g->getValue<UiElementBase*>(UiTraits<V>::addresses.pointedUiElem + 0x8));
+    }
+    template<GameVersion V>
+    static void __declspec(noinline) __cdecl updateEntitiesUnderMouse_ver()
+    {
+        static_assert(V == GameVersion::SS_2, "Entity hover boundary is only verified for SS2/Fusion");
+        auto* const g = globals_;
+        constexpr auto& A = UiTraits<V>::addresses;
+        updateEntitiesUnderMouse(
+            g->getPtr<int>(A.mouseX),
+            g->getPtr<int>(A.mouseY),
+            g->getValue<UiEventArea*>(A.uiEventAreas),
+            g->getFn<void(__cdecl)()>(0x55FF0));
+    }
+    template<GameVersion V>
+    static void __declspec(noinline) __cdecl updateBattlefieldHover_ver(int active)
+    {
+        static_assert(V == GameVersion::SS_2, "Hover boundary is only verified for SS2/Fusion");
+        auto* const g = globals_;
+        updateBattlefieldHover(
+            g->getPtr<int>(0x106E900),
+            g->getPtr<int>(0x106E8FC),
+            g->getValue<UiEventArea*>(UiTraits<V>::addresses.uiEventAreas),
+            active,
+            g->getFn<void(__cdecl)(int)>(0x97AA0));
+    }
+    template<GameVersion V>
+    static void __declspec(noinline) __cdecl calculateCursorTypeAtZoom_ver(int x, int y, int* result)
+    {
+        static_assert(V == GameVersion::SS_2, "Cursor-type boundary is only verified for SS2/Fusion");
+        auto* const g = globals_;
+        calculateCursorTypeAtZoom(
+            x,
+            y,
+            result,
+            g->getValue<UiEventArea*>(UiTraits<V>::addresses.uiEventAreas),
+            g->getFn<void(__cdecl)(int, int, int*)>(0x97ED0));
     }
     static void __declspec(noinline) __stdcall  sub_1006AEA0();
     static void __declspec(noinline) __stdcall  sub_1006AEA0_hd();
@@ -1345,6 +1412,7 @@ public:
             A.fnMultiByteToWideCharOr != 0 ? g->getFn<int(__cdecl)(int)>(A.fnMultiByteToWideCharOr) : 0,
             g->getValue<int>(A.screenHeight),
             g->getValue<int>(A.screenWidth),
+            g->getValue<UiEventArea*>(A.uiEventAreas),
             g->getFn<int(__cdecl)(UiEventArea*)>(A.fnAddUiEventArea),
             g->getFn<int(__cdecl)(UiEventArea*)>(A.fnRemoveUiEventAreaSafe),
             g->getFn<void(__cdecl)(UiElementBase*, int)>(A.fnAddUiElement),
@@ -1355,7 +1423,13 @@ public:
         return dispatchWndMessage(data);
     }
 private:
+    static void prepareGlobalUi(UIRenderElement* ui, void(__stdcall* fn)());
+    static void prepareUiElements(UiElementBase* ui);
+    static void updateEntitiesUnderMouse(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());
+    static void updateBattlefieldHover(int* mouseX, int* mouseY, UiEventArea* areas, int active, void(__cdecl* fn)(int));
+    static void calculateCursorTypeAtZoom(int x, int y, int* result, UiEventArea* areas, void(__cdecl* fn)(int, int, int*));
     static void drawDecorUiElements(const DrawDecorUiElementData& data);
+    static bool prepareZoomPresentation(const DrawDecorUiElementData& data);
 
     static bool is_valid_ptr(void* p);
 
@@ -1376,5 +1450,6 @@ private:
     static void calculateClosedArea(UiElementBase* self, const CalculateClosedAreaData& data);
     static void dispatchMouseButtonEvent(const DispatchMouseButtonEventData& data);
     static void dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data);
+    static UiEventArea* battlefieldAt(UiEventArea* areas, int x, int y);
     static int  dispatchWndMessage(const DispatchWndMessageData& data);
 };

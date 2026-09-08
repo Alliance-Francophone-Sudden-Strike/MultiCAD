@@ -66,6 +66,9 @@
     <ClInclude Include="core\types.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
+    <ClInclude Include="core\Zoom.h">
+      <Filter>Header Files\Core</Filter>
+    </ClInclude>
     <ClInclude Include="ui\UIFilter.h">
       <Filter>Header Files\UI</Filter>
     </ClInclude>
