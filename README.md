@@ -102,9 +102,11 @@ Battlefield zoom is disabled by default for all game DLLs. To enable it and move
 > [Game]
 > Zoom=on
 > ZoomIndicator=right
+> PersistantZoomIndicator=on
 > ```
 
 Use `Zoom=off` to disable zoom or `ZoomIndicator=hidden` to hide its indicator.
+`PersistantZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
 
 ### Replacement Menu or Game Modules
 
