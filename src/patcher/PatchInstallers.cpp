@@ -89,6 +89,7 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     }
 
     Zoom::GetState().setMode(verifiedFusion ? Screen::GetZoomMode() : Zoom::Mode::Off);
+    Zoom::GetState().setIndicatorAnchor(Screen::GetZoomIndicatorAnchor());
     return true;
 }
 

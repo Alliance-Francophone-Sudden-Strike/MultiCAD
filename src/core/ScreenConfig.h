@@ -134,6 +134,20 @@ public:
         return Zoom::ParseMode(buffer);
     }
 
+    static Zoom::IndicatorAnchor GetZoomIndicatorAnchor()
+    {
+        const std::string iniPath = GetIniPath();
+        if (iniPath.empty())
+            return Zoom::IndicatorAnchor::Left;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "ZoomIndicatorAnchor", "left", buffer, sizeof(buffer), iniPath.c_str());
+        for (char& c : buffer)
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c + ('a' - 'A'));
+        return Zoom::ParseIndicatorAnchor(buffer);
+    }
+
 private:
 
     static bool targetResolved_;

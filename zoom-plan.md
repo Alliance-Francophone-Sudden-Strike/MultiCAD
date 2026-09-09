@@ -12,7 +12,7 @@ Feasibility is positive in principle. Complete scene rendering, special command 
 - Animate toward the selected level over **150 ms**, restarting from the current displayed scale when another wheel event arrives. Middle click returns to 1×.
 - Accept zoom controls only over the battlefield when no modal UI owns input. Accumulate partial wheel deltas. Preserve existing keyboard controls.
 - Pause transitions and ignore zoom commands during left/right button drags; resume the pending transition after release.
-- Draw a persistent vertical bar near the left battlefield edge, centered vertically, filling upward from empty at 1× to full at 2×. Keep it unscaled and non-interactive; menus obscure it normally.
+- Draw five small vertical dots at the left screen edge while zoom input is active, filling upward from 1× to 2× and hiding shortly after input stops. Keep them unscaled and non-interactive; menus obscure them normally. Allow `ZoomIndicatorAnchor=left|right|hidden` in `[Game]`.
 - Add `[Game] ZoomMode=off|steps|smooth` to the existing selected INI. Development defaults to `off`; switch the validated Fusion default to `smooth` after acceptance. Unsupported builds remain disabled.
 
 ## Implementation

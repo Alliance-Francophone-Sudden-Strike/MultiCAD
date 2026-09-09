@@ -15,6 +15,13 @@ namespace Zoom
         Smooth
     };
 
+    enum class IndicatorAnchor
+    {
+        Left,
+        Right,
+        Hidden
+    };
+
     constexpr Mode ParseMode(std::string_view value)
     {
         while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
@@ -42,6 +49,15 @@ namespace Zoom
         if (equals("smooth"))
             return Mode::Smooth;
         return Mode::Off;
+    }
+
+    constexpr IndicatorAnchor ParseIndicatorAnchor(std::string_view value)
+    {
+        if (value == "right")
+            return IndicatorAnchor::Right;
+        if (value == "hidden")
+            return IndicatorAnchor::Hidden;
+        return IndicatorAnchor::Left;
     }
 
     struct Rect
@@ -72,6 +88,7 @@ namespace Zoom
 
     constexpr int kMinScale = 4; // quarter units: 4 == 1x
     constexpr int kMaxScale = 8; // 8 == 2x
+    constexpr uint32_t kIndicatorHoldMs = 750;
 
     inline Transform MakeTransform(Rect battlefield, int scale = kMinScale)
     {
@@ -107,6 +124,37 @@ namespace Zoom
         }
     }
 
+    inline void DrawIndicator16(
+        uint16_t* destination, int pitch, int width, int height, int scale, bool right)
+    {
+        constexpr int size = 5;
+        constexpr int gap = 3;
+        constexpr int margin = 8;
+        constexpr uint16_t outline = 0x8410;
+        constexpr uint16_t fill = 0xC618;
+        constexpr int totalHeight = (kMaxScale - kMinScale + 1) * size +
+            (kMaxScale - kMinScale) * gap;
+        const int left = right ? width - margin - size : margin;
+        const int top = (height - totalHeight) / 2;
+
+        if (!destination || left < 0 || top < 0 || left + size > width || top + totalHeight > height)
+            return;
+
+        scale = std::clamp(scale, kMinScale, kMaxScale);
+        for (int dot = 0; dot <= kMaxScale - kMinScale; ++dot)
+        {
+            const bool reached = scale >= kMaxScale - dot;
+            const int y = top + dot * (size + gap);
+            for (int dy = 0; dy < size; ++dy)
+                for (int dx = 0; dx < size; ++dx)
+                {
+                    const int distance = (dx - 2) * (dx - 2) + (dy - 2) * (dy - 2);
+                    if (distance <= 4 && (reached || distance >= 2))
+                        destination[(y + dy) * pitch + left + dx] = reached ? fill : outline;
+                }
+        }
+    }
+
     class State
     {
     public:
@@ -135,6 +183,30 @@ namespace Zoom
         int presentedScale() const { return presentedScale_; }
         bool dragging() const { return dragButtons_ != 0; }
         bool battlefieldDragging() const { return battlefieldDragButtons_ != 0; }
+        IndicatorAnchor indicatorAnchor() const { return indicatorAnchor_; }
+        void setIndicatorAnchor(IndicatorAnchor anchor)
+        {
+            indicatorAnchor_ = anchor;
+            if (anchor == IndicatorAnchor::Hidden)
+                indicatorActive_ = false;
+        }
+        void noteZoomInput(uint32_t tick)
+        {
+            if (indicatorAnchor_ == IndicatorAnchor::Hidden)
+                return;
+            indicatorTick_ = tick;
+            indicatorActive_ = true;
+        }
+        bool indicatorVisible(uint32_t tick) const
+        {
+            return mode_ != Mode::Off && indicatorActive_ && tick - indicatorTick_ < kIndicatorHoldMs;
+        }
+        bool indicatorPending() const { return indicatorActive_; }
+        void finishIndicatorFrame(uint32_t tick)
+        {
+            if (!indicatorVisible(tick))
+                indicatorActive_ = false;
+        }
         void setBattlefield(Rect battlefield)
         {
             if (battlefield.x == battlefield_.x && battlefield.y == battlefield_.y &&
@@ -213,6 +285,7 @@ namespace Zoom
             presentationValid_ = false;
             routed_ = false;
             worldIsolated_ = false;
+            indicatorActive_ = false;
         }
 
         void resetScale()
@@ -332,6 +405,9 @@ namespace Zoom
         bool presentationValid_{};
         bool routed_{};
         bool worldIsolated_{};
+        IndicatorAnchor indicatorAnchor_{ IndicatorAnchor::Left };
+        bool indicatorActive_{};
+        uint32_t indicatorTick_{};
         void* actualRenderer_{};
         uint32_t actualPitch_{};
         std::vector<uint16_t> clean_;

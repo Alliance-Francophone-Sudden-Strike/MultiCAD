@@ -11,6 +11,9 @@ int main()
     static_assert(ParseMode(" Steps ") == Mode::Steps);
     static_assert(ParseMode("SMOOTH") == Mode::Smooth);
     static_assert(ParseMode("unknown") == Mode::Off);
+    static_assert(ParseIndicatorAnchor("right") == IndicatorAnchor::Right);
+    static_assert(ParseIndicatorAnchor("hidden") == IndicatorAnchor::Hidden);
+    static_assert(ParseIndicatorAnchor("unknown") == IndicatorAnchor::Left);
 
     const Transform one = MakeTransform({ 10, 20, 8, 4 });
     assert(one.source.x == 10 && one.source.y == 20);
@@ -65,6 +68,25 @@ int main()
     state.addWheelDelta(120);
     state.resetScale();
     assert(state.scale() == 4);
+    state.noteZoomInput(1000);
+    assert(state.indicatorVisible(1000));
+    assert(state.indicatorVisible(1749));
+    assert(!state.indicatorVisible(1750));
+    assert(state.indicatorPending());
+    state.finishIndicatorFrame(1750);
+    assert(!state.indicatorPending());
+    state.setIndicatorAnchor(IndicatorAnchor::Hidden);
+    state.noteZoomInput(2000);
+    assert(!state.indicatorPending());
+
+    std::array<uint16_t, 64 * 64> indicator{};
+    DrawIndicator16(indicator.data(), 64, 64, 64, kMinScale, false);
+    assert(indicator[15 * 64 + 10] == 0); // Highest level is an empty ring.
+    assert(indicator[47 * 64 + 10] != 0); // Current level is filled.
+    indicator.fill(0);
+    DrawIndicator16(indicator.data(), 64, 64, 64, kMaxScale, true);
+    assert(indicator[15 * 64 + 53] != 0);
+    assert(indicator[15 * 64 + 10] == 0);
 
     std::array<uint16_t, 4> main{ 1, 2, 3, 4 };
     assert(state.ensureBuffers(main.size()));

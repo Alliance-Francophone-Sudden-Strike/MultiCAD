@@ -1335,11 +1335,13 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
 {
     Zoom::State& zoom = Zoom::GetState();
     const Zoom::Transform transform = zoom.transform();
+    const bool showIndicator = zoom.indicatorVisible(GetTickCount());
     const int width = data.surfaceWidth;
     const int height = data.surfaceHeight;
 
     if (zoom.mode() == Zoom::Mode::Off ||
-        (zoom.scale() == Zoom::kMinScale && zoom.presentedScale() == Zoom::kMinScale) ||
+        (!zoom.indicatorPending() && zoom.scale() == Zoom::kMinScale &&
+            zoom.presentedScale() == Zoom::kMinScale) ||
         !g_moduleState || !g_moduleState->surface.renderer ||
         width != Screen::width_ || height != Screen::height_ ||
         (width & 15) != 0 || (height & 7) != 0 ||
@@ -1411,6 +1413,15 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             destination[x] = source[transform.sourceX(x)];
     }
 
+    if (showIndicator)
+        Zoom::DrawIndicator16(
+            static_cast<Pixel*>(g_moduleState->surface.renderer),
+            g_moduleState->pitch / sizeof(Pixel),
+            width,
+            height,
+            zoom.scale(),
+            zoom.indicatorAnchor() == Zoom::IndicatorAnchor::Right);
+
     // Panels redraw incrementally, so keep their previous pixels until native
     // UI rendering updates them below.
     for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
@@ -1437,6 +1448,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     if (zoomed)
     {
         Zoom::GetState().markPresented();
+        Zoom::GetState().finishIndicatorFrame(GetTickCount());
         if (data.cursorSavedHeight)
             *data.cursorSavedHeight = 0;
         if (data.cursorRedrawFlag)
@@ -4243,7 +4255,11 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
             if (UiEventArea* area = battlefieldAt(data.uiEventAreas, *mouseX, *mouseY))
             {
                 zoom.setBattlefield({ area->x, area->y, area->width, area->height });
-                zoom.addWheelDelta(GET_WHEEL_DELTA_WPARAM(a3));
+                if (zoom.mode() != Zoom::Mode::Off && !zoom.dragging())
+                {
+                    zoom.noteZoomInput(GetTickCount());
+                    zoom.addWheelDelta(GET_WHEEL_DELTA_WPARAM(a3));
+                }
             }
             break;
         }
@@ -4256,6 +4272,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
                 {
                     zoom.setBattlefield({ area->x, area->y, area->width, area->height });
                     zoom.resetScale();
+                    zoom.noteZoomInput(GetTickCount());
                 }
             }
             break;

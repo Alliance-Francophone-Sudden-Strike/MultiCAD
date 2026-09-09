@@ -96,6 +96,15 @@ To set a specific resolution, add a `Resolution` line **anywhere after** the `[G
 > 💡 Note: `Resolution` must be between 640x480 and 3840x2160, with a height divisible by 8 — a renderer requirement. Out-of-range values are ignored with a message.
 > A height that isn't divisible by 8, or any mode your display doesn't report, brings up a picker listing the supported modes and saves your choice back to the ini. With no `Resolution` line set, the game uses your desktop resolution with the height rounded down to a multiple of 8.
 
+For the Fusion battlefield zoom indicator, the default anchor is the left screen edge. To move it to the right:
+
+> ```ini
+> [Game]
+> ZoomIndicatorAnchor=right
+> ```
+
+Use `ZoomIndicatorAnchor=hidden` to disable the indicator.
+
 ### Replacement Menu or Game Modules
 
 The game binds its two modules by name, from the ini it boots with:
