@@ -1194,15 +1194,6 @@ public:
         drawDecorUiElements(data);
     }
     template<GameVersion V>
-    static void __declspec(noinline) __stdcall prepareGlobalUi_ver()
-    {
-        static_assert(V == GameVersion::SS_2, "Global UI boundary is only verified for the SS2/Fusion renderer");
-        auto* const g = globals_;
-        prepareGlobalUi(
-            g->getValue<UIRenderElement*>(UiTraits<V>::addresses.pointedUiElem + 0xC),
-            g->getFn<void(__stdcall)()>(0x9B120));
-    }
-    template<GameVersion V>
     static void __declspec(noinline) __stdcall prepareUiElements_ver()
     {
         static_assert(V == GameVersion::SS_2, "Pre-UI boundary is only verified for the SS2/Fusion renderer");
@@ -1423,7 +1414,6 @@ public:
         return dispatchWndMessage(data);
     }
 private:
-    static void prepareGlobalUi(UIRenderElement* ui, void(__stdcall* fn)());
     static void prepareUiElements(UiElementBase* ui);
     static void updateEntitiesUnderMouse(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());
     static void updateBattlefieldHover(int* mouseX, int* mouseY, UiEventArea* areas, int active, void(__cdecl* fn)(int));

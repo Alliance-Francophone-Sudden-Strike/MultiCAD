@@ -102,14 +102,4 @@ int main()
     assert(mainSurface[0] == 0);
     assert(backSurface[0] == 0);
 
-    isolation.beginFrame(true);
-    assert(isolation.suppressed());
-    isolation.beginWorldIsolation(mainSurface.data(), backSurface.data(), mainSurface.size());
-    mainSurface[0] = 7;
-    isolation.finishWorldIsolation(mainSurface.data(), backSurface.data());
-    assert(mainSurface[0] == 7); // native text frame is untouched
-    isolation.beginFrame(false);
-    assert(isolation.suppressed()); // one native frame clears the text
-    isolation.beginFrame(false);
-    assert(!isolation.suppressed());
 }

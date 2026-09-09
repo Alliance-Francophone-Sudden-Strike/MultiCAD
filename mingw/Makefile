@@ -44,7 +44,7 @@ GCC_LIBDIR := $(dir $(shell $(CXX) -print-libgcc-file-name))
 
 SRC_FILES := $(shell find $(SRCDIR) -type f 2>/dev/null)
 
-.PHONY: all mt clean test zoom-test prep
+.PHONY: all mt clean test zoom-test zoom-render-test prep
 all: bin/cadMulti_mt.dll bin/cadMulti.dll
 mt:  bin/cadMulti_mt.dll
 
@@ -94,6 +94,15 @@ zoom-test:
 	@mkdir -p obj
 	$(HOST_CXX) -std=c++20 -Wall -Wextra -pedantic -I$(SRCDIR)/core ../tests/zoom_test.cpp -o obj/zoom_test
 	obj/zoom_test
+
+# Exercise the actual composition hook and sprite renderer under Wine.
+bin/zoom_render_test.exe: ../tests/zoom_render_test.cpp $(OBJS)
+	@mkdir -p bin
+	$(CXX) $(CXXFLAGS) -UNDEBUG -fno-access-control -static -static-libgcc -static-libstdc++ \
+	    $< $(OBJS) -o $@ -Wl,-Bstatic -lstdc++ -lpthread $(LDLIBS)
+
+zoom-render-test: bin/zoom_render_test.exe
+	WINEDEBUG=-all wine $<
 
 clean:
 	rm -rf obj bin

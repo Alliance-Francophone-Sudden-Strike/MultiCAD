@@ -708,7 +708,8 @@ const std::array hooks_game_ss_2_v2_2
     HookSpec{0x795E0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_10056030)},
     HookSpec{0x79720, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_10056170)},
     HookSpec{0x799E0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_100563B0)},
-    HookSpec{0x980D1, reinterpret_cast<uintptr_t>(&GameDllHooks::prepareGlobalUi_ver<V>), 0xE8},
+    // Keep 0x980D1 -> 0x9B120 native: it updates terrain and camera state.
+    // Isolating its surfaces would discard completed world redraws.
     // Verified Fusion boundary: replace the complete pre-UI loop with an
     // equivalent call so overlays cannot touch the world used by zoom.
     HookSpec{0x980EE, reinterpret_cast<uintptr_t>(&GameDllHooks::prepareUiElements_ver<V>), 0xE8, 24},

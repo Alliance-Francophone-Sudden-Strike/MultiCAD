@@ -135,16 +135,6 @@ namespace Zoom
         int presentedScale() const { return presentedScale_; }
         bool dragging() const { return dragButtons_ != 0; }
         bool battlefieldDragging() const { return battlefieldDragButtons_ != 0; }
-        bool suppressed() const { return suppressFrames_ != 0; }
-
-        void beginFrame(bool hasTextOverlay)
-        {
-            if (hasTextOverlay)
-                suppressFrames_ = 2;
-            else if (suppressFrames_)
-                --suppressFrames_;
-        }
-
         void setBattlefield(Rect battlefield)
         {
             if (battlefield.x == battlefield_.x && battlefield.y == battlefield_.y &&
@@ -223,7 +213,6 @@ namespace Zoom
             presentationValid_ = false;
             routed_ = false;
             worldIsolated_ = false;
-            suppressFrames_ = 0;
         }
 
         void resetScale()
@@ -264,7 +253,7 @@ namespace Zoom
         void beginWorldIsolation(uint16_t* main, uint16_t* back, size_t pixels)
         {
             finishWorldIsolation(main, back);
-            if (mode_ == Mode::Off || suppressed() || !main || !back)
+            if (mode_ == Mode::Off || !main || !back)
                 return;
 
             try
@@ -335,7 +324,6 @@ namespace Zoom
         int wheelRemainder_{};
         int dragButtons_{};
         int battlefieldDragButtons_{};
-        int suppressFrames_{};
         Rect battlefield_{};
         Transform presented_{};
         int presentedScale_{ kMinScale };

@@ -1237,34 +1237,6 @@ void __declspec(noinline) __stdcall  GameDllHooks::sub_1005C170_fr()
 }
 
 
-void GameDllHooks::prepareGlobalUi(
-    UIRenderElement* ui,
-    void(__stdcall* fn)())
-{
-    bool isolate = false;
-    for (; ui; ui = ui->prev)
-        isolate |= ui->type == 40;
-
-    // ponytail: Fusion mixes type-40 text into the circular world surface, so
-    // present it natively and resume zoom after one clean frame.
-    Zoom::GetState().beginFrame(isolate);
-
-    if (isolate)
-    {
-        Zoom::GetState().beginWorldIsolation(
-            g_rendererState.surfaces.main,
-            g_rendererState.surfaces.back,
-            static_cast<size_t>(Screen::width_) * (Screen::height_ + 1));
-    }
-    fn();
-    if (isolate)
-    {
-        Zoom::GetState().finishWorldIsolation(
-            g_rendererState.surfaces.main,
-            g_rendererState.surfaces.back);
-    }
-}
-
 void GameDllHooks::prepareUiElements(UiElementBase* ui)
 {
     bool isolated = false;
@@ -1366,7 +1338,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     const int width = data.surfaceWidth;
     const int height = data.surfaceHeight;
 
-    if (zoom.mode() == Zoom::Mode::Off || zoom.suppressed() ||
+    if (zoom.mode() == Zoom::Mode::Off ||
         (zoom.scale() == Zoom::kMinScale && zoom.presentedScale() == Zoom::kMinScale) ||
         !g_moduleState || !g_moduleState->surface.renderer ||
         width != Screen::width_ || height != Screen::height_ ||
@@ -1471,19 +1443,8 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             *data.cursorRedrawFlag = 1;
     }
 
-    for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
-    {
-        if (GetUIFilter().shouldIgnoreDecor(uiObj->type))
-            continue;
-        using Fn = void(__thiscall*)(UIRenderElement*);
-        Fn fn = reinterpret_cast<Fn>(uiObj->vtable[1]);
-        fn(uiObj);
-    }
-
-    auto sub_1006AEA0 = data.blendMainWithWarFog;
-    auto sub_100564F0 = data.getFirstDecorUi;
-    auto sub_10056530 = data.getNextDecorUi;
-
+    // Snapshot decorations only, after terrain/camera/world updates. At 1x
+    // keep their pixels until the native copy, then restore the clean source.
     const bool preserveWorld = !zoomed && Zoom::GetState().mode() != Zoom::Mode::Off;
     if (preserveWorld)
     {
@@ -1492,6 +1453,38 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             g_rendererState.surfaces.back,
             static_cast<size_t>(Screen::width_) * (Screen::height_ + 1));
     }
+
+    UiElementBase presentation{};
+    if (zoomed)
+    {
+        presentation.sprites = Zoom::GetState().presentationBuffer();
+        presentation.stride = data.surfaceWidth;
+        presentation.rightX = presentation.clipRight = data.surfaceWidth - 1;
+        presentation.bottomY = presentation.clipBottom = data.surfaceHeight - 1;
+    }
+
+    for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
+    {
+        if (GetUIFilter().shouldIgnoreDecor(uiObj->type))
+            continue;
+        if (zoomed)
+        {
+            // Fusion's +0x20 callback draws the decoration into a UI buffer,
+            // including formatted chat. +0x04 fogs/writes the world instead.
+            using Fn = void(__thiscall*)(UIRenderElement*, UiElementBase*);
+            reinterpret_cast<Fn>(uiObj->vtable[8])(uiObj, &presentation);
+        }
+        else
+        {
+            using Fn = void(__thiscall*)(UIRenderElement*);
+            reinterpret_cast<Fn>(uiObj->vtable[1])(uiObj);
+        }
+    }
+
+    auto sub_1006AEA0 = data.blendMainWithWarFog;
+    auto sub_100564F0 = data.getFirstDecorUi;
+    auto sub_10056530 = data.getNextDecorUi;
+
     if (!zoomed)
     {
         sub_1006AEA0();
