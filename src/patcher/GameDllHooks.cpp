@@ -1335,7 +1335,8 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
 {
     Zoom::State& zoom = Zoom::GetState();
     const Zoom::Transform transform = zoom.transform();
-    const bool showIndicator = zoom.indicatorVisible(GetTickCount());
+    const uint32_t indicatorTick = GetTickCount();
+    const bool showIndicator = zoom.indicatorVisible(indicatorTick);
     const int width = data.surfaceWidth;
     const int height = data.surfaceHeight;
 
@@ -1381,28 +1382,6 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             g_moduleState->pitch * y);
     };
 
-    // The native cursor restores its previous save-under pixels before drawing.
-    // Presentation already redraws the world, so erase the old cursor here and
-    // suppress that stale restore below.
-    if (data.cursorSavedPixels && data.cursorSavedX && data.cursorSavedY &&
-        data.cursorSavedWidth && data.cursorSavedHeight)
-    {
-        const int savedX = *data.cursorSavedX;
-        const int savedY = *data.cursorSavedY;
-        const int savedWidth = *data.cursorSavedWidth;
-        const int savedHeight = *data.cursorSavedHeight;
-        const int left = std::max(0, savedX);
-        const int top = std::max(0, savedY);
-        const int right = std::min(width, savedX + savedWidth);
-        const int bottom = std::min(height, savedY + savedHeight);
-        for (int y = top; y < bottom; ++y)
-        {
-            const Pixel* const saved = data.cursorSavedPixels + (y - savedY) * 64 + left - savedX;
-            std::copy(saved, saved + right - left, clean + y * width + left);
-            std::copy(saved, saved + right - left, rendererRow(y) + left);
-        }
-    }
-
     for (int y = transform.destination.y;
         y < transform.destination.y + transform.destination.height; ++y)
     {
@@ -1420,7 +1399,8 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             width,
             height,
             zoom.scale(),
-            zoom.indicatorAnchor() == Zoom::IndicatorAnchor::Right);
+            zoom.indicatorAnchor() == Zoom::IndicatorAnchor::Right,
+            zoom.indicatorOpacity(indicatorTick));
 
     // Panels redraw incrementally, so keep their previous pixels until native
     // UI rendering updates them below.
@@ -1438,6 +1418,51 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             std::copy(clean + y * width + left, clean + y * width + right, rendererRow(y) + left);
     }
 
+    // Erase the previous physical cursor after composing the UI. Restoring it
+    // earlier would copy stale UI pixels from the save-under back over panels.
+    zoom.restoreCursor(
+        clean,
+        static_cast<Pixel*>(g_moduleState->surface.renderer),
+        width,
+        height,
+        data.cursorSavedX,
+        data.cursorSavedY,
+        data.cursorSavedWidth,
+        data.cursorSavedHeight,
+        data.cursorSavedPixels);
+
+    int cursorLeft, cursorTop, cursorRight, cursorBottom;
+    if (zoom.cursorRect(cursorLeft, cursorTop, cursorRight, cursorBottom))
+    {
+        cursorLeft = std::max(cursorLeft, transform.destination.x);
+        cursorTop = std::max(cursorTop, transform.destination.y);
+        cursorRight = std::min(cursorRight, transform.destination.x + transform.destination.width);
+        cursorBottom = std::min(cursorBottom, transform.destination.y + transform.destination.height);
+
+        const auto isPanelPixel = [&](int x, int y)
+        {
+            for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+            {
+                if (GetUIFilter().shouldIgnore(ui->type) ||
+                    (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
+                    continue;
+                if (x >= ui->leftX && x <= ui->rightX &&
+                    y >= ui->topY && y <= ui->bottomY)
+                    return true;
+            }
+            return false;
+        };
+
+        for (int y = cursorTop; y < cursorBottom; ++y)
+        {
+            Pixel* const destination = rendererRow(y);
+            const Pixel* const source = world + transform.sourceY(y) * width;
+            for (int x = cursorLeft; x < cursorRight; ++x)
+                if (!isPanelPixel(x, y))
+                    destination[x] = source[transform.sourceX(x)];
+        }
+    }
+
     return true;
 }
 
@@ -1449,8 +1474,12 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     {
         Zoom::GetState().markPresented();
         Zoom::GetState().finishIndicatorFrame(GetTickCount());
-        if (data.cursorSavedHeight)
-            *data.cursorSavedHeight = 0;
+        Zoom::GetState().beginCursorFrame(
+            data.cursorSavedX,
+            data.cursorSavedY,
+            data.cursorSavedWidth,
+            data.cursorSavedHeight,
+            data.cursorSavedPixels);
         if (data.cursorRedrawFlag)
             *data.cursorRedrawFlag = 1;
     }
@@ -1481,7 +1510,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             continue;
         if (zoomed)
         {
-            // Fusion's +0x20 callback draws the decoration into a UI buffer,
+            // The +0x20 callback draws the decoration into a UI buffer,
             // including formatted chat. +0x04 fogs/writes the world instead.
             using Fn = void(__thiscall*)(UIRenderElement*, UiElementBase*);
             reinterpret_cast<Fn>(uiObj->vtable[8])(uiObj, &presentation);

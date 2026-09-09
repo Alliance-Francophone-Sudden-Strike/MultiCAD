@@ -1196,14 +1196,14 @@ public:
     template<GameVersion V>
     static void __declspec(noinline) __stdcall prepareUiElements_ver()
     {
-        static_assert(V == GameVersion::SS_2, "Pre-UI boundary is only verified for the SS2/Fusion renderer");
+        static_assert(V == GameVersion::SS_2, "Pre-UI boundary is only verified for the SS2-compatible renderer");
         auto* const g = globals_;
         prepareUiElements(g->getValue<UiElementBase*>(UiTraits<V>::addresses.pointedUiElem + 0x8));
     }
     template<GameVersion V>
     static void __declspec(noinline) __cdecl updateEntitiesUnderMouse_ver()
     {
-        static_assert(V == GameVersion::SS_2, "Entity hover boundary is only verified for SS2/Fusion");
+        static_assert(V == GameVersion::SS_2, "Entity hover boundary is only verified for the SS2-compatible renderer");
         auto* const g = globals_;
         constexpr auto& A = UiTraits<V>::addresses;
         updateEntitiesUnderMouse(
@@ -1215,7 +1215,7 @@ public:
     template<GameVersion V>
     static void __declspec(noinline) __cdecl updateBattlefieldHover_ver(int active)
     {
-        static_assert(V == GameVersion::SS_2, "Hover boundary is only verified for SS2/Fusion");
+        static_assert(V == GameVersion::SS_2, "Hover boundary is only verified for the SS2-compatible renderer");
         auto* const g = globals_;
         updateBattlefieldHover(
             g->getPtr<int>(0x106E900),
@@ -1227,7 +1227,7 @@ public:
     template<GameVersion V>
     static void __declspec(noinline) __cdecl calculateCursorTypeAtZoom_ver(int x, int y, int* result)
     {
-        static_assert(V == GameVersion::SS_2, "Cursor-type boundary is only verified for SS2/Fusion");
+        static_assert(V == GameVersion::SS_2, "Cursor-type boundary is only verified for the SS2-compatible renderer");
         auto* const g = globals_;
         calculateCursorTypeAtZoom(
             x,

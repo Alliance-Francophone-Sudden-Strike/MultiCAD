@@ -123,25 +123,25 @@ public:
         WritePrivateProfileStringA("Game", "Resolution", value.c_str(), iniPath.c_str());
     }
 
-    static Zoom::Mode GetZoomMode()
+    static Zoom::Mode GetZoom()
     {
         const std::string iniPath = GetIniPath();
         if (iniPath.empty())
             return Zoom::Mode::Off;
 
         char buffer[16]{};
-        GetPrivateProfileStringA("Game", "ZoomMode", "off", buffer, sizeof(buffer), iniPath.c_str());
+        GetPrivateProfileStringA("Game", "Zoom", "off", buffer, sizeof(buffer), iniPath.c_str());
         return Zoom::ParseMode(buffer);
     }
 
-    static Zoom::IndicatorAnchor GetZoomIndicatorAnchor()
+    static Zoom::IndicatorAnchor GetZoomIndicator()
     {
         const std::string iniPath = GetIniPath();
         if (iniPath.empty())
             return Zoom::IndicatorAnchor::Left;
 
         char buffer[8]{};
-        GetPrivateProfileStringA("Game", "ZoomIndicatorAnchor", "left", buffer, sizeof(buffer), iniPath.c_str());
+        GetPrivateProfileStringA("Game", "ZoomIndicator", "left", buffer, sizeof(buffer), iniPath.c_str());
         for (char& c : buffer)
             if (c >= 'A' && c <= 'Z')
                 c = static_cast<char>(c + ('a' - 'A'));

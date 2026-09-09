@@ -113,7 +113,7 @@ int main(int argc, char** argv)
     };
     updateWorld(0);
     auto& zoom = Zoom::GetState();
-    zoom.setMode(Zoom::Mode::Steps);
+    zoom.setMode(Zoom::Mode::On);
     zoom.setBattlefield({0, 0, width, height});
     const auto frame = [&]
     {

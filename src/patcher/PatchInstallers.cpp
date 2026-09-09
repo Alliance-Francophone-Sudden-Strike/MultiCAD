@@ -13,7 +13,6 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     DllVersionDetector& detector = DllVersionDetector::GetInstance();
     GameVersion version = detector.GetOrDetectGameVersion(DllType::Game, path, base, size);
     DetectionStatus status = detector.GetDetectionStatus(DllType::Game);
-    const bool verifiedFusion = status == DetectionStatus::Supported && version == GameVersion::HS_2;
 
     // "[Game] GameProfile=" forces a profile onto a dll we couldn't identify. Only once the
     // file was read and hashed, otherwise ModuleInfo has nothing to patch against.
@@ -88,8 +87,8 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
         return false;
     }
 
-    Zoom::GetState().setMode(verifiedFusion ? Screen::GetZoomMode() : Zoom::Mode::Off);
-    Zoom::GetState().setIndicatorAnchor(Screen::GetZoomIndicatorAnchor());
+    Zoom::GetState().setMode(Screen::GetZoom());
+    Zoom::GetState().setIndicatorAnchor(Screen::GetZoomIndicator());
     return true;
 }
 

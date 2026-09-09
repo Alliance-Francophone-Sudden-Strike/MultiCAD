@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <cstdint>
 #include <string_view>
@@ -11,8 +12,7 @@ namespace Zoom
     enum class Mode
     {
         Off,
-        Steps,
-        Smooth
+        On
     };
 
     enum class IndicatorAnchor
@@ -44,10 +44,8 @@ namespace Zoom
             return true;
         };
 
-        if (equals("steps"))
-            return Mode::Steps;
-        if (equals("smooth"))
-            return Mode::Smooth;
+        if (equals("on"))
+            return Mode::On;
         return Mode::Off;
     }
 
@@ -88,7 +86,8 @@ namespace Zoom
 
     constexpr int kMinScale = 4; // quarter units: 4 == 1x
     constexpr int kMaxScale = 8; // 8 == 2x
-    constexpr uint32_t kIndicatorHoldMs = 750;
+    constexpr uint32_t kIndicatorHoldMs = 1500;
+    constexpr uint32_t kIndicatorFadeMs = 250;
 
     inline Transform MakeTransform(Rect battlefield, int scale = kMinScale)
     {
@@ -125,11 +124,12 @@ namespace Zoom
     }
 
     inline void DrawIndicator16(
-        uint16_t* destination, int pitch, int width, int height, int scale, bool right)
+        uint16_t* destination, int pitch, int width, int height, int scale, bool right,
+        int opacity = 16)
     {
-        constexpr int size = 5;
-        constexpr int gap = 3;
-        constexpr int margin = 8;
+        constexpr int size = 12;
+        constexpr int gap = 8;
+        constexpr int margin = 12;
         constexpr uint16_t outline = 0x8410;
         constexpr uint16_t fill = 0xC618;
         constexpr int totalHeight = (kMaxScale - kMinScale + 1) * size +
@@ -141,6 +141,7 @@ namespace Zoom
             return;
 
         scale = std::clamp(scale, kMinScale, kMaxScale);
+        opacity = std::clamp(opacity, 0, 16);
         for (int dot = 0; dot <= kMaxScale - kMinScale; ++dot)
         {
             const bool reached = scale >= kMaxScale - dot;
@@ -148,9 +149,28 @@ namespace Zoom
             for (int dy = 0; dy < size; ++dy)
                 for (int dx = 0; dx < size; ++dx)
                 {
-                    const int distance = (dx - 2) * (dx - 2) + (dy - 2) * (dy - 2);
-                    if (distance <= 4 && (reached || distance >= 2))
-                        destination[(y + dy) * pitch + left + dx] = reached ? fill : outline;
+                    const bool border = dx == 0 || dx == size - 1 || dy == 0 || dy == size - 1;
+                    if (!reached && !border)
+                        continue;
+
+                    uint16_t& pixel = destination[(y + dy) * pitch + left + dx];
+                    const uint16_t color = reached ? fill : outline;
+                    if (opacity == 16)
+                    {
+                        pixel = color;
+                        continue;
+                    }
+
+                    const int sourceRed = (color >> 11) & 0x1F;
+                    const int sourceGreen = (color >> 5) & 0x3F;
+                    const int sourceBlue = color & 0x1F;
+                    const int targetRed = (pixel >> 11) & 0x1F;
+                    const int targetGreen = (pixel >> 5) & 0x3F;
+                    const int targetBlue = pixel & 0x1F;
+                    pixel = static_cast<uint16_t>(
+                        (((sourceRed * opacity + targetRed * (16 - opacity) + 8) / 16) << 11) |
+                        (((sourceGreen * opacity + targetGreen * (16 - opacity) + 8) / 16) << 5) |
+                        ((sourceBlue * opacity + targetBlue * (16 - opacity) + 8) / 16));
                 }
         }
     }
@@ -200,6 +220,15 @@ namespace Zoom
         bool indicatorVisible(uint32_t tick) const
         {
             return mode_ != Mode::Off && indicatorActive_ && tick - indicatorTick_ < kIndicatorHoldMs;
+        }
+        int indicatorOpacity(uint32_t tick) const
+        {
+            if (!indicatorVisible(tick))
+                return 0;
+            const uint32_t elapsed = tick - indicatorTick_;
+            if (elapsed + kIndicatorFadeMs <= kIndicatorHoldMs)
+                return 16;
+            return static_cast<int>((kIndicatorHoldMs - elapsed) * 16 / kIndicatorFadeMs);
         }
         bool indicatorPending() const { return indicatorActive_; }
         void finishIndicatorFrame(uint32_t tick)
@@ -286,6 +315,12 @@ namespace Zoom
             routed_ = false;
             worldIsolated_ = false;
             indicatorActive_ = false;
+            cursorValid_ = false;
+            cursorSavedX_ = nullptr;
+            cursorSavedY_ = nullptr;
+            cursorSavedWidth_ = nullptr;
+            cursorSavedHeight_ = nullptr;
+            cursorSavedPixels_ = nullptr;
         }
 
         void resetScale()
@@ -322,6 +357,61 @@ namespace Zoom
         uint16_t* cleanBuffer() { return clean_.data(); }
         uint16_t* worldBuffer() { return world_.data(); }
         uint16_t* presentationBuffer() { return presentation_.data(); }
+
+        void restoreCursor(
+            uint16_t* clean, uint16_t* presentation, int width, int height,
+            const int* nativeX, const int* nativeY,
+            const int* nativeWidth, const int* nativeHeight,
+            const uint16_t* nativePixels) const
+        {
+            if (!clean || !presentation)
+                return;
+
+            const auto restore = [&](int x, int y, int savedWidth, int savedHeight, const uint16_t* savedPixels)
+            {
+                if (!savedPixels || savedWidth <= 0 || savedHeight <= 0)
+                    return;
+                const int left = std::max(0, x);
+                const int top = std::max(0, y);
+                const int right = std::min(width, x + std::min(savedWidth, kCursorPitch));
+                const int bottom = std::min(height, y + std::min(savedHeight, kCursorPitch));
+                for (int row = top; row < bottom; ++row)
+                {
+                    const uint16_t* source = savedPixels + (row - y) * kCursorPitch + left - x;
+                    std::copy(source, source + right - left, clean + row * width + left);
+                    std::copy(source, source + right - left, presentation + row * width + left);
+                }
+            };
+
+            if (nativeX && nativeY && nativeWidth && nativeHeight)
+                restore(*nativeX, *nativeY, *nativeWidth, *nativeHeight, nativePixels);
+            if (cursorValid_)
+                restore(cursorX_, cursorY_, cursorWidth_, cursorHeight_, cursorPixels_.data());
+        }
+
+        bool cursorRect(int& left, int& top, int& right, int& bottom) const
+        {
+            if (!cursorValid_)
+                return false;
+            left = cursorX_;
+            top = cursorY_;
+            right = left + cursorWidth_;
+            bottom = top + cursorHeight_;
+            return true;
+        }
+
+        void beginCursorFrame(
+            int* savedX, int* savedY, int* savedWidth, int* savedHeight,
+            uint16_t* savedPixels)
+        {
+            cursorSavedX_ = savedX;
+            cursorSavedY_ = savedY;
+            cursorSavedWidth_ = savedWidth;
+            cursorSavedHeight_ = savedHeight;
+            cursorSavedPixels_ = savedPixels;
+            if (cursorSavedHeight_)
+                *cursorSavedHeight_ = 0;
+        }
 
         void beginWorldIsolation(uint16_t* main, uint16_t* back, size_t pixels)
         {
@@ -374,12 +464,36 @@ namespace Zoom
             if (!routed_)
                 return;
 
+            if (cursorSavedX_ && cursorSavedY_ && cursorSavedWidth_ &&
+                cursorSavedHeight_ && cursorSavedPixels_)
+            {
+                if (*cursorSavedHeight_ > 0)
+                {
+                    cursorWidth_ = std::clamp(*cursorSavedWidth_, 0, kCursorPitch);
+                    cursorHeight_ = std::clamp(*cursorSavedHeight_, 0, kCursorPitch);
+                    cursorValid_ = cursorWidth_ > 0 && cursorHeight_ > 0;
+                    cursorX_ = *cursorSavedX_;
+                    cursorY_ = *cursorSavedY_;
+                    for (int row = 0; row < cursorHeight_; ++row)
+                        std::copy_n(
+                            cursorSavedPixels_ + row * kCursorPitch,
+                            cursorWidth_,
+                            cursorPixels_.data() + row * kCursorPitch);
+                }
+                *cursorSavedHeight_ = 0;
+            }
+
             auto* destination = static_cast<uint8_t*>(actualRenderer_);
             for (int y = 0; y < height; ++y)
                 std::memcpy(destination + y * actualPitch_, presentation_.data() + y * width, width * sizeof(uint16_t));
             renderer = actualRenderer_;
             pitch = actualPitch_;
             routed_ = false;
+            cursorSavedX_ = nullptr;
+            cursorSavedY_ = nullptr;
+            cursorSavedWidth_ = nullptr;
+            cursorSavedHeight_ = nullptr;
+            cursorSavedPixels_ = nullptr;
         }
 
         void deferMainRestore() { restorePending_ = true; }
@@ -408,6 +522,18 @@ namespace Zoom
         IndicatorAnchor indicatorAnchor_{ IndicatorAnchor::Left };
         bool indicatorActive_{};
         uint32_t indicatorTick_{};
+        static constexpr int kCursorPitch = 64;
+        int cursorX_{};
+        int cursorY_{};
+        int cursorWidth_{};
+        int cursorHeight_{};
+        bool cursorValid_{};
+        int* cursorSavedX_{};
+        int* cursorSavedY_{};
+        int* cursorSavedWidth_{};
+        int* cursorSavedHeight_{};
+        uint16_t* cursorSavedPixels_{};
+        std::array<uint16_t, kCursorPitch * kCursorPitch> cursorPixels_{};
         void* actualRenderer_{};
         uint32_t actualPitch_{};
         std::vector<uint16_t> clean_;
