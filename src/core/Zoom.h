@@ -89,6 +89,11 @@ namespace Zoom
     constexpr uint32_t kIndicatorHoldMs = 1500;
     constexpr uint32_t kIndicatorFadeMs = 250;
 
+    constexpr int ViewportExtent(int nativeExtent, int scale)
+    {
+        return std::max(1, nativeExtent * kMinScale / std::clamp(scale, kMinScale, kMaxScale));
+    }
+
     inline Transform MakeTransform(Rect battlefield, int scale = kMinScale)
     {
         scale = std::clamp(scale, kMinScale, kMaxScale);

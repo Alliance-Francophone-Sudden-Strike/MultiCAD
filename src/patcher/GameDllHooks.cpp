@@ -1431,37 +1431,51 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         data.cursorSavedHeight,
         data.cursorSavedPixels);
 
-    int cursorLeft, cursorTop, cursorRight, cursorBottom;
-    if (zoom.cursorRect(cursorLeft, cursorTop, cursorRight, cursorBottom))
+    const auto isPanelPixel = [&](int x, int y)
     {
-        cursorLeft = std::max(cursorLeft, transform.destination.x);
-        cursorTop = std::max(cursorTop, transform.destination.y);
-        cursorRight = std::min(cursorRight, transform.destination.x + transform.destination.width);
-        cursorBottom = std::min(cursorBottom, transform.destination.y + transform.destination.height);
-
-        const auto isPanelPixel = [&](int x, int y)
+        for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
         {
-            for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
-            {
-                if (GetUIFilter().shouldIgnore(ui->type) ||
-                    (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
-                    continue;
-                if (x >= ui->leftX && x <= ui->rightX &&
-                    y >= ui->topY && y <= ui->bottomY)
-                    return true;
-            }
-            return false;
-        };
+            if (GetUIFilter().shouldIgnore(ui->type) ||
+                (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
+                continue;
+            if (x >= ui->leftX && x <= ui->rightX &&
+                y >= ui->topY && y <= ui->bottomY)
+                return true;
+        }
+        return false;
+    };
 
-        for (int y = cursorTop; y < cursorBottom; ++y)
+    const auto refreshCursorRect = [&](int left, int top, int right, int bottom)
+    {
+        left = std::max(left, transform.destination.x);
+        top = std::max(top, transform.destination.y);
+        right = std::min(right, transform.destination.x + transform.destination.width);
+        bottom = std::min(bottom, transform.destination.y + transform.destination.height);
+        for (int y = top; y < bottom; ++y)
         {
             Pixel* const destination = rendererRow(y);
             const Pixel* const source = world + transform.sourceY(y) * width;
-            for (int x = cursorLeft; x < cursorRight; ++x)
+            for (int x = left; x < right; ++x)
                 if (!isPanelPixel(x, y))
                     destination[x] = source[transform.sourceX(x)];
         }
+    };
+
+    if (data.cursorSavedPixels && data.cursorSavedX && data.cursorSavedY &&
+        data.cursorSavedWidth && data.cursorSavedHeight)
+    {
+        const int nativeWidth = std::clamp(*data.cursorSavedWidth, 0, 64);
+        const int nativeHeight = std::clamp(*data.cursorSavedHeight, 0, 64);
+        refreshCursorRect(
+            *data.cursorSavedX,
+            *data.cursorSavedY,
+            *data.cursorSavedX + nativeWidth,
+            *data.cursorSavedY + nativeHeight);
     }
+
+    int cursorLeft, cursorTop, cursorRight, cursorBottom;
+    if (zoom.cursorRect(cursorLeft, cursorTop, cursorRight, cursorBottom))
+        refreshCursorRect(cursorLeft, cursorTop, cursorRight, cursorBottom);
 
     return true;
 }
@@ -3073,6 +3087,23 @@ void __declspec(noinline) __fastcall GameDllHooks::sub_100BE6C0(PlaneData* self,
     drawPlaneCrossOnStrategicMap(self, data);
 }
 
+void __declspec(noinline) __fastcall GameDllHooks::drawMinimapViewportRect(
+    UiElementBase* self, void* /*dummy*/, int x, int y, int width, int height, int color)
+{
+    const int scaledWidth = Zoom::ViewportExtent(width, Zoom::GetState().scale());
+    const int scaledHeight = Zoom::ViewportExtent(height, Zoom::GetState().scale());
+    x += (width - scaledWidth) / 2;
+    y += (height - scaledHeight) / 2;
+
+    auto* const g = globals_;
+    const auto drawHorizontal = g->getFn<void(__thiscall)(UiElementBase*, int, int, int, int)>(0x995C0);
+    const auto drawVertical = g->getFn<void(__thiscall)(UiElementBase*, int, int, int, int)>(0x99640);
+    drawHorizontal(self, x, y, scaledWidth, color);
+    drawHorizontal(self, x, y + scaledHeight - 1, scaledWidth, color);
+    drawVertical(self, x, y, scaledHeight, color);
+    drawVertical(self, x + scaledWidth - 1, y, scaledHeight, color);
+}
+
 
 void GameDllHooks::someRandCalc(const SomeRandCalcData& data)
 {
@@ -3728,12 +3759,16 @@ void GameDllHooks::drawFogOnStrategicMap(UiStrategicMapElement* mapData, const F
     }
 
     // Draw screen rectangle
-    int rectWidth = static_cast<int>(mapData->screenSurfaceWidth / scale);
-    int rectHeight = static_cast<int>(mapData->screenSurfaceHeight / scale);
+    const int nativeRectWidth = static_cast<int>(mapData->screenSurfaceWidth / scale);
+    const int nativeRectHeight = static_cast<int>(mapData->screenSurfaceHeight / scale);
+    const int rectWidth = Zoom::ViewportExtent(nativeRectWidth, Zoom::GetState().scale());
+    const int rectHeight = Zoom::ViewportExtent(nativeRectHeight, Zoom::GetState().scale());
 
-    int left = static_cast<int>(mapData->screenSurfaceWidth / 2 + data.mapPosX / scale);
+    int left = static_cast<int>(mapData->screenSurfaceWidth / 2 + data.mapPosX / scale) +
+        (nativeRectWidth - rectWidth) / 2;
     int right = left + rectWidth - 1;
-    int bottom = static_cast<int>(mapData->verticalCenterMargin + data.mapPosY / scale);
+    int bottom = static_cast<int>(mapData->verticalCenterMargin + data.mapPosY / scale) +
+        (nativeRectHeight - rectHeight) / 2;
     int top = bottom + rectHeight - 1;
 
     const int w = right - left + 1;
@@ -3792,12 +3827,16 @@ void GameDllHooks::drawScreenRectOnStrategicMap(UiStrategicMapElement* mapData, 
             const int width = mapData->screenSurfaceWidth;
             const double scale = 64.0 * data.mapHeight / width;
 
-            int rectWidth = static_cast<int>(width / scale);
-            int rectHeight = static_cast<int>(mapData->screenSurfaceHeight / scale);
+            const int nativeRectWidth = static_cast<int>(width / scale);
+            const int nativeRectHeight = static_cast<int>(mapData->screenSurfaceHeight / scale);
+            const int rectWidth = Zoom::ViewportExtent(nativeRectWidth, Zoom::GetState().scale());
+            const int rectHeight = Zoom::ViewportExtent(nativeRectHeight, Zoom::GetState().scale());
 
-            int left = static_cast<int>(width / 2 + centerX / scale);
+            int left = static_cast<int>(width / 2 + centerX / scale) +
+                (nativeRectWidth - rectWidth) / 2;
             int right = left + rectWidth - 1;
-            int top = static_cast<int>(mapData->verticalCenterMargin + centerY / scale);
+            int top = static_cast<int>(mapData->verticalCenterMargin + centerY / scale) +
+                (nativeRectHeight - rectHeight) / 2;
             int bottom = top + rectHeight - 1;
 
             data.fn2(mapData, left, top, right, bottom);

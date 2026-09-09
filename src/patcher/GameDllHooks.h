@@ -1263,6 +1263,8 @@ public:
     static void __declspec(noinline) __cdecl    sub_10099E01(void* mem);
     static void __declspec(noinline) __cdecl    sub_10099E01_de(void* mem);
     static void __declspec(noinline) __cdecl    sub_10099E01_fr(void* mem);
+    static void __declspec(noinline) __fastcall drawMinimapViewportRect(
+        UiElementBase* self, void* /*dummy*/, int x, int y, int width, int height, int color);
 
     // These methods are related to strategic map view and exist only in SS2 and SS:RW
     // Fixes strategic map loading from mis_mini file

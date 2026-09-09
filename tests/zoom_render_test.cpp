@@ -159,6 +159,15 @@ int main(int argc, char** argv)
         assert(uiDraws == 16); // Pause and chat redraw at physical coordinates.
     updateWorld(1); // Resume/camera redraw must survive decoration composition.
     frame();
+    int cursorX = 2, cursorY = 2, cursorWidth = 2, cursorHeight = 2;
+    std::array<Pixel, 64 * 64> staleCursorBackground{};
+    staleCursorBackground.fill(0xffff);
+    data.cursorSavedX = &cursorX; data.cursorSavedY = &cursorY;
+    data.cursorSavedWidth = &cursorWidth; data.cursorSavedHeight = &cursorHeight;
+    data.cursorSavedPixels = staleCursorBackground.data();
+    frame(); // A moved cursor must not restore stale unit pixels over the scaled world.
+    data.cursorSavedX = data.cursorSavedY = data.cursorSavedWidth = data.cursorSavedHeight = nullptr;
+    data.cursorSavedPixels = nullptr;
     data.uiRenderElem = nullptr;
     frame(); // Text disappears without leaving scaled ghost pixels.
     zoom.resetScale();

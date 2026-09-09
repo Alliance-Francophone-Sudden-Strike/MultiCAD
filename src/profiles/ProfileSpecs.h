@@ -729,6 +729,7 @@ const std::array hooks_game_ss_2_v2_2
     //HookSpec{0x6F120, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006F120)},
     HookSpec{0x986A0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006DC40)},
     HookSpec{0x9CCF0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006F120_v2_2)},
+    HookSpec{0x99FE0, reinterpret_cast<uintptr_t>(&GameDllHooks::drawMinimapViewportRect)},
 
     // Fixes an original bug and a new one caused by changed resolution. See functions' description
     HookSpec{0xAC870, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_100AC870)},

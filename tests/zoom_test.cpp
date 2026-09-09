@@ -15,6 +15,8 @@ int main()
     static_assert(ParseIndicatorAnchor("right") == IndicatorAnchor::Right);
     static_assert(ParseIndicatorAnchor("hidden") == IndicatorAnchor::Hidden);
     static_assert(ParseIndicatorAnchor("unknown") == IndicatorAnchor::Left);
+    static_assert(ViewportExtent(100, kMinScale) == 100);
+    static_assert(ViewportExtent(100, kMaxScale) == 50);
 
     const Transform one = MakeTransform({ 10, 20, 8, 4 });
     assert(one.source.x == 10 && one.source.y == 20);
