@@ -76,6 +76,17 @@ int main()
     assert(state.indicatorPending());
     state.finishIndicatorFrame(1000 + kIndicatorHoldMs);
     assert(!state.indicatorPending());
+    state.setPersistentIndicator(true);
+    state.addWheelDelta(120);
+    state.noteZoomInput(2000);
+    assert(state.indicatorVisible(2000 + kIndicatorHoldMs));
+    assert(state.indicatorOpacity(2000 + kIndicatorHoldMs) == 16);
+    state.finishIndicatorFrame(2000 + kIndicatorHoldMs);
+    assert(state.indicatorPending());
+    state.noteZoomInput(4000);
+    state.addWheelDelta(-120);
+    assert(state.indicatorVisible(4000 + kIndicatorHoldMs - 1));
+    assert(!state.indicatorVisible(4000 + kIndicatorHoldMs));
     state.setIndicatorAnchor(IndicatorAnchor::Hidden);
     state.noteZoomInput(2000);
     assert(!state.indicatorPending());

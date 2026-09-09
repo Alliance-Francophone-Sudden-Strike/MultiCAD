@@ -148,6 +148,17 @@ public:
         return Zoom::ParseIndicatorAnchor(buffer);
     }
 
+    static bool GetPersistentZoomIndicator()
+    {
+        const std::string iniPath = GetIniPath();
+        if (iniPath.empty())
+            return false;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "PersistantZoomIndicator", "off", buffer, sizeof(buffer), iniPath.c_str());
+        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
+    }
+
 private:
 
     static bool targetResolved_;

@@ -204,6 +204,7 @@ namespace Zoom
         bool dragging() const { return dragButtons_ != 0; }
         bool battlefieldDragging() const { return battlefieldDragButtons_ != 0; }
         IndicatorAnchor indicatorAnchor() const { return indicatorAnchor_; }
+        void setPersistentIndicator(bool persistent) { persistentIndicator_ = persistent; }
         void setIndicatorAnchor(IndicatorAnchor anchor)
         {
             indicatorAnchor_ = anchor;
@@ -219,12 +220,15 @@ namespace Zoom
         }
         bool indicatorVisible(uint32_t tick) const
         {
-            return mode_ != Mode::Off && indicatorActive_ && tick - indicatorTick_ < kIndicatorHoldMs;
+            return mode_ != Mode::Off && indicatorActive_ &&
+                ((persistentIndicator_ && scale_ != kMinScale) || tick - indicatorTick_ < kIndicatorHoldMs);
         }
         int indicatorOpacity(uint32_t tick) const
         {
             if (!indicatorVisible(tick))
                 return 0;
+            if (persistentIndicator_ && scale_ != kMinScale)
+                return 16;
             const uint32_t elapsed = tick - indicatorTick_;
             if (elapsed + kIndicatorFadeMs <= kIndicatorHoldMs)
                 return 16;
@@ -520,6 +524,7 @@ namespace Zoom
         bool routed_{};
         bool worldIsolated_{};
         IndicatorAnchor indicatorAnchor_{ IndicatorAnchor::Left };
+        bool persistentIndicator_{};
         bool indicatorActive_{};
         uint32_t indicatorTick_{};
         static constexpr int kCursorPitch = 64;
