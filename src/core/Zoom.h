@@ -225,8 +225,9 @@ namespace Zoom
         }
         bool indicatorVisible(uint32_t tick) const
         {
-            return mode_ != Mode::Off && indicatorActive_ &&
-                ((persistentIndicator_ && scale_ != kMinScale) || tick - indicatorTick_ < kIndicatorHoldMs);
+            return mode_ != Mode::Off && indicatorAnchor_ != IndicatorAnchor::Hidden &&
+                ((persistentIndicator_ && scale_ != kMinScale) ||
+                    (indicatorActive_ && tick - indicatorTick_ < kIndicatorHoldMs));
         }
         int indicatorOpacity(uint32_t tick) const
         {

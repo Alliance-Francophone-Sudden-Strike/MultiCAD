@@ -1195,6 +1195,18 @@ public:
         drawDecorUiElements(data);
     }
     template<GameVersion V>
+    static void __declspec(noinline) __cdecl renderWorldAtZoom_ver()
+    {
+        static_assert(V == GameVersion::SS_2, "World render boundary is only verified for the SS2-compatible renderer");
+        auto* const g = globals_;
+        constexpr auto& A = UiTraits<V>::addresses;
+        withBattlefieldMouseCoordinates(
+            g->getPtr<int>(A.mouseX),
+            g->getPtr<int>(A.mouseY),
+            g->getValue<UiEventArea*>(A.uiEventAreas),
+            g->getFn<void(__cdecl)()>(0x9B120));
+    }
+    template<GameVersion V>
     static void __declspec(noinline) __stdcall prepareUiElements_ver()
     {
         static_assert(V == GameVersion::SS_2, "Pre-UI boundary is only verified for the SS2-compatible renderer");
@@ -1207,7 +1219,7 @@ public:
         static_assert(V == GameVersion::SS_2, "Entity hover boundary is only verified for the SS2-compatible renderer");
         auto* const g = globals_;
         constexpr auto& A = UiTraits<V>::addresses;
-        updateEntitiesUnderMouse(
+        withBattlefieldMouseCoordinates(
             g->getPtr<int>(A.mouseX),
             g->getPtr<int>(A.mouseY),
             g->getValue<UiEventArea*>(A.uiEventAreas),
@@ -1418,7 +1430,7 @@ public:
     }
 private:
     static void prepareUiElements(UiElementBase* ui);
-    static void updateEntitiesUnderMouse(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());
+    static void withBattlefieldMouseCoordinates(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());
     static void updateBattlefieldHover(int* mouseX, int* mouseY, UiEventArea* areas, int active, void(__cdecl* fn)(int));
     static void calculateCursorTypeAtZoom(int x, int y, int* result, UiEventArea* areas, void(__cdecl* fn)(int, int, int*));
     static void drawDecorUiElements(const DrawDecorUiElementData& data);

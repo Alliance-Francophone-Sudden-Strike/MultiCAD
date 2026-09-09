@@ -96,17 +96,26 @@ To set a specific resolution, add a `Resolution` line **anywhere after** the `[G
 > 💡 Note: `Resolution` must be between 640x480 and 3840x2160, with a height divisible by 8 — a renderer requirement. Out-of-range values are ignored with a message.
 > A height that isn't divisible by 8, or any mode your display doesn't report, brings up a picker listing the supported modes and saves your choice back to the ini. With no `Resolution` line set, the game uses your desktop resolution with the height rounded down to a multiple of 8.
 
-Battlefield zoom is now possible but disabled by default for all game DLLs. To enable it and move its indicator to the right:
+Battlefield zoom is now possible but disabled by default for all game DLLs.
+
+To enable it, simply set `Zoom=on` in the game's ini:
+
+> ```ini
+> [Game]
+> Zoom=on
+> ```
+
+In addition, you can configure the zoom indicator and its persistence:
 
 > ```ini
 > [Game]
 > Zoom=on
 > ZoomIndicator=right
-> PersistantZoomIndicator=on
+> PersistentZoomIndicator=on
 > ```
 
 Use `Zoom=off` to disable zoom or `ZoomIndicator=hidden` to hide its indicator.
-`PersistantZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
+`PersistentZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
 
 ### Replacement Menu or Game Modules
 

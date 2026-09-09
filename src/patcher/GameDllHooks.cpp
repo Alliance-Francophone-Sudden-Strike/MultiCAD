@@ -1265,7 +1265,7 @@ void GameDllHooks::prepareUiElements(UiElementBase* ui)
             g_rendererState.surfaces.back);
 }
 
-void GameDllHooks::updateEntitiesUnderMouse(
+void GameDllHooks::withBattlefieldMouseCoordinates(
     int* mouseX,
     int* mouseY,
     UiEventArea* areas,
@@ -1431,51 +1431,37 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         data.cursorSavedHeight,
         data.cursorSavedPixels);
 
-    const auto isPanelPixel = [&](int x, int y)
+    int cursorLeft, cursorTop, cursorRight, cursorBottom;
+    if (zoom.cursorRect(cursorLeft, cursorTop, cursorRight, cursorBottom))
     {
-        for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
-        {
-            if (GetUIFilter().shouldIgnore(ui->type) ||
-                (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
-                continue;
-            if (x >= ui->leftX && x <= ui->rightX &&
-                y >= ui->topY && y <= ui->bottomY)
-                return true;
-        }
-        return false;
-    };
+        cursorLeft = std::max(cursorLeft, transform.destination.x);
+        cursorTop = std::max(cursorTop, transform.destination.y);
+        cursorRight = std::min(cursorRight, transform.destination.x + transform.destination.width);
+        cursorBottom = std::min(cursorBottom, transform.destination.y + transform.destination.height);
 
-    const auto refreshCursorRect = [&](int left, int top, int right, int bottom)
-    {
-        left = std::max(left, transform.destination.x);
-        top = std::max(top, transform.destination.y);
-        right = std::min(right, transform.destination.x + transform.destination.width);
-        bottom = std::min(bottom, transform.destination.y + transform.destination.height);
-        for (int y = top; y < bottom; ++y)
+        const auto isPanelPixel = [&](int x, int y)
+        {
+            for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+            {
+                if (GetUIFilter().shouldIgnore(ui->type) ||
+                    (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
+                    continue;
+                if (x >= ui->leftX && x <= ui->rightX &&
+                    y >= ui->topY && y <= ui->bottomY)
+                    return true;
+            }
+            return false;
+        };
+
+        for (int y = cursorTop; y < cursorBottom; ++y)
         {
             Pixel* const destination = rendererRow(y);
             const Pixel* const source = world + transform.sourceY(y) * width;
-            for (int x = left; x < right; ++x)
+            for (int x = cursorLeft; x < cursorRight; ++x)
                 if (!isPanelPixel(x, y))
                     destination[x] = source[transform.sourceX(x)];
         }
-    };
-
-    if (data.cursorSavedPixels && data.cursorSavedX && data.cursorSavedY &&
-        data.cursorSavedWidth && data.cursorSavedHeight)
-    {
-        const int nativeWidth = std::clamp(*data.cursorSavedWidth, 0, 64);
-        const int nativeHeight = std::clamp(*data.cursorSavedHeight, 0, 64);
-        refreshCursorRect(
-            *data.cursorSavedX,
-            *data.cursorSavedY,
-            *data.cursorSavedX + nativeWidth,
-            *data.cursorSavedY + nativeHeight);
     }
-
-    int cursorLeft, cursorTop, cursorRight, cursorBottom;
-    if (zoom.cursorRect(cursorLeft, cursorTop, cursorRight, cursorBottom))
-        refreshCursorRect(cursorLeft, cursorTop, cursorRight, cursorBottom);
 
     return true;
 }

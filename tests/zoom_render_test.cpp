@@ -1,6 +1,7 @@
 // Built with -fno-access-control to exercise the existing hook boundary.
 #include "pch.h"
 #include "GameDllHooks.h"
+#include "ProfileSpecs.h"
 #include "renderer.h"
 #include "Zoom.h"
 #include "UIFilter.h"
@@ -14,6 +15,16 @@ constexpr Pixel textColor = 0x7fff, padding = 0xabcd;
 static int nativeDraws, uiDraws, blends, copies;
 static Pixel palette[256];
 static ImagePaletteSprite glyph{ 0, 0, 2, 1, 0xa1, 2, {{ 0x82, {1} }} };
+static int* callbackMouseX;
+static int* callbackMouseY;
+static int callbackX;
+static int callbackY;
+
+static void __cdecl captureMouse()
+{
+    callbackX = *callbackMouseX;
+    callbackY = *callbackMouseY;
+}
 
 static void __thiscall drawNative(Hooks::UIRenderElement* ui)
 {
@@ -157,17 +168,28 @@ int main(int argc, char** argv)
     assert(nativeDraws == 2 && blends == 1 && copies == 1);
     if (argc == 1)
         assert(uiDraws == 16); // Pause and chat redraw at physical coordinates.
+
+    const auto worldHook = std::find_if(
+        hooks_game_ss_2_v2_2<GameVersion::SS_2>.begin(),
+        hooks_game_ss_2_v2_2<GameVersion::SS_2>.end(),
+        [](const HookSpec& hook) { return hook.targetRva == 0x980D1; });
+    assert(worldHook != hooks_game_ss_2_v2_2<GameVersion::SS_2>.end());
+    assert(worldHook->detour == reinterpret_cast<uintptr_t>(
+        &Hooks::renderWorldAtZoom_ver<GameVersion::SS_2>));
+    Hooks::UiEventArea battlefield{};
+    battlefield.tag = 'FILD';
+    battlefield.width = width;
+    battlefield.height = height;
+    int mouseX = 4, mouseY = 4;
+    callbackMouseX = &mouseX;
+    callbackMouseY = &mouseY;
+    Hooks::withBattlefieldMouseCoordinates(
+        &mouseX, &mouseY, &battlefield, captureMouse);
+    assert(callbackX == 10 && callbackY == 6); // 2x world coordinate seen by unit rendering.
+    assert(mouseX == 4 && mouseY == 4); // UI and cursor keep physical coordinates.
+
     updateWorld(1); // Resume/camera redraw must survive decoration composition.
     frame();
-    int cursorX = 2, cursorY = 2, cursorWidth = 2, cursorHeight = 2;
-    std::array<Pixel, 64 * 64> staleCursorBackground{};
-    staleCursorBackground.fill(0xffff);
-    data.cursorSavedX = &cursorX; data.cursorSavedY = &cursorY;
-    data.cursorSavedWidth = &cursorWidth; data.cursorSavedHeight = &cursorHeight;
-    data.cursorSavedPixels = staleCursorBackground.data();
-    frame(); // A moved cursor must not restore stale unit pixels over the scaled world.
-    data.cursorSavedX = data.cursorSavedY = data.cursorSavedWidth = data.cursorSavedHeight = nullptr;
-    data.cursorSavedPixels = nullptr;
     data.uiRenderElem = nullptr;
     frame(); // Text disappears without leaving scaled ghost pixels.
     zoom.resetScale();

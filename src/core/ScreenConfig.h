@@ -155,7 +155,7 @@ public:
             return false;
 
         char buffer[8]{};
-        GetPrivateProfileStringA("Game", "PersistantZoomIndicator", "off", buffer, sizeof(buffer), iniPath.c_str());
+        GetPrivateProfileStringA("Game", "PersistentZoomIndicator", "off", buffer, sizeof(buffer), iniPath.c_str());
         return Zoom::ParseMode(buffer) == Zoom::Mode::On;
     }
 

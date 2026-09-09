@@ -89,9 +89,13 @@ int main()
     state.addWheelDelta(-120);
     assert(state.indicatorVisible(4000 + kIndicatorHoldMs - 1));
     assert(!state.indicatorVisible(4000 + kIndicatorHoldMs));
+    state.finishIndicatorFrame(4000 + kIndicatorHoldMs);
+    state.addWheelDelta(120);
+    assert(state.indicatorVisible(4000 + kIndicatorHoldMs));
     state.setIndicatorAnchor(IndicatorAnchor::Hidden);
     state.noteZoomInput(2000);
     assert(!state.indicatorPending());
+    assert(!state.indicatorVisible(2000));
 
     std::array<uint16_t, 64 * 128> indicator{};
     DrawIndicator16(indicator.data(), 64, 64, 128, kMinScale, false);
