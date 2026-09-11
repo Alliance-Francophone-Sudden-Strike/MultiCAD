@@ -1290,6 +1290,12 @@ void GameDllHooks::withBattlefieldMouseCoordinates(
     }
 }
 
+void __declspec(noinline) __cdecl GameDllHooks::moveCameraAtZoom(int dx, int dy)
+{
+    Zoom::GetState().scaleCameraMovement(dx, dy);
+    globals_->getFn<void(__cdecl)(int, int)>(0x9D3D0)(dx, dy);
+}
+
 void GameDllHooks::updateBattlefieldHover(
     int* mouseX,
     int* mouseY,

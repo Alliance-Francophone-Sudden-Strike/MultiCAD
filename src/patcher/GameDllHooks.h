@@ -1164,6 +1164,7 @@ public:
     static void __declspec(noinline) __stdcall  sub_1005C170();
     static void __declspec(noinline) __stdcall  sub_1005C170_de();
     static void __declspec(noinline) __stdcall  sub_1005C170_fr();
+    static void __declspec(noinline) __cdecl    moveCameraAtZoom(int dx, int dy);
     template<GameVersion V>
     static void __declspec(noinline) __stdcall  drawDecorUiElements_ver()
     {

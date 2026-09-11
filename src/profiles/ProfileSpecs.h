@@ -82,7 +82,7 @@ const std::array hooks_game_ss_gold_en
     HookSpec{0x6D940, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006D940)},
     HookSpec{0x6F120, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006F120)},
 
-    // Fixes a null pointer dereference (issue reported via dump from Иван 'Alee' Петров)
+    // Fixes a null pointer dereference (issue reported via dump from пїЅпїЅпїЅпїЅ 'Alee' пїЅпїЅпїЅпїЅпїЅпїЅ)
     HookSpec{0x3E7B0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1003E7B0)},
     // Fixes a null pointer dereferences (issues reported via dumps from Eugin 'Bulldozer' Banks)
     HookSpec{0x1D240, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1001D240)},
@@ -185,7 +185,7 @@ const std::array hooks_game_ss_gold_de_ru
     //HookSpec{0x6D940, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006D940)},
     HookSpec{0x71A00, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006F120_de)},
 
-    // Fixes a null pointer dereference (issue reported via dump from Иван 'Alee' Петров)
+    // Fixes a null pointer dereference (issue reported via dump from пїЅпїЅпїЅпїЅ 'Alee' пїЅпїЅпїЅпїЅпїЅпїЅ)
     HookSpec{0x3FB20, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1003E7B0_de)},
     // Fixes a null pointer dereferences (issues reported via dumps from Eugin 'Bulldozer' Banks)
     HookSpec{0x1D9E0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1001D240)},
@@ -287,7 +287,7 @@ const std::array hooks_game_ss_gold_fr
     //HookSpec{0x6D940, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006D940)},
     HookSpec{0x71A10, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006F120_fr)},
 
-    // Fixes a null pointer dereference (issue reported via dump from Иван 'Alee' Петров)
+    // Fixes a null pointer dereference (issue reported via dump from пїЅпїЅпїЅпїЅ 'Alee' пїЅпїЅпїЅпїЅпїЅпїЅ)
     HookSpec{0x3FB20, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1003E7B0_fr)},
     // Fixes a null pointer dereferences (issues reported via dumps from Eugin 'Bulldozer' Banks)
     HookSpec{0x1D930, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1001D240)},
@@ -711,6 +711,9 @@ const std::array hooks_game_ss_2_v2_2
     // Unit stencil selection reads the mouse globals while rendering. Map them
     // to the displayed world, then restore them before the following UI pass.
     HookSpec{0x980D1, reinterpret_cast<uintptr_t>(&GameDllHooks::renderWorldAtZoom_ver<V>), 0xE8},
+    // Edge and keyboard scrolling share this relative-camera call. Scale only
+    // this input path so minimap jumps and scripted camera movement stay exact.
+    HookSpec{0x97E8A, reinterpret_cast<uintptr_t>(&GameDllHooks::moveCameraAtZoom), 0xE8},
     // Verified Fusion boundary: replace the complete pre-UI loop with an
     // equivalent call so overlays cannot touch the world used by zoom.
     HookSpec{0x980EE, reinterpret_cast<uintptr_t>(&GameDllHooks::prepareUiElements_ver<V>), 0xE8, 24},

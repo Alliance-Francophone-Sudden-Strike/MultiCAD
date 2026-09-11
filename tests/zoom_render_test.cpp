@@ -176,6 +176,12 @@ int main(int argc, char** argv)
     assert(worldHook != hooks_game_ss_2_v2_2<GameVersion::SS_2>.end());
     assert(worldHook->detour == reinterpret_cast<uintptr_t>(
         &Hooks::renderWorldAtZoom_ver<GameVersion::SS_2>));
+    const auto cameraHook = std::find_if(
+        hooks_game_ss_2_v2_2<GameVersion::SS_2>.begin(),
+        hooks_game_ss_2_v2_2<GameVersion::SS_2>.end(),
+        [](const HookSpec& hook) { return hook.targetRva == 0x97E8A; });
+    assert(cameraHook != hooks_game_ss_2_v2_2<GameVersion::SS_2>.end());
+    assert(cameraHook->detour == reinterpret_cast<uintptr_t>(&Hooks::moveCameraAtZoom));
     Hooks::UiEventArea battlefield{};
     battlefield.tag = 'FILD';
     battlefield.width = width;

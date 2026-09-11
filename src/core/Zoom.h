@@ -369,6 +369,26 @@ namespace Zoom
             return hasPresented_ ? presented_.sourceY(physicalY) : physicalY;
         }
 
+        void scaleCameraMovement(int& dx, int& dy)
+        {
+            const int movementScale = mode_ == Mode::Off ? kMinScale : presentedScale_;
+            if (movementScale != cameraMovementScale_)
+            {
+                cameraMovementScale_ = movementScale;
+                cameraRemainderX_ = 0;
+                cameraRemainderY_ = 0;
+            }
+
+            const auto scaleDelta = [movementScale](int delta, int& remainder)
+            {
+                const int total = delta * kMinScale + remainder;
+                remainder = total % movementScale;
+                return total / movementScale;
+            };
+            dx = scaleDelta(dx, cameraRemainderX_);
+            dy = scaleDelta(dy, cameraRemainderY_);
+        }
+
         void setDragButton(DragButton button, bool pressed, bool battlefield = false)
         {
             if (pressed)
@@ -424,6 +444,9 @@ namespace Zoom
             cursorSavedWidth_ = nullptr;
             cursorSavedHeight_ = nullptr;
             cursorSavedPixels_ = nullptr;
+            cameraMovementScale_ = kMinScale;
+            cameraRemainderX_ = 0;
+            cameraRemainderY_ = 0;
         }
 
         void resetScale()
@@ -625,6 +648,9 @@ namespace Zoom
         Transform presented_{};
         int presentedScale_{ kMinScale };
         bool hasPresented_{};
+        int cameraMovementScale_{ kMinScale };
+        int cameraRemainderX_{};
+        int cameraRemainderY_{};
         bool restorePending_{};
         bool presentationValid_{};
         bool routed_{};

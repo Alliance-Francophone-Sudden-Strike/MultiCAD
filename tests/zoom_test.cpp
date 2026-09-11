@@ -123,6 +123,26 @@ int main()
     assert(!state.indicatorPending());
     assert(!state.indicatorVisible(2000));
 
+    State movement;
+    movement.setMode(Mode::On);
+    movement.setBattlefield({ 0, 0, 100, 80 });
+    for (int scale = kMinScale; scale <= kMaxScale; ++scale)
+    {
+        movement.markPresented();
+        int movedX = 0;
+        int movedY = 0;
+        for (int tick = 0; tick < scale; ++tick)
+        {
+            int dx = 1;
+            int dy = -1;
+            movement.scaleCameraMovement(dx, dy);
+            movedX += dx;
+            movedY += dy;
+        }
+        assert(movedX == kMinScale && movedY == -kMinScale);
+        movement.addWheelDelta(120);
+    }
+
     std::array<uint16_t, 64 * 128> indicator{};
     DrawIndicator16(indicator.data(), 64, 64, 128, kMinScale, false);
     assert(indicator[18 * 64 + 12] != 0); // Highest level has an outline.
