@@ -94,15 +94,17 @@ namespace Zoom
         return std::max(1, nativeExtent * kMinScale / std::clamp(scale, kMinScale, kMaxScale));
     }
 
-    inline Transform MakeTransform(Rect battlefield, int scale = kMinScale)
+    inline Transform MakeTransform(Rect battlefield, int scale = kMinScale, int panX = 0, int panY = 0)
     {
         scale = std::clamp(scale, kMinScale, kMaxScale);
         const int width = std::max(1, battlefield.width * kMinScale / scale);
         const int height = std::max(1, battlefield.height * kMinScale / scale);
+        const int marginX = battlefield.width - width;
+        const int marginY = battlefield.height - height;
         return {
             {
-                battlefield.x + (battlefield.width - width) / 2,
-                battlefield.y + (battlefield.height - height) / 2,
+                battlefield.x + std::clamp(marginX / 2 + panX, 0, marginX),
+                battlefield.y + std::clamp(marginY / 2 + panY, 0, marginY),
                 width,
                 height
             },
@@ -189,6 +191,14 @@ namespace Zoom
             RightButton = 2
         };
 
+        enum PanDirection
+        {
+            PanLeft = 1,
+            PanRight = 2,
+            PanUp = 4,
+            PanDown = 8
+        };
+
         void setMode(Mode mode)
         {
             mode_ = mode;
@@ -255,8 +265,91 @@ namespace Zoom
             battlefield_ = battlefield;
             presented_ = MakeTransform(battlefield_);
             hasPresented_ = true;
+            panX_ = 0;
+            panY_ = 0;
+            lastCameraStepX_ = 0;
+            lastCameraStepY_ = 0;
+            cameraValid_ = false;
         }
-        Transform transform() const { return MakeTransform(battlefield_, scale_); }
+        void setPanDirection(PanDirection direction, bool pressed)
+        {
+            if (pressed)
+                panDirections_ |= direction;
+            else
+                panDirections_ &= ~direction;
+        }
+        int viewportOffsetX(int nativeWidth) const
+        {
+            return scaledPanOffset(nativeWidth, battlefield_.width, panX_);
+        }
+        int viewportOffsetY(int nativeHeight) const
+        {
+            return scaledPanOffset(nativeHeight, battlefield_.height, panY_);
+        }
+        void setPointer(int x, int y)
+        {
+            pointerX_ = x;
+            pointerY_ = y;
+            pointerValid_ = true;
+        }
+        void updatePan(int cameraX, int cameraY, uint32_t tick)
+        {
+            if (mode_ == Mode::Off || scale_ == kMinScale)
+            {
+                lastCameraStepX_ = 0;
+                lastCameraStepY_ = 0;
+                cameraValid_ = false;
+                return;
+            }
+
+            if (!cameraValid_)
+            {
+                cameraX_ = cameraX;
+                cameraY_ = cameraY;
+                panTick_ = tick;
+                cameraValid_ = true;
+                return;
+            }
+
+            const uint32_t elapsed = std::min<uint32_t>(tick - panTick_, 50);
+            const int fallbackStep = std::max(1, static_cast<int>(elapsed / 2));
+            int horizontal = ((panDirections_ & PanRight) != 0) - ((panDirections_ & PanLeft) != 0);
+            int vertical = ((panDirections_ & PanDown) != 0) - ((panDirections_ & PanUp) != 0);
+
+            if (pointerValid_ && !dragging() &&
+                pointerX_ >= battlefield_.x && pointerX_ < battlefield_.x + battlefield_.width &&
+                pointerY_ >= battlefield_.y && pointerY_ < battlefield_.y + battlefield_.height)
+            {
+                constexpr int edge = 8;
+                horizontal += (pointerX_ >= battlefield_.x + battlefield_.width - edge) -
+                    (pointerX_ < battlefield_.x + edge);
+                vertical += (pointerY_ >= battlefield_.y + battlefield_.height - edge) -
+                    (pointerY_ < battlefield_.y + edge);
+                horizontal = std::clamp(horizontal, -1, 1);
+                vertical = std::clamp(vertical, -1, 1);
+            }
+
+            const int cameraDeltaX = cameraX >= cameraX_ ? cameraX - cameraX_ : cameraX_ - cameraX;
+            const int cameraDeltaY = cameraY >= cameraY_ ? cameraY - cameraY_ : cameraY_ - cameraY;
+            if (horizontal && cameraDeltaX)
+                lastCameraStepX_ = cameraDeltaX;
+            if (vertical && cameraDeltaY)
+                lastCameraStepY_ = cameraDeltaY;
+
+            updatePanAxis(
+                panX_, horizontal, cameraDeltaX == 0,
+                lastCameraStepX_ ? lastCameraStepX_ : fallbackStep, battlefield_.width);
+            updatePanAxis(
+                panY_, vertical, cameraDeltaY == 0,
+                lastCameraStepY_ ? lastCameraStepY_ : fallbackStep, battlefield_.height);
+            cameraX_ = cameraX;
+            cameraY_ = cameraY;
+            panTick_ = tick;
+        }
+        Transform transform() const
+        {
+            return MakeTransform(battlefield_, scale_, panX_, panY_);
+        }
         Transform presentedTransform() const { return presented_; }
 
         void markPresented()
@@ -337,6 +430,11 @@ namespace Zoom
         {
             scale_ = kMinScale;
             wheelRemainder_ = 0;
+            panX_ = 0;
+            panY_ = 0;
+            lastCameraStepX_ = 0;
+            lastCameraStepY_ = 0;
+            cameraValid_ = false;
         }
 
         void cancelInput()
@@ -344,6 +442,8 @@ namespace Zoom
             wheelRemainder_ = 0;
             dragButtons_ = 0;
             battlefieldDragButtons_ = 0;
+            panDirections_ = 0;
+            pointerValid_ = false;
         }
 
         bool ensureBuffers(size_t pixels)
@@ -533,6 +633,18 @@ namespace Zoom
         bool persistentIndicator_{};
         bool indicatorActive_{};
         uint32_t indicatorTick_{};
+        int panX_{};
+        int panY_{};
+        int panDirections_{};
+        int pointerX_{};
+        int pointerY_{};
+        int cameraX_{};
+        int cameraY_{};
+        int lastCameraStepX_{};
+        int lastCameraStepY_{};
+        uint32_t panTick_{};
+        bool pointerValid_{};
+        bool cameraValid_{};
         static constexpr int kCursorPitch = 64;
         int cursorX_{};
         int cursorY_{};
@@ -552,6 +664,25 @@ namespace Zoom
         std::vector<uint16_t> presentation_;
         std::vector<uint16_t> isolatedWorld_;
         std::vector<uint16_t> isolatedBack_;
+
+        int scaledPanOffset(int nativeExtent, int battlefieldExtent, int pan) const
+        {
+            const int margin = nativeExtent - ViewportExtent(nativeExtent, scale_);
+            const int battlefieldMargin = battlefieldExtent - ViewportExtent(battlefieldExtent, scale_);
+            return battlefieldMargin > 0 ?
+                std::clamp(margin / 2 + pan * margin / battlefieldMargin, 0, margin) : 0;
+        }
+
+        void updatePanAxis(int& pan, int direction, bool cameraStopped, int step, int battlefieldExtent)
+        {
+            if (direction && cameraStopped)
+                pan += direction * step;
+            else if (!cameraStopped)
+                pan += pan < 0 ? std::min(step, -pan) : -std::min(step, pan);
+
+            const int margin = battlefieldExtent - ViewportExtent(battlefieldExtent, scale_);
+            pan = std::clamp(pan, -margin / 2, margin - margin / 2);
+        }
     };
 
     inline State& GetState()

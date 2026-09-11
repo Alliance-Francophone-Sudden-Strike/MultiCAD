@@ -1468,6 +1468,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
 
 void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
+    Zoom::GetState().updatePan(data.cameraX, data.cameraY, GetTickCount());
     const bool zoomed = prepareZoomPresentation(data);
 
     if (zoomed)
@@ -3076,10 +3077,11 @@ void __declspec(noinline) __fastcall GameDllHooks::sub_100BE6C0(PlaneData* self,
 void __declspec(noinline) __fastcall GameDllHooks::drawMinimapViewportRect(
     UiElementBase* self, void* /*dummy*/, int x, int y, int width, int height, int color)
 {
-    const int scaledWidth = Zoom::ViewportExtent(width, Zoom::GetState().scale());
-    const int scaledHeight = Zoom::ViewportExtent(height, Zoom::GetState().scale());
-    x += (width - scaledWidth) / 2;
-    y += (height - scaledHeight) / 2;
+    Zoom::State& zoom = Zoom::GetState();
+    const int scaledWidth = Zoom::ViewportExtent(width, zoom.scale());
+    const int scaledHeight = Zoom::ViewportExtent(height, zoom.scale());
+    x += zoom.viewportOffsetX(width);
+    y += zoom.viewportOffsetY(height);
 
     auto* const g = globals_;
     const auto drawHorizontal = g->getFn<void(__thiscall)(UiElementBase*, int, int, int, int)>(0x995C0);
@@ -3747,14 +3749,15 @@ void GameDllHooks::drawFogOnStrategicMap(UiStrategicMapElement* mapData, const F
     // Draw screen rectangle
     const int nativeRectWidth = static_cast<int>(mapData->screenSurfaceWidth / scale);
     const int nativeRectHeight = static_cast<int>(mapData->screenSurfaceHeight / scale);
-    const int rectWidth = Zoom::ViewportExtent(nativeRectWidth, Zoom::GetState().scale());
-    const int rectHeight = Zoom::ViewportExtent(nativeRectHeight, Zoom::GetState().scale());
+    const int nativeLeft = static_cast<int>(mapData->screenSurfaceWidth / 2 + data.mapPosX / scale);
+    const int nativeBottom = static_cast<int>(mapData->verticalCenterMargin + data.mapPosY / scale);
+    Zoom::State& zoom = Zoom::GetState();
+    const int rectWidth = Zoom::ViewportExtent(nativeRectWidth, zoom.scale());
+    const int rectHeight = Zoom::ViewportExtent(nativeRectHeight, zoom.scale());
 
-    int left = static_cast<int>(mapData->screenSurfaceWidth / 2 + data.mapPosX / scale) +
-        (nativeRectWidth - rectWidth) / 2;
+    int left = nativeLeft + zoom.viewportOffsetX(nativeRectWidth);
     int right = left + rectWidth - 1;
-    int bottom = static_cast<int>(mapData->verticalCenterMargin + data.mapPosY / scale) +
-        (nativeRectHeight - rectHeight) / 2;
+    int bottom = nativeBottom + zoom.viewportOffsetY(nativeRectHeight);
     int top = bottom + rectHeight - 1;
 
     const int w = right - left + 1;
@@ -3808,21 +3811,22 @@ void GameDllHooks::drawScreenRectOnStrategicMap(UiStrategicMapElement* mapData, 
 {
     data.fn1(mapData, offsetX, offsetY);
 
+    const int width = mapData->screenSurfaceWidth;
+    const double scale = 64.0 * data.mapHeight / width;
+    const int nativeRectWidth = static_cast<int>(width / scale);
+    const int nativeRectHeight = static_cast<int>(mapData->screenSurfaceHeight / scale);
+    Zoom::State& zoom = Zoom::GetState();
+
     auto drawRect = [&](int centerX, int centerY)
         {
-            const int width = mapData->screenSurfaceWidth;
-            const double scale = 64.0 * data.mapHeight / width;
-
-            const int nativeRectWidth = static_cast<int>(width / scale);
-            const int nativeRectHeight = static_cast<int>(mapData->screenSurfaceHeight / scale);
-            const int rectWidth = Zoom::ViewportExtent(nativeRectWidth, Zoom::GetState().scale());
-            const int rectHeight = Zoom::ViewportExtent(nativeRectHeight, Zoom::GetState().scale());
+            const int rectWidth = Zoom::ViewportExtent(nativeRectWidth, zoom.scale());
+            const int rectHeight = Zoom::ViewportExtent(nativeRectHeight, zoom.scale());
 
             int left = static_cast<int>(width / 2 + centerX / scale) +
-                (nativeRectWidth - rectWidth) / 2;
+                zoom.viewportOffsetX(nativeRectWidth);
             int right = left + rectWidth - 1;
             int top = static_cast<int>(mapData->verticalCenterMargin + centerY / scale) +
-                (nativeRectHeight - rectHeight) / 2;
+                zoom.viewportOffsetY(nativeRectHeight);
             int bottom = top + rectHeight - 1;
 
             data.fn2(mapData, left, top, right, bottom);
@@ -4203,6 +4207,17 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
     static bool altPressed = false;
     Zoom::State& zoom = Zoom::GetState();
+    const auto setPanKey = [&zoom, a3](bool pressed)
+        {
+            switch (a3)
+            {
+            case VK_LEFT:  zoom.setPanDirection(Zoom::State::PanLeft, pressed); break;
+            case VK_RIGHT: zoom.setPanDirection(Zoom::State::PanRight, pressed); break;
+            case VK_UP:    zoom.setPanDirection(Zoom::State::PanUp, pressed); break;
+            case VK_DOWN:  zoom.setPanDirection(Zoom::State::PanDown, pressed); break;
+            default: break;
+            }
+        };
 
     if (a2 == WM_KILLFOCUS || a2 == WM_CANCELMODE || a2 == WM_CAPTURECHANGED)
         zoom.cancelInput();
@@ -4335,6 +4350,8 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         default:
             break;
         }
+
+        zoom.setPointer(*mouseX, *mouseY);
     }
 
     // Keyboard
@@ -4345,6 +4362,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN:
         {
+            setPanKey(true);
             writeEventToRingBuffer('/KBD', a3 + 256, *mouseX, *mouseY);
             if (data.multiByteToWideCharOr)
                 writeEventToRingBuffer('/UTF', a3 + 0x1000000, *mouseX, *mouseY);
@@ -4416,6 +4434,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         case WM_KEYUP:
         case WM_SYSKEYUP:
         {
+            setPanKey(false);
             writeEventToRingBuffer('/KBD', a3 + 512, *mouseX, *mouseY);
             if (data.multiByteToWideCharOr)
                 writeEventToRingBuffer('/UTF', a3 + 0x2000000, *mouseX, *mouseY);

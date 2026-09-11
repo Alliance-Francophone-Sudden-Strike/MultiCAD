@@ -36,6 +36,9 @@ int main()
     assert(two.sourceX(0) == 2 && two.sourceX(7) == 5);
     assert(two.sourceY(0) == 1 && two.sourceY(3) == 2);
 
+    const Transform corner = MakeTransform({ 10, 20, 8, 4 }, 8, -2, 1);
+    assert(corner.source.x == 10 && corner.source.y == 22);
+
     std::array<uint16_t, 24> source{}; // 4 rows, pitch 6
     std::array<uint16_t, 40> destination{}; // 4 rows, pitch 10
     for (int y = 0; y < 4; ++y)
@@ -54,10 +57,33 @@ int main()
     state.setBattlefield({ 10, 20, 100, 80 });
     assert(state.transform().destination.x == 10);
     assert(state.mapX(10) == 10 && state.mapX(109) == 109); // target is not presented yet
+    state.setPanDirection(State::PanLeft, true);
+    state.updatePan(100, 100, 1000);
+    state.updatePan(100, 100, 1016);
+    assert(state.transform().source.x == 12);
+    state.updatePan(90, 100, 1032);
+    assert(state.transform().source.x == 20);
+    state.setPanDirection(State::PanLeft, false);
+    state.setPointer(10, 50);
+    state.updatePan(90, 100, 1048);
+    assert(state.transform().source.x == 10);
+    assert(state.viewportOffsetX(50) == 0);
     state.markPresented();
     assert(state.presentedScale() == 5);
     assert(state.mapX(10) == state.transform().source.x);
     assert(state.mapX(109) == state.transform().source.x + state.transform().source.width - 1);
+
+    State matchedSpeed;
+    matchedSpeed.setMode(Mode::On);
+    matchedSpeed.addWheelDelta(120);
+    matchedSpeed.setBattlefield({ 10, 20, 100, 80 });
+    matchedSpeed.setPanDirection(State::PanLeft, true);
+    matchedSpeed.updatePan(100, 100, 1000);
+    matchedSpeed.updatePan(94, 100, 1016);
+    assert(matchedSpeed.transform().source.x == 20);
+    matchedSpeed.updatePan(94, 100, 1032);
+    assert(matchedSpeed.transform().source.x == 14);
+
     state.setDragButton(State::LeftButton, true, true);
     state.setDragButton(State::RightButton, true);
     assert(state.dragging() && state.battlefieldDragging() && !state.addWheelDelta(120));

@@ -976,6 +976,8 @@ private:
 
         int surfaceHeight;
         int surfaceWidth;
+        int cameraX;
+        int cameraY;
 
         void(__stdcall* blendMainWithWarFog)();
         int(__thiscall* getFirstDecorUi)(int*, GameData2*);
@@ -1180,6 +1182,8 @@ public:
 
             g->getValue<int>(A.pointedUiElem + 0x14),
             g->getValue<int>(A.pointedUiElem + 0x18),
+            V == GameVersion::SS_2 ? g->getValue<int>(0x106A134) : 0,
+            V == GameVersion::SS_2 ? g->getValue<int>(0x106A130) : 0,
 
             g->getFn<void(__stdcall)()>(A.fnBlendMainWithWarFog),
             g->getFn<int(__thiscall)(int*, GameData2*)>(A.fnGetFirstDecorUi),
