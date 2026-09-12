@@ -1,6 +1,7 @@
 #include "UIScale.h"
 
 #include <cassert>
+#include <algorithm>
 #include <vector>
 
 namespace
@@ -152,6 +153,66 @@ int main()
         {
             const UIScale::Rect blit = UIScale::ProjectRegion(
                 { 0, 0, 352, 137 }, hud, { 0, tile * 8 - nativeTop, 352, 8 });
+            for (int y = blit.y; y < blit.y + blit.height; ++y)
+            {
+                assert(!rows[y]);
+                rows[y] = true;
+            }
+        }
+        for (int y = hud.y; y < hud.y + hud.height; ++y)
+            assert(rows[y]);
+    }
+
+    // Every factor in range, not just the ones that happen to divide evenly:
+    // neighbours must keep sharing an edge, and the tile blits must cover the
+    // whole scaled rect. A gap in either is a black seam on screen.
+    for (int step = 100; step <= 300; ++step)
+    {
+        UIScale::Set(step / 100.0f);
+
+        UIScale::Rect left{};
+        for (int slot = 0; slot < 10; ++slot)
+        {
+            const UIScale::Rect icon = apply(slot * 32, 4, 32, 32);
+            if (slot > 0)
+                assert(icon.x == left.x + left.width);
+            left = icon;
+        }
+
+        // Stacked against the bottom edge: they may overlap once scaled, but a
+        // gap between them would show through as a black strip.
+        UIScale::Rect above{};
+        for (int row = 0; row < 4; ++row)
+        {
+            const UIScale::Rect band = apply(0, kScreenHeight - 137 + row * 32, 352, 32);
+            if (row > 0)
+                assert(band.y <= above.y + above.height);
+            above = band;
+        }
+
+        // A panel held off the screen edge by a bar below it keeps its bottom
+        // edge: anything it natively covered stays covered at every factor.
+        for (const int bar : { 0, 23, 64, 107 })
+        {
+            const UIScale::Rect held = apply(0, kScreenHeight - bar - 137, 352, 137);
+            assert(held.y + held.height == kScreenHeight - bar);
+            assert(held.y <= kScreenHeight - bar - 137);
+        }
+
+        const int nativeTop = kScreenHeight - 137;
+        const UIScale::Rect hud = apply(0, nativeTop, 352, 137);
+        assert(hud.width >= 352 && hud.height >= 137);
+        assert(hud.x >= 0 && hud.y >= 0);
+        assert(hud.x + hud.width <= kScreenWidth && hud.y + hud.height <= kScreenHeight);
+
+        std::vector<bool> rows(kScreenHeight, false);
+        for (int tile = nativeTop >> 3; tile <= (nativeTop + 136) >> 3; ++tile)
+        {
+            const int top = std::max(tile * 8, nativeTop);
+            const int bottom = std::min(tile * 8 + 7, kScreenHeight - 1);
+            const UIScale::Rect blit = UIScale::ProjectRegion(
+                { 0, 0, 352, 137 }, hud,
+                { 0, top - nativeTop, 352, bottom - top + 1 });
             for (int y = blit.y; y < blit.y + blit.height; ++y)
             {
                 assert(!rows[y]);

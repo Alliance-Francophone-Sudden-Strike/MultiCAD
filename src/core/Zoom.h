@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <cstring>
 #include <cstdint>
 #include <string_view>
@@ -66,6 +65,29 @@ namespace Zoom
         int height{};
     };
 
+    // Walks source columns for the scaler without a per-pixel divide: the old
+    // loop called Transform::sourceX per pixel, which is a multiply and an
+    // integer divide every time. `index` tracks exactly the value sourceX
+    // returns, so the image stays aligned with the mapping input hit-testing
+    // uses. Rows need no walk -- sourceY is called once per row, not per pixel.
+    struct Sampler
+    {
+        int index{};     // current source column
+        int remainder{}; // fractional position, in units of span
+        int step{};      // source extent
+        int span{};      // destination extent
+
+        void advance()
+        {
+            remainder += step;
+            while (remainder >= span)
+            {
+                remainder -= span;
+                ++index;
+            }
+        }
+    };
+
     struct Transform
     {
         Rect source;
@@ -81,6 +103,18 @@ namespace Zoom
         {
             const int y = std::clamp(physicalY - destination.y, 0, destination.height - 1);
             return source.y + y * source.height / destination.height;
+        }
+
+        Sampler samplerX(int physicalX) const
+        {
+            const int x = std::clamp(physicalX - destination.x, 0, destination.width - 1);
+            const int offset = x * source.width;
+            return {
+                source.x + offset / destination.width,
+                offset % destination.width,
+                source.width,
+                destination.width
+            };
         }
     };
 
@@ -117,16 +151,18 @@ namespace Zoom
         uint16_t* destination, int destinationPitch,
         const Transform& transform)
     {
+        const int left = transform.destination.x;
+        const int right = left + transform.destination.width;
+
         for (int y = transform.destination.y;
             y < transform.destination.y + transform.destination.height; ++y)
         {
-            const uint16_t* src = source + transform.sourceY(y) * sourcePitch;
-            uint16_t* dst = destination + y * destinationPitch;
-            for (int x = transform.destination.x;
-                x < transform.destination.x + transform.destination.width; ++x)
-            {
-                dst[x] = src[transform.sourceX(x)];
-            }
+            const uint16_t* const src = source + transform.sourceY(y) * sourcePitch;
+            uint16_t* const dst = destination + y * destinationPitch;
+
+            Sampler x = transform.samplerX(left);
+            for (int px = left; px < right; ++px, x.advance())
+                dst[px] = src[x.index];
         }
     }
 
@@ -459,12 +495,6 @@ namespace Zoom
             routed_ = false;
             worldIsolated_ = false;
             indicatorActive_ = false;
-            cursorValid_ = false;
-            cursorSavedX_ = nullptr;
-            cursorSavedY_ = nullptr;
-            cursorSavedWidth_ = nullptr;
-            cursorSavedHeight_ = nullptr;
-            cursorSavedPixels_ = nullptr;
             cameraMovementScale_ = kMinScale;
             cameraRemainderX_ = 0;
             cameraRemainderY_ = 0;
@@ -512,59 +542,68 @@ namespace Zoom
         uint16_t* worldBuffer() { return world_.data(); }
         uint16_t* presentationBuffer() { return presentation_.data(); }
 
+        // Screen rect the game saved before drawing the cursor, clipped to the
+        // surface. Empty when no cursor is currently drawn.
+        bool cursorSaveRect(
+            int width, int height,
+            const int* savedX, const int* savedY,
+            const int* savedWidth, const int* savedHeight,
+            int& left, int& top, int& right, int& bottom) const
+        {
+            if (!savedX || !savedY || !savedWidth || !savedHeight ||
+                *savedWidth <= 0 || *savedHeight <= 0)
+                return false;
+
+            left = std::max(0, *savedX);
+            top = std::max(0, *savedY);
+            right = std::min(width, *savedX + std::min(*savedWidth, kCursorPitch));
+            bottom = std::min(height, *savedY + std::min(*savedHeight, kCursorPitch));
+            return right > left && bottom > top;
+        }
+
         void restoreCursor(
             uint16_t* clean, uint16_t* presentation, int width, int height,
             const int* nativeX, const int* nativeY,
             const int* nativeWidth, const int* nativeHeight,
             const uint16_t* nativePixels) const
         {
-            if (!clean || !presentation)
+            int left, top, right, bottom;
+            if (!clean || !presentation || !nativePixels ||
+                !cursorSaveRect(width, height, nativeX, nativeY, nativeWidth, nativeHeight,
+                    left, top, right, bottom))
                 return;
 
-            const auto restore = [&](int x, int y, int savedWidth, int savedHeight, const uint16_t* savedPixels)
+            for (int row = top; row < bottom; ++row)
             {
-                if (!savedPixels || savedWidth <= 0 || savedHeight <= 0)
-                    return;
-                const int left = std::max(0, x);
-                const int top = std::max(0, y);
-                const int right = std::min(width, x + std::min(savedWidth, kCursorPitch));
-                const int bottom = std::min(height, y + std::min(savedHeight, kCursorPitch));
-                for (int row = top; row < bottom; ++row)
-                {
-                    const uint16_t* source = savedPixels + (row - y) * kCursorPitch + left - x;
-                    std::copy(source, source + right - left, clean + row * width + left);
-                    std::copy(source, source + right - left, presentation + row * width + left);
-                }
-            };
-
-            if (nativeX && nativeY && nativeWidth && nativeHeight)
-                restore(*nativeX, *nativeY, *nativeWidth, *nativeHeight, nativePixels);
-            if (cursorValid_)
-                restore(cursorX_, cursorY_, cursorWidth_, cursorHeight_, cursorPixels_.data());
+                const uint16_t* source =
+                    nativePixels + (row - *nativeY) * kCursorPitch + left - *nativeX;
+                std::copy(source, source + right - left, clean + row * width + left);
+                std::copy(source, source + right - left, presentation + row * width + left);
+            }
         }
 
-        bool cursorRect(int& left, int& top, int& right, int& bottom) const
+        // Composition replaced everything under the cursor, so hand the game a
+        // save-under that matches it. Its own erase then restores current
+        // pixels whenever it redraws the cursor, including on the cursor-only
+        // frames that never reach composition again.
+        void refreshCursorSave(
+            int width, int height,
+            const int* savedX, const int* savedY,
+            const int* savedWidth, const int* savedHeight,
+            uint16_t* savedPixels) const
         {
-            if (!cursorValid_)
-                return false;
-            left = cursorX_;
-            top = cursorY_;
-            right = left + cursorWidth_;
-            bottom = top + cursorHeight_;
-            return true;
-        }
+            int left, top, right, bottom;
+            if (!savedPixels || presentation_.size() != static_cast<size_t>(width) * height ||
+                !cursorSaveRect(width, height, savedX, savedY, savedWidth, savedHeight,
+                    left, top, right, bottom))
+                return;
 
-        void beginCursorFrame(
-            int* savedX, int* savedY, int* savedWidth, int* savedHeight,
-            uint16_t* savedPixels)
-        {
-            cursorSavedX_ = savedX;
-            cursorSavedY_ = savedY;
-            cursorSavedWidth_ = savedWidth;
-            cursorSavedHeight_ = savedHeight;
-            cursorSavedPixels_ = savedPixels;
-            if (cursorSavedHeight_)
-                *cursorSavedHeight_ = 0;
+            for (int row = top; row < bottom; ++row)
+            {
+                const uint16_t* source = presentation_.data() + row * width + left;
+                std::copy(source, source + right - left,
+                    savedPixels + (row - *savedY) * kCursorPitch + left - *savedX);
+            }
         }
 
         void beginWorldIsolation(uint16_t* main, uint16_t* back, size_t pixels)
@@ -618,36 +657,12 @@ namespace Zoom
             if (!routed_)
                 return;
 
-            if (cursorSavedX_ && cursorSavedY_ && cursorSavedWidth_ &&
-                cursorSavedHeight_ && cursorSavedPixels_)
-            {
-                if (*cursorSavedHeight_ > 0)
-                {
-                    cursorWidth_ = std::clamp(*cursorSavedWidth_, 0, kCursorPitch);
-                    cursorHeight_ = std::clamp(*cursorSavedHeight_, 0, kCursorPitch);
-                    cursorValid_ = cursorWidth_ > 0 && cursorHeight_ > 0;
-                    cursorX_ = *cursorSavedX_;
-                    cursorY_ = *cursorSavedY_;
-                    for (int row = 0; row < cursorHeight_; ++row)
-                        std::copy_n(
-                            cursorSavedPixels_ + row * kCursorPitch,
-                            cursorWidth_,
-                            cursorPixels_.data() + row * kCursorPitch);
-                }
-                *cursorSavedHeight_ = 0;
-            }
-
             auto* destination = static_cast<uint8_t*>(actualRenderer_);
             for (int y = 0; y < height; ++y)
                 std::memcpy(destination + y * actualPitch_, presentation_.data() + y * width, width * sizeof(uint16_t));
             renderer = actualRenderer_;
             pitch = actualPitch_;
             routed_ = false;
-            cursorSavedX_ = nullptr;
-            cursorSavedY_ = nullptr;
-            cursorSavedWidth_ = nullptr;
-            cursorSavedHeight_ = nullptr;
-            cursorSavedPixels_ = nullptr;
         }
 
         void deferMainRestore() { restorePending_ = true; }
@@ -698,17 +713,6 @@ namespace Zoom
         bool pointerValid_{};
         bool cameraValid_{};
         static constexpr int kCursorPitch = 64;
-        int cursorX_{};
-        int cursorY_{};
-        int cursorWidth_{};
-        int cursorHeight_{};
-        bool cursorValid_{};
-        int* cursorSavedX_{};
-        int* cursorSavedY_{};
-        int* cursorSavedWidth_{};
-        int* cursorSavedHeight_{};
-        uint16_t* cursorSavedPixels_{};
-        std::array<uint16_t, kCursorPitch * kCursorPitch> cursorPixels_{};
         void* actualRenderer_{};
         uint32_t actualPitch_{};
         std::vector<uint16_t> clean_;

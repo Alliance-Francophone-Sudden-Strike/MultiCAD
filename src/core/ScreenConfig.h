@@ -194,7 +194,10 @@ public:
             if (c == ',')
                 c = '.';
 
-        return static_cast<float>(std::atof(buffer));
+        // Snap to 0.05: enough steps to tune the panels, few enough that the
+        // value in the ini is the value on screen.
+        const float requested = static_cast<float>(std::atof(buffer));
+        return static_cast<int>(requested * 20.0f + 0.5f) / 20.0f;
     }
 
 private:

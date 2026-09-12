@@ -49,6 +49,24 @@ int main()
     assert(destination[30] == 22 && destination[37] == 25);
     assert(destination[8] == 0 && destination[38] == 0); // padded pitch untouched
 
+    // The divide-free walk is the whole point of the Sampler: it replaces the
+    // multiply-and-divide Transform::sourceX did per pixel. It must track that
+    // computation exactly, or the rendered image drifts from the mapping the
+    // mouse hit-testing uses.
+    for (int scale = kMinScale; scale <= kMaxScale; ++scale)
+    {
+        const Transform level = MakeTransform({ 10, 20, 100, 80 }, scale);
+        const int left = level.destination.x;
+
+        Sampler walk = level.samplerX(left);
+        for (int x = left; x < left + level.destination.width; ++x, walk.advance())
+        {
+            const Sampler direct = level.samplerX(x);
+            assert(walk.index == direct.index && walk.remainder == direct.remainder);
+            assert(walk.index == level.sourceX(x));
+        }
+    }
+
     State state;
     assert(!state.addWheelDelta(120));
     state.setMode(Mode::On);
@@ -209,49 +227,53 @@ int main()
     std::array<uint16_t, 16> cursorRenderer{};
     void* cursorRendererPtr = cursorRenderer.data();
     uint32_t cursorRendererPitch = 4 * sizeof(uint16_t);
-    cursor.beginPresentation(cursorRendererPtr, cursorRendererPitch, 4, 4);
     int cursorX = 1, cursorY = 1, cursorWidth = 2, cursorHeight = 2;
     std::array<uint16_t, 64 * 64> cursorSave{};
     cursorSave[0] = 10;
     cursorSave[1] = 11;
     cursorSave[64] = 12;
     cursorSave[65] = 13;
-    cursor.beginCursorFrame(
-        &cursorX, &cursorY, &cursorWidth, &cursorHeight, cursorSave.data());
-    assert(cursorHeight == 0);
-    cursorHeight = 2; // Native cursor captured its new background before unlock.
-    cursor.finishPresentation(cursorRendererPtr, cursorRendererPitch, 4, 4);
-    assert(cursorHeight == 0); // Native code cannot restore scaled pixels next frame.
+
+    // Composition rebuilds the frame from the pre-cursor snapshot, so the
+    // cursor has to be erased out of both the panel source and the frame.
     std::array<uint16_t, 16> cursorClean{}, cursorFrame{};
-    cursor.restoreCursor(
-        cursorClean.data(), cursorFrame.data(), 4, 4,
-        nullptr, nullptr, nullptr, nullptr, nullptr);
-    assert(cursorFrame[5] == 10 && cursorFrame[6] == 11);
-    assert(cursorFrame[9] == 12 && cursorFrame[10] == 13);
-
-    cursor.beginPresentation(cursorRendererPtr, cursorRendererPitch, 4, 4);
-    cursor.beginCursorFrame(
-        &cursorX, &cursorY, &cursorWidth, &cursorHeight, cursorSave.data());
-    cursor.finishPresentation(cursorRendererPtr, cursorRendererPitch, 4, 4);
-    cursorFrame.fill(0);
-    cursor.restoreCursor(
-        cursorClean.data(), cursorFrame.data(), 4, 4,
-        nullptr, nullptr, nullptr, nullptr, nullptr);
-    assert(cursorFrame[5] == 10 && cursorFrame[6] == 11);
-    assert(cursorFrame[9] == 12 && cursorFrame[10] == 13);
-
-    int movedX = 2, movedY = 0, movedWidth = 2, movedHeight = 2;
-    std::array<uint16_t, 64 * 64> movedSave{};
-    movedSave[0] = 20;
-    movedSave[1] = 21;
-    movedSave[64] = 22;
-    movedSave[65] = 23;
     cursorFrame.fill(99);
     cursor.restoreCursor(
         cursorClean.data(), cursorFrame.data(), 4, 4,
-        &movedX, &movedY, &movedWidth, &movedHeight, movedSave.data());
-    assert(cursorFrame[5] == 10 && cursorFrame[6] == 11 && cursorFrame[9] == 12); // Previous cursor erased last.
-    assert(cursorFrame[2] == 20 && cursorFrame[3] == 21); // Newly moved cursor erased too.
+        &cursorX, &cursorY, &cursorWidth, &cursorHeight, cursorSave.data());
+    assert(cursorFrame[5] == 10 && cursorFrame[6] == 11);
+    assert(cursorFrame[9] == 12 && cursorFrame[10] == 13);
+    assert(cursorClean[5] == 10 && cursorClean[10] == 13);
+    assert(cursorFrame[0] == 99 && cursorFrame[15] == 99); // Only the cursor rect.
+
+    for (int i = 0; i < 16; ++i)
+        cursorRenderer[i] = static_cast<uint16_t>(100 + i);
+    cursor.beginPresentation(cursorRendererPtr, cursorRendererPitch, 4, 4);
+    assert(cursorRendererPtr == cursor.presentationBuffer());
+    cursor.refreshCursorSave(
+        4, 4, &cursorX, &cursorY, &cursorWidth, &cursorHeight, cursorSave.data());
+    // Native erase must restore the composed frame, not the frame drawn on.
+    assert(cursorSave[0] == 105 && cursorSave[1] == 106);
+    assert(cursorSave[64] == 109 && cursorSave[65] == 110);
+    cursor.finishPresentation(cursorRendererPtr, cursorRendererPitch, 4, 4);
+    assert(cursorRendererPtr == cursorRenderer.data());
+    // Leaving the save-under armed is what keeps a cursor drawn on a frame that
+    // never composes again from lingering as a ghost.
+    assert(cursorHeight == 2 && cursorWidth == 2);
+
+    int clippedX = 3, clippedY = 3;
+    cursorSave.fill(0);
+    cursor.refreshCursorSave(
+        4, 4, &clippedX, &clippedY, &cursorWidth, &cursorHeight, cursorSave.data());
+    assert(cursorSave[0] == 115); // Off-screen rows and columns stay untouched.
+    assert(cursorSave[1] == 0 && cursorSave[64] == 0);
+
+    int hidden = 0;
+    cursorFrame.fill(99);
+    cursor.restoreCursor(
+        cursorClean.data(), cursorFrame.data(), 4, 4,
+        &cursorX, &cursorY, &cursorWidth, &hidden, cursorSave.data());
+    assert(cursorFrame[5] == 99); // No cursor drawn, nothing to erase.
 
     State viewport;
     viewport.setMode(Mode::On);

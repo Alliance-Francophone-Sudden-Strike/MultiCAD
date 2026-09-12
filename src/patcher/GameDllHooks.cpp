@@ -1278,16 +1278,38 @@ void GameDllHooks::prepareUiElements(UiElementBase* ui)
             g_rendererState.surfaces.back);
 }
 
+namespace
+{
+    // The game reaches the callbacks that read its mouse globals from inside one
+    // another, so only the outermost override may move those coordinates into the
+    // zoomed world. A nested one maps an already-mapped coordinate and crops it a
+    // second time, which lands the click, the hover or a keyboard command that
+    // reads the mouse away from where the player pointed - near the centre of the
+    // viewport the second crop moves it barely at all, which is why it only shows
+    // up occasionally and towards the screen edges. All of these run on the thread
+    // that owns the window and the renderer, so a plain counter is enough.
+    int g_mouseMapDepth = 0;
+
+    struct MouseMapGuard
+    {
+        bool outermost;
+        MouseMapGuard() : outermost(g_mouseMapDepth++ == 0) {}
+        ~MouseMapGuard() { --g_mouseMapDepth; }
+    };
+}
+
 void GameDllHooks::withBattlefieldMouseCoordinates(
     int* mouseX,
     int* mouseY,
     UiEventArea* areas,
     void(__cdecl* fn)())
 {
+    const MouseMapGuard guard;
     const int physicalX = *mouseX;
     const int physicalY = *mouseY;
-    const bool map = battlefieldAt(areas, physicalX, physicalY) != nullptr ||
-        Zoom::GetState().battlefieldDragging();
+    const bool map = guard.outermost &&
+        (battlefieldAt(areas, physicalX, physicalY) != nullptr ||
+            Zoom::GetState().battlefieldDragging());
     if (map)
     {
         *mouseX = Zoom::GetState().mapX(physicalX);
@@ -1316,10 +1338,12 @@ void GameDllHooks::updateBattlefieldHover(
     int active,
     void(__cdecl* fn)(int))
 {
+    const MouseMapGuard guard;
     const int physicalX = *mouseX;
     const int physicalY = *mouseY;
-    const bool map = battlefieldAt(areas, physicalX, physicalY) != nullptr ||
-        Zoom::GetState().battlefieldDragging();
+    const bool map = guard.outermost &&
+        (battlefieldAt(areas, physicalX, physicalY) != nullptr ||
+            Zoom::GetState().battlefieldDragging());
     if (map)
     {
         *mouseX = Zoom::GetState().mapX(physicalX);
@@ -1342,7 +1366,8 @@ void GameDllHooks::calculateCursorTypeAtZoom(
     UiEventArea* areas,
     void(__cdecl* fn)(int, int, int*))
 {
-    if (battlefieldAt(areas, x, y))
+    const MouseMapGuard guard;
+    if (guard.outermost && battlefieldAt(areas, x, y))
     {
         x = Zoom::GetState().mapX(x);
         y = Zoom::GetState().mapY(y);
@@ -1401,15 +1426,12 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             g_moduleState->pitch * y);
     };
 
-    for (int y = transform.destination.y;
-        y < transform.destination.y + transform.destination.height; ++y)
-    {
-        Pixel* const destination = rendererRow(y);
-        const Pixel* const source = world + transform.sourceY(y) * width;
-        for (int x = transform.destination.x;
-            x < transform.destination.x + transform.destination.width; ++x)
-            destination[x] = source[transform.sourceX(x)];
-    }
+    Zoom::ScaleNearest16(
+        world,
+        width,
+        static_cast<Pixel*>(g_moduleState->surface.renderer),
+        static_cast<int>(g_moduleState->pitch / sizeof(Pixel)),
+        transform);
 
     if (showIndicator)
         Zoom::DrawIndicator16(
@@ -1427,6 +1449,16 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     {
         if (GetUIFilter().shouldIgnore(ui->type) ||
             (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
+            continue;
+
+        // An element with no sprites of its own - the in-game menu's click targets,
+        // say - has nothing the incremental path can update it from, so carrying its
+        // pixels forward carries them forward for good. Whatever the game last left
+        // there sticks: most visibly the block its cursor erase stamped back, which
+        // stops matching the moment a modal opens on top and the menu is laid out
+        // afresh. The decoration behind it is redrawn in full every frame, so let the
+        // world stand here and let that repaint over it.
+        if (!ui->sprites)
             continue;
 
         const UIScale::Rect panel = scaledUiRect(ui);
@@ -1452,8 +1484,32 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         data.cursorSavedPixels);
 
     int cursorLeft, cursorTop, cursorRight, cursorBottom;
-    if (zoom.cursorRect(cursorLeft, cursorTop, cursorRight, cursorBottom))
+    if (zoom.cursorSaveRect(
+        width, height,
+        data.cursorSavedX, data.cursorSavedY, data.cursorSavedWidth, data.cursorSavedHeight,
+        cursorLeft, cursorTop, cursorRight, cursorBottom))
     {
+        // The save-under is a frame behind the panels: it is captured before they
+        // repaint, so stamping it back reverts whatever they drew under the cursor
+        // since - a selection border on the action just clicked, say. Those tiles
+        // are no longer dirty, so the game never paints them again and the border
+        // stays broken. Redraw them from the element's own sprites, which the
+        // incremental path reads too and which are always current.
+        for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+        {
+            if (GetUIFilter().shouldIgnore(ui->type) ||
+                (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
+                continue;
+
+            const UIScale::Rect panel = scaledUiRect(ui);
+            const int left = std::max(cursorLeft, panel.x);
+            const int top = std::max(cursorTop, panel.y);
+            const int right = std::min(cursorRight, panel.x + panel.width);
+            const int bottom = std::min(cursorBottom, panel.y + panel.height);
+            if (right > left && bottom > top)
+                blitScaledUi(ui, panel, { left, top, right - left, bottom - top });
+        }
+
         cursorLeft = std::max(cursorLeft, transform.destination.x);
         cursorTop = std::max(cursorTop, transform.destination.y);
         cursorRight = std::min(cursorRight, transform.destination.x + transform.destination.width);
@@ -1464,7 +1520,8 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
             {
                 if (GetUIFilter().shouldIgnore(ui->type) ||
-                    (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
+                    (ui->uiEventArea && ui->uiEventArea->tag == 'FILD') ||
+                    !ui->sprites) // Nothing to hold back the world for: see above.
                     continue;
                 const UIScale::Rect panel = scaledUiRect(ui);
                 if (x >= panel.x && x < panel.x + panel.width &&
@@ -1526,6 +1583,32 @@ static UIScale::Rect& lastDecorArea()
     return area;
 }
 
+// Native rect the decorations paint into the scaling buffer, widest seen while the
+// same ones are on screen. drawScaledDecor keeps it; drawDecorUiElements clears it
+// once they go away.
+static UIScale::Rect& lastDecorSource()
+{
+    static UIScale::Rect source{};
+    return source;
+}
+
+static UIScale::Rect unionRect(const UIScale::Rect& a, const UIScale::Rect& b)
+{
+    if (a.width <= 0 || a.height <= 0)
+        return b;
+    if (b.width <= 0 || b.height <= 0)
+        return a;
+
+    const int left = std::min(a.x, b.x);
+    const int top = std::min(a.y, b.y);
+    return {
+        left,
+        top,
+        std::max(a.x + a.width, b.x + b.width) - left,
+        std::max(a.y + a.height, b.y + b.height) - top
+    };
+}
+
 void GameDllHooks::repaintPreviousScaledDecor(const DrawDecorUiElementData& data)
 {
     UIScale::Rect& previous = lastDecorArea();
@@ -1573,12 +1656,6 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     {
         Zoom::GetState().markPresented();
         Zoom::GetState().finishIndicatorFrame(GetTickCount());
-        Zoom::GetState().beginCursorFrame(
-            data.cursorSavedX,
-            data.cursorSavedY,
-            data.cursorSavedWidth,
-            data.cursorSavedHeight,
-            data.cursorSavedPixels);
         if (data.cursorRedrawFlag)
             *data.cursorRedrawFlag = 1;
 
@@ -1616,6 +1693,24 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     const bool scaledDecor = UIScale::Active() &&
         hasScalableDecor(data.uiRenderElem) &&
         beginScaledDecor(decorTarget, data.surfaceWidth, data.surfaceHeight);
+
+    // The remembered extent may not outlive the decorations it was measured from.
+    // It only ever grows, so closing a modal would leave the menu mapped through the
+    // rect the pair of them occupied - the modal's edges stay behind as seams. Start
+    // it over whenever the set changes; the game repaints everything on that frame
+    // anyway, so there is a full extent to measure.
+    static size_t decorSignature = 0;
+    size_t signature = 0;
+    for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
+        if (scaledDecor && isScalableDecor(uiObj->type) &&
+            !GetUIFilter().shouldIgnoreDecor(uiObj->type))
+            signature = signature * 31 + reinterpret_cast<uintptr_t>(uiObj);
+
+    if (signature != decorSignature)
+    {
+        decorSignature = signature;
+        lastDecorSource() = {};
+    }
 
     for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
     {
@@ -1712,9 +1807,41 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     }
 
     if (scaledDecor)
+    {
         drawScaledDecor(data.surfaceWidth, data.surfaceHeight);
 
+        // The game erases its cursor by stamping the save-under back, after we have
+        // composed the frame and at a moment we never see. Over scaled decoration that
+        // leaves pixels nothing repaints: the decoration writes only where it is
+        // opaque, so a stale glyph stranded in a gap stays for good. Reopen wherever
+        // the cursor is, so the next frame repaints what it stamped over.
+        int left, top, right, bottom;
+        if (Zoom::GetState().cursorSaveRect(
+            data.surfaceWidth, data.surfaceHeight,
+            data.cursorSavedX, data.cursorSavedY,
+            data.cursorSavedWidth, data.cursorSavedHeight,
+            left, top, right, bottom))
+        {
+            lastDecorArea() = unionRect(
+                lastDecorArea(), { left, top, right - left, bottom - top });
+        }
+    }
+
     repaintScaledUiBorders(data);
+
+    // Last write to the presented frame: the cursor is drawn on top of it right
+    // after this, and erased from it by native code at a moment we do not see.
+    if (zoomed)
+    {
+        Zoom::GetState().refreshCursorSave(
+            data.surfaceWidth,
+            data.surfaceHeight,
+            data.cursorSavedX,
+            data.cursorSavedY,
+            data.cursorSavedWidth,
+            data.cursorSavedHeight,
+            data.cursorSavedPixels);
+    }
 }
 
 
@@ -4151,8 +4278,22 @@ void GameDllHooks::drawScaledDecor(int width, int height)
         return;
 
     const UIScale::Rect source{ left, top, right - left + 1, bottom - top + 1 };
+
+    // Anchor the widest rect the decorations have painted into, never just what this
+    // frame happened to repaint. UIScale::Anchor is piecewise - top edge, bottom edge
+    // or centre, chosen from where the rect sits against the screen middle - so a
+    // fragment of the menu picks a different rule from the menu itself and lands
+    // somewhere else entirely. That is what puts the top border decoration inside the
+    // menu at native size. Mapping every frame through the same rect instead keeps a
+    // partial repaint landing exactly where the full one did.
+    // ponytail: monotonic union, bounded by the screen. It converges on the real
+    // extent rather than creeping, because reopening it below forces a full repaint
+    // next frame; the reset in drawDecorUiElements is what bounds its lifetime.
+    UIScale::Rect& extent = lastDecorSource();
+    extent = unionRect(extent, source);
+
     const UIScale::Rect area = UIScale::Apply(
-        source.x, source.y, source.width, source.height, width, height);
+        extent.x, extent.y, extent.width, extent.height, width, height);
 
     if (!g_moduleState)
         return;
@@ -4167,7 +4308,7 @@ void GameDllHooks::drawScaledDecor(int width, int height)
 
     for (int y = 0; y < area.height; ++y)
     {
-        const int sourceY = source.y + UIScale::Project(y, area.height, source.height);
+        const int sourceY = extent.y + UIScale::Project(y, area.height, extent.height);
         const Pixel* const row = buffer.data() + static_cast<size_t>(sourceY) * width;
         Pixel* const destination = reinterpret_cast<Pixel*>(
             reinterpret_cast<uintptr_t>(g_moduleState->surface.renderer) +
@@ -4175,7 +4316,7 @@ void GameDllHooks::drawScaledDecor(int width, int height)
 
         for (int x = 0; x < area.width; ++x)
         {
-            const Pixel pixel = row[source.x + UIScale::Project(x, area.width, source.width)];
+            const Pixel pixel = row[extent.x + UIScale::Project(x, area.width, extent.width)];
             if (pixel != kDecorColorKey)
                 destination[area.x + x] = pixel;
         }
@@ -4184,7 +4325,12 @@ void GameDllHooks::drawScaledDecor(int width, int height)
     if (locked)
         unlockDxSurface();
 
-    lastDecorArea() = area;
+    // Reopen the native rect the decorations paint into as well as the scaled area
+    // they were presented in. The game repaints decorations by dirty region and at
+    // native coordinates, so leaving that rect closed only ever repaints the menu in
+    // the patches the game itself dirtied, and the decoration writes nothing where it
+    // is transparent - so whatever composition left in a gap stays there.
+    lastDecorArea() = unionRect(area, extent);
 }
 
 void GameDllHooks::repaintScaledUiBorders(const DrawDecorUiElementData& data)

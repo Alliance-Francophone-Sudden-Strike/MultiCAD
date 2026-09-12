@@ -65,19 +65,48 @@ namespace UIScale
         return { left, top, right - left, bottom - top };
     }
 
-    inline int Anchor(int position, int extent, int scaledExtent, int screenExtent, float factor)
+    // Round to nearest: a plain cast truncates, and a float factor is never
+    // exact (100 * 1.27f is 126.99999), which loses a pixel off every edge.
+    inline int Scaled(int value, float factor)
+    {
+        return static_cast<int>(value * factor + 0.5f);
+    }
+
+    // Projects both edges of the element through the same mapping and derives
+    // the extent from them. Scaling position and extent separately makes
+    // neighbours stop sharing an edge - int(64 * 1.27) is one past
+    // int(32 * 1.27) * 2 - and the unpainted seam shows as a black hairline.
+    inline void Anchor(
+        int position, int extent, int screenExtent, float factor,
+        int& outPosition, int& outExtent)
     {
         const int middle = screenExtent / 2;
 
-        int scaled;
         if (position + extent <= middle)
-            scaled = static_cast<int>(position * factor);
+        {
+            outPosition = Scaled(position, factor);
+            outExtent = Scaled(position + extent, factor) - outPosition;
+        }
         else if (position >= middle)
-            scaled = screenExtent - static_cast<int>((screenExtent - position - extent) * factor) - scaledExtent;
+        {
+            // Pin the far edge where it natively is and grow inward only. Scaling
+            // the gap to the screen edge instead lifts the panel off whatever sits
+            // below it by gap * (factor - 1) - a black strip under the bottom-left
+            // HUD, widening with the factor. Neighbours pinned to the same edge
+            // then overlap rather than separate, and an overlap paints, a gap does not.
+            const int gap = screenExtent - position - extent;
+            outExtent = Scaled(extent, factor);
+            outPosition = screenExtent - gap - outExtent;
+        }
         else
-            scaled = position + extent / 2 - scaledExtent / 2;
+        {
+            // Straddles the middle: no edge to grow from, so keep it centred.
+            outExtent = Scaled(extent, factor);
+            outPosition = position + extent / 2 - outExtent / 2;
+        }
 
-        return std::clamp(scaled, 0, screenExtent - scaledExtent);
+        outExtent = std::clamp(outExtent, 1, screenExtent);
+        outPosition = std::clamp(outPosition, 0, screenExtent - outExtent);
     }
 
     inline Rect Apply(int x, int y, int width, int height, int screenWidth, int screenHeight)
@@ -96,14 +125,10 @@ namespace UIScale
             static_cast<float>(screenWidth) / static_cast<float>(width),
             static_cast<float>(screenHeight) / static_cast<float>(height) });
 
-        const int scaledWidth = std::min(static_cast<int>(width * factor), screenWidth);
-        const int scaledHeight = std::min(static_cast<int>(height * factor), screenHeight);
+        Rect scaled{};
+        Anchor(x, width, screenWidth, factor, scaled.x, scaled.width);
+        Anchor(y, height, screenHeight, factor, scaled.y, scaled.height);
 
-        return {
-            Anchor(x, width, scaledWidth, screenWidth, factor),
-            Anchor(y, height, scaledHeight, screenHeight, factor),
-            scaledWidth,
-            scaledHeight
-        };
+        return scaled;
     }
 }
