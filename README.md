@@ -119,6 +119,20 @@ Use `Zoom=off` to disable zoom or `ZoomIndicator=hidden` to hide its indicator.
 `PersistentZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
 `InvertZoom=on` reverses the mouse wheel direction for zooming; it defaults to `off`.
 
+### In-Game UI Scale
+
+At 1920x1080 and above the in-game panels get small. `UIScale` enlarges them:
+
+> ```ini
+> [Game]
+> UIScale=1.5
+> ```
+
+Any number between `1` and `3`, fractions allowed; it defaults to `1` (no scaling). It grows the
+bottom-left and top-left panels and the in-game menu around the screen edge they sit against, and
+leaves the battlefield and the strategic map at their normal size. Clicks, hovers and the zoom
+feature follow the scaled panels. Values outside the range are clamped.
+
 ### Replacement Menu or Game Modules
 
 The game binds its two modules by name, from the ini it boots with:

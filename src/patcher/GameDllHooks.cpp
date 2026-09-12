@@ -1429,10 +1429,11 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
             continue;
 
-        const int left = std::max(0, ui->leftX);
-        const int top = std::max(0, ui->topY);
-        const int right = std::min(width, ui->rightX + 1);
-        const int bottom = std::min(height, ui->bottomY + 1);
+        const UIScale::Rect panel = scaledUiRect(ui);
+        const int left = std::max(0, panel.x);
+        const int top = std::max(0, panel.y);
+        const int right = std::min(width, panel.x + panel.width);
+        const int bottom = std::min(height, panel.y + panel.height);
         for (int y = top; y < bottom; ++y)
             std::copy(clean + y * width + left, clean + y * width + right, rendererRow(y) + left);
     }
@@ -1465,8 +1466,9 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
                 if (GetUIFilter().shouldIgnore(ui->type) ||
                     (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
                     continue;
-                if (x >= ui->leftX && x <= ui->rightX &&
-                    y >= ui->topY && y <= ui->bottomY)
+                const UIScale::Rect panel = scaledUiRect(ui);
+                if (x >= panel.x && x < panel.x + panel.width &&
+                    y >= panel.y && y < panel.y + panel.height)
                     return true;
             }
             return false;
@@ -1485,8 +1487,40 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     return true;
 }
 
+void GameDllHooks::repaintVanishedUiScaleRects(const DrawDecorUiElementData& data)
+{
+    static std::vector<UIScale::Rect> previous;
+    static std::vector<UIScale::Rect> current;
+
+    current.clear();
+    for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+    {
+        const UIScale::Rect rect = scaledUiRect(ui);
+        if (rect.width != ui->rightX - ui->leftX + 1 || rect.height != ui->bottomY - ui->topY + 1)
+            current.push_back(rect);
+    }
+
+    for (const UIScale::Rect& rect : previous)
+    {
+        const auto same = [&rect](const UIScale::Rect& other)
+        {
+            return other.x == rect.x && other.y == rect.y &&
+                other.width == rect.width && other.height == rect.height;
+        };
+
+        if (std::none_of(current.begin(), current.end(), same))
+            sub_10055E00(
+                data.closedAreaGameDataArray, nullptr, 0x10,
+                rect.x, rect.y,
+                rect.x + rect.width - 1, rect.y + rect.height - 1);
+    }
+
+    previous.swap(current);
+}
+
 void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
+    repaintVanishedUiScaleRects(data);
     Zoom::GetState().updatePan(data.cameraX, data.cameraY, GetTickCount());
     const bool zoomed = prepareZoomPresentation(data);
 
@@ -3881,6 +3915,115 @@ void GameDllHooks::drawPlaneCrossOnStrategicMap(PlaneData* mapData, const PlaneM
     data.drawVertLine(data.mapData, mapX, mapY - 2, 5, data.colors[mapData->teamId]);
 }
 
+static bool isScalableUiTag(const int tag)
+{
+    return tag != 'FILD' && tag != 'TMAP' && tag != UIFilter::getCustomTag();
+}
+
+UIScale::Rect GameDllHooks::scaledUiRect(const UiElementBase* self)
+{
+    const UIScale::Rect native
+    {
+        self->leftX,
+        self->topY,
+        self->rightX - self->leftX + 1,
+        self->bottomY - self->topY + 1
+    };
+
+    if (self->type == UIFilter::getCustomType())
+        return native;
+
+    if (self->uiEventArea && !isScalableUiTag(self->uiEventArea->tag))
+        return native;
+
+    return UIScale::Apply(native.x, native.y, native.width, native.height, Screen::width_, Screen::height_);
+}
+
+void GameDllHooks::scaleUiEventArea(UiElementBase* elem)
+{
+    UiEventArea* const area = elem->uiEventArea;
+    if (!area || !isScalableUiTag(area->tag))
+        return;
+
+    const int width = elem->rightX - elem->leftX + 1;
+    const int height = elem->bottomY - elem->topY + 1;
+
+    if (area->x != elem->leftX || area->y != elem->topY ||
+        std::abs(area->width - width) > 1 || std::abs(area->height - height) > 1)
+    {
+        return;
+    }
+
+    const UIScale::Rect scaled = scaledUiRect(elem);
+    if (scaled.width == width && scaled.height == height)
+        return;
+
+    area->x = scaled.x;
+    area->y = scaled.y;
+    area->width = UIScale::Project(area->width, width, scaled.width);
+    area->height = UIScale::Project(area->height, height, scaled.height);
+}
+
+UIScale::Rect GameDllHooks::nativeAreaRect(UiElementBase* elements, const UiEventArea* area)
+{
+    if (UIScale::Active())
+        for (UiElementBase* ui = elements; ui; ui = ui->prev)
+            if (ui->uiEventArea == area)
+                return {
+                    ui->leftX,
+                    ui->topY,
+                    ui->rightX - ui->leftX + 1,
+                    ui->bottomY - ui->topY + 1
+                };
+
+    return { area->x, area->y, area->width, area->height };
+}
+
+void GameDllHooks::drawScaledUiRegion(
+    const UiElementBase* self, const UIScale::Rect& rect,
+    int sourceLeft, int sourceTop, int sourceRight, int sourceBottom)
+{
+    const int width = self->rightX - self->leftX + 1;
+    const int height = self->bottomY - self->topY + 1;
+
+    if (!self->sprites || self->stride < width || rect.width <= 0 || rect.height <= 0)
+        return;
+
+    sourceLeft = std::clamp(sourceLeft, 0, width - 1);
+    sourceTop = std::clamp(sourceTop, 0, height - 1);
+    sourceRight = std::clamp(sourceRight, sourceLeft, width - 1);
+    sourceBottom = std::clamp(sourceBottom, sourceTop, height - 1);
+
+    const int left = rect.x + UIScale::Project(sourceLeft, width, rect.width);
+    const int top = rect.y + UIScale::Project(sourceTop, height, rect.height);
+    const int blitWidth = rect.x + UIScale::Project(sourceRight + 1, width, rect.width) - left;
+    const int blitHeight = rect.y + UIScale::Project(sourceBottom + 1, height, rect.height) - top;
+
+    if (blitWidth <= 0 || blitHeight <= 0)
+        return;
+
+    static std::vector<Pixel> scaled;
+    try
+    {
+        scaled.resize(static_cast<size_t>(blitWidth) * blitHeight);
+    }
+    catch (...)
+    {
+        return;
+    }
+
+    for (int y = 0; y < blitHeight; ++y)
+    {
+        const Pixel* const source = self->sprites +
+            static_cast<size_t>(UIScale::Project(top + y - rect.y, rect.height, height)) * self->stride;
+        Pixel* const destination = scaled.data() + static_cast<size_t>(y) * blitWidth;
+        for (int x = 0; x < blitWidth; ++x)
+            destination[x] = source[UIScale::Project(left + x - rect.x, rect.width, width)];
+    }
+
+    copyToRendererSurfaceRect(0, 0, blitWidth, blitHeight, left, top, blitWidth, scaled.data());
+}
+
 void GameDllHooks::addUiElement(UiElementBase* elem, const AddUiElementData& data)
 {
     UiElementBase** pointed = data.pointed;
@@ -3899,6 +4042,7 @@ void GameDllHooks::addUiElement(UiElementBase* elem, const AddUiElementData& dat
     }
 
     elem->type = data.type;
+    scaleUiEventArea(elem);
 
     UiElementBase* it;
     for (it = *tail; it; it = it->prev)
@@ -3950,6 +4094,10 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
     v6.mask = 0xFF;
     v6.maskValue = 0xFE;
 
+    const UIScale::Rect scaled = scaledUiRect(self);
+    const bool upscaled = scaled.width != self->rightX - self->leftX + 1 ||
+        scaled.height != self->bottomY - self->topY + 1;
+
     int tileX = self->leftX >> 4;
     int tileY = self->topY >> 3;
     int length = self->rightX - self->leftX;
@@ -3964,7 +4112,13 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
     {
         do
         {
-            sub_98410(v6.alignX - self->leftX, v6.alignY - self->topY, v6.allowX - v6.alignX + 1, v6.allowY - v6.alignY + 1, self->leftX, self->topY, &self->sprites);
+            if (upscaled)
+                drawScaledUiRegion(
+                    self, scaled,
+                    v6.alignX - self->leftX, v6.alignY - self->topY,
+                    v6.allowX - self->leftX, v6.allowY - self->topY);
+            else
+                sub_98410(v6.alignX - self->leftX, v6.alignY - self->topY, v6.allowX - v6.alignX + 1, v6.allowY - v6.alignY + 1, self->leftX, self->topY, &self->sprites);
         } while (sub_79950(dword_103B708, &v6));
     }
 }
@@ -3974,13 +4128,36 @@ void GameDllHooks::calculateClosedArea(UiElementBase* self, const CalculateClose
     if (GetUIFilter().shouldIgnore(self->type))
         return;
 
-    data.fn_794B0(data.dword_103CF10, 30, self->leftX, self->topY, self->rightX, self->bottomY);
+    const UIScale::Rect scaled = scaledUiRect(self);
+    data.fn_794B0(
+        data.dword_103CF10, 30,
+        scaled.x, scaled.y,
+        scaled.x + scaled.width - 1, scaled.y + scaled.height - 1);
 }
 
 int  __declspec(noinline) __fastcall GameDllHooks::calculateCursorType(UiElementBase* self, void* /*dummy*/, int x, int y, int* a4)
 {
     if (GetUIFilter().shouldIgnore(self->type))
         return 0;
+
+    const UIScale::Rect scaled = scaledUiRect(self);
+    const int nativeWidth = self->rightX - self->leftX + 1;
+    const int nativeHeight = self->bottomY - self->topY + 1;
+
+    if (scaled.width != nativeWidth || scaled.height != nativeHeight)
+    {
+        const int physicalX = x + self->leftX;
+        const int physicalY = y + self->topY;
+
+        if (physicalX < scaled.x || physicalX >= scaled.x + scaled.width ||
+            physicalY < scaled.y || physicalY >= scaled.y + scaled.height)
+        {
+            return 0;
+        }
+
+        x = (physicalX - scaled.x) * nativeWidth / scaled.width;
+        y = (physicalY - scaled.y) * nativeHeight / scaled.height;
+    }
 
     if (self->forced)
     {
@@ -4036,10 +4213,10 @@ void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& 
         if (GetUIFilter().shouldIgnoreByTag(area->tag))
             continue;
 
-        int left = area->x;
-        int top = area->y;
-        int right = left + area->width;
-        int bottom = top + area->height;
+        const int left = area->x;
+        const int top = area->y;
+        const int right = left + area->width;
+        const int bottom = top + area->height;
 
         bool isInside =
             mouseX >= left &&
@@ -4058,13 +4235,18 @@ void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& 
         if (area->flags & data.eventTag)
         {
             const bool battlefield = area->tag == 'FILD';
-            const int eventX = battlefield ? Zoom::GetState().mapX(mouseX) : mouseX;
-            const int eventY = battlefield ? Zoom::GetState().mapY(mouseY) : mouseY;
+            const UIScale::Rect native = nativeAreaRect(data.uiElements, area);
+            const int eventX = battlefield
+                ? Zoom::GetState().mapX(mouseX) - left
+                : (mouseX - left) * native.width / area->width;
+            const int eventY = battlefield
+                ? Zoom::GetState().mapY(mouseY) - top
+                : (mouseY - top) * native.height / area->height;
             writeEventToRingBuffer(
                 area->tag,
                 data.eventTag,
-                eventX - left,
-                eventY - top);
+                eventX,
+                eventY);
 
             // Stop propagation
             if (area->flags & UI_STOP_PROPAGATION)
@@ -4087,10 +4269,10 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
         if (GetUIFilter().shouldIgnoreByTag(area->tag))
             continue;
 
-        int left = area->x;
-        int top = area->y;
-        int right = left + area->width;
-        int bottom = top + area->height;
+        const int left = area->x;
+        const int top = area->y;
+        const int right = left + area->width;
+        const int bottom = top + area->height;
 
         bool wasInside =
             data.prevMouseX >= left &&
@@ -4107,13 +4289,18 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
         if (wasInside && !isInside && (area->flags & UI_MOUSE_LEAVE))
         {
             const bool battlefield = area->tag == 'FILD';
-            const int eventX = battlefield ? Zoom::GetState().mapX(data.mouseX) : data.mouseX;
-            const int eventY = battlefield ? Zoom::GetState().mapY(data.mouseY) : data.mouseY;
+            const UIScale::Rect native = nativeAreaRect(data.uiElements, area);
+            const int eventX = battlefield
+                ? Zoom::GetState().mapX(data.mouseX) - left
+                : (data.mouseX - left) * native.width / area->width;
+            const int eventY = battlefield
+                ? Zoom::GetState().mapY(data.mouseY) - top
+                : (data.mouseY - top) * native.height / area->height;
             writeEventToRingBuffer(
                 area->tag,
                 UI_MOUSE_LEAVE,
-                eventX - left,
-                eventY - top);
+                eventX,
+                eventY);
         }
     }
 
@@ -4129,10 +4316,10 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
         if (GetUIFilter().shouldIgnoreByTag(area->tag))
             continue;
 
-        int left = area->x;
-        int top = area->y;
-        int right = left + area->width;
-        int bottom = top + area->height;
+        const int left = area->x;
+        const int top = area->y;
+        const int right = left + area->width;
+        const int bottom = top + area->height;
 
         bool wasInside =
             data.prevMouseX >= left &&
@@ -4158,13 +4345,18 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
         if (!wasInside && (area->flags & UI_MOUSE_ENTER))
         {
             const bool battlefield = area->tag == 'FILD';
-            const int eventX = battlefield ? Zoom::GetState().mapX(data.mouseX) : data.mouseX;
-            const int eventY = battlefield ? Zoom::GetState().mapY(data.mouseY) : data.mouseY;
+            const UIScale::Rect native = nativeAreaRect(data.uiElements, area);
+            const int eventX = battlefield
+                ? Zoom::GetState().mapX(data.mouseX) - left
+                : (data.mouseX - left) * native.width / area->width;
+            const int eventY = battlefield
+                ? Zoom::GetState().mapY(data.mouseY) - top
+                : (data.mouseY - top) * native.height / area->height;
             writeEventToRingBuffer(
                 area->tag,
                 UI_MOUSE_ENTER,
-                eventX - left,
-                eventY - top);
+                eventX,
+                eventY);
         }
 
         // MouseMove / Hover
@@ -4173,13 +4365,18 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
             if (area->flags & UI_MOUSE_MOVE)
             {
                 const bool battlefield = area->tag == 'FILD';
-                const int eventX = battlefield ? Zoom::GetState().mapX(data.mouseX) : data.mouseX;
-                const int eventY = battlefield ? Zoom::GetState().mapY(data.mouseY) : data.mouseY;
+                const UIScale::Rect native = nativeAreaRect(data.uiElements, area);
+                const int eventX = battlefield
+                    ? Zoom::GetState().mapX(data.mouseX) - left
+                    : (data.mouseX - left) * native.width / area->width;
+                const int eventY = battlefield
+                    ? Zoom::GetState().mapY(data.mouseY) - top
+                    : (data.mouseY - top) * native.height / area->height;
                 writeEventToRingBuffer(
                     area->tag,
                     UI_MOUSE_MOVE,
-                    eventX - left,
-                    eventY - top);
+                    eventX,
+                    eventY);
             }
 
             if (area->flags & UI_STOP_PROPAGATION)

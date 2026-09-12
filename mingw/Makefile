@@ -44,7 +44,7 @@ GCC_LIBDIR := $(dir $(shell $(CXX) -print-libgcc-file-name))
 
 SRC_FILES := $(shell find $(SRCDIR) -type f 2>/dev/null)
 
-.PHONY: all mt clean test zoom-test zoom-render-test prep
+.PHONY: all mt clean test zoom-test uiscale-test zoom-render-test prep
 all: bin/cadMulti_mt.dll bin/cadMulti.dll
 mt:  bin/cadMulti_mt.dll
 
@@ -83,7 +83,7 @@ bin/cadMulti.dll: $(OBJS) $(RES)
 
 # LoadLibrary smoke test under Wine. Runs from bin/ so cadMulti.dll finds its
 # sidecar runtime DLLs (mirrors dropping everything into the game folder).
-test: zoom-test all
+test: zoom-test uiscale-test all
 	@i686-w64-mingw32-gcc -m32 -O2 $(HERE)loadtest.c -o bin/loadtest.exe
 	@cd bin && for d in cadMulti_mt.dll cadMulti.dll; do \
 	    echo "== $$d =="; WINEDEBUG=-all wine loadtest.exe "$$d" || exit 1; \
@@ -94,6 +94,11 @@ zoom-test:
 	@mkdir -p obj
 	$(HOST_CXX) -std=c++20 -Wall -Wextra -pedantic -I$(SRCDIR)/core ../tests/zoom_test.cpp -o obj/zoom_test
 	obj/zoom_test
+
+uiscale-test:
+	@mkdir -p obj
+	$(HOST_CXX) -std=c++20 -Wall -Wextra -pedantic -I$(SRCDIR)/core ../tests/uiscale_test.cpp -o obj/uiscale_test
+	obj/uiscale_test
 
 # Exercise the actual composition hook and sprite renderer under Wine.
 bin/zoom_render_test.exe: ../tests/zoom_render_test.cpp $(OBJS)

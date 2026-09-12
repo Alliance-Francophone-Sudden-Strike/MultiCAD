@@ -2,6 +2,7 @@
 
 #include "types.h"
 #include "cad.h"
+#include "UIScale.h"
 #include "DllHooksBase.h"
 
 #include <vector>
@@ -1020,6 +1021,7 @@ private:
         int mouseY;
         UiEventArea* uiEventAreas;
         int(__cdecl* writeEventToRingBuffer)(int, int, int, int);
+        UiElementBase* uiElements;
     };
 
     struct DispatchMouseMoveEventData
@@ -1030,6 +1032,7 @@ private:
         int mouseY;
         UiEventArea* uiEventAreas;
         int(__cdecl* writeEventToRingBuffer)(int, int, int, int);
+        UiElementBase* uiElements;
     };
 
     struct DispatchWndMessageData
@@ -1376,7 +1379,8 @@ public:
             g->getValue<int>(A.mouseX),
             g->getValue<int>(A.mouseY),
             g->getValue<UiEventArea*>(A.uiEventAreas),
-            g->getFn<int(__cdecl)(int, int, int, int)>(A.fnWriteEventToRingBuffer)
+            g->getFn<int(__cdecl)(int, int, int, int)>(A.fnWriteEventToRingBuffer),
+            g->getValue<UiElementBase*>(A.pointedUiElem + 0x8)
         };
 
         dispatchMouseButtonEvent(data);
@@ -1397,7 +1401,8 @@ public:
             mouseX,
             mouseY,
             g->getValue<UiEventArea*>(A.uiEventAreas),
-            g->getFn<int(__cdecl)(int, int, int, int)>(A.fnWriteEventToRingBuffer)
+            g->getFn<int(__cdecl)(int, int, int, int)>(A.fnWriteEventToRingBuffer),
+            g->getValue<UiElementBase*>(A.pointedUiElem + 0x8)
         };
 
         dispatchMouseMoveEvent(data);
@@ -1434,6 +1439,14 @@ public:
         return dispatchWndMessage(data);
     }
 private:
+    static UIScale::Rect scaledUiRect(const UiElementBase* self);
+    static UIScale::Rect nativeAreaRect(UiElementBase* elements, const UiEventArea* area);
+    static void scaleUiEventArea(UiElementBase* elem);
+    static void drawScaledUiRegion(
+        const UiElementBase* self, const UIScale::Rect& rect,
+        int sourceLeft, int sourceTop, int sourceRight, int sourceBottom);
+    static void repaintVanishedUiScaleRects(const DrawDecorUiElementData& data);
+
     static void prepareUiElements(UiElementBase* ui);
     static void withBattlefieldMouseCoordinates(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());
     static void updateBattlefieldHover(int* mouseX, int* mouseY, UiEventArea* areas, int active, void(__cdecl* fn)(int));
