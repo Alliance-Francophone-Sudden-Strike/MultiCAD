@@ -1239,6 +1239,19 @@ void __declspec(noinline) __stdcall  GameDllHooks::sub_1005C170_fr()
 
 void GameDllHooks::prepareUiElements(UiElementBase* ui)
 {
+    // Zooming and edge panning resize the minimap/strategic-map viewport rectangles
+    // without scrolling the camera, and the game repaints those only from the
+    // camera-scroll notification it sends to every panel (0x97EA0 -> fn12). Replay
+    // that notification with a null delta, before the panels repaint below. It also
+    // reopens each panel area for the world blit, so close it again like the pass
+    // that runs just ahead of this one.
+    if (Zoom::GetState().takeViewportChange())
+        for (UiElementBase* element = ui; element; element = element->prev)
+        {
+            element->vtable->fn12(element, 0, 0);
+            element->vtable->calculateClosedArea(element);
+        }
+
     bool isolated = false;
     for (; ui; ui = ui->prev)
     {

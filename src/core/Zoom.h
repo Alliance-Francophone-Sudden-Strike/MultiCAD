@@ -353,6 +353,20 @@ namespace Zoom
         }
         Transform presentedTransform() const { return presented_; }
 
+        // The minimap and strategic-map viewport rectangles are sized from the zoom
+        // scale and pan, but the game only repaints them when the camera scrolls.
+        // Report a change once so the caller can replay that notification.
+        bool takeViewportChange()
+        {
+            if (scale_ == notifiedScale_ && panX_ == notifiedPanX_ && panY_ == notifiedPanY_)
+                return false;
+
+            notifiedScale_ = scale_;
+            notifiedPanX_ = panX_;
+            notifiedPanY_ = panY_;
+            return true;
+        }
+
         void markPresented()
         {
             presented_ = transform();
@@ -663,6 +677,9 @@ namespace Zoom
         uint32_t indicatorTick_{};
         int panX_{};
         int panY_{};
+        int notifiedScale_{ kMinScale };
+        int notifiedPanX_{};
+        int notifiedPanY_{};
         int panDirections_{};
         int pointerX_{};
         int pointerY_{};

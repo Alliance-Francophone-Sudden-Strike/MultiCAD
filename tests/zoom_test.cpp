@@ -230,6 +230,19 @@ int main()
     assert(cursorFrame[5] == 10 && cursorFrame[6] == 11 && cursorFrame[9] == 12); // Previous cursor erased last.
     assert(cursorFrame[2] == 20 && cursorFrame[3] == 21); // Newly moved cursor erased too.
 
+    State viewport;
+    viewport.setMode(Mode::On);
+    viewport.setBattlefield({ 0, 0, 64, 32 });
+    assert(!viewport.takeViewportChange()); // idle at 1x, nothing to repaint
+    assert(viewport.addWheelDelta(120));
+    assert(viewport.takeViewportChange()); // zoom step moves the minimap rectangle
+    assert(!viewport.takeViewportChange()); // reported once
+    viewport.setPanDirection(State::PanRight, true);
+    viewport.updatePan(0, 0, 0);
+    viewport.updatePan(0, 0, 16); // camera stuck at the map edge, so the view pans
+    assert(viewport.takeViewportChange());
+    assert(!viewport.takeViewportChange());
+
     State isolation;
     isolation.setMode(Mode::On);
     isolation.addWheelDelta(120);
