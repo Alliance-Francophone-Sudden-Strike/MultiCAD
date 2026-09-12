@@ -1489,6 +1489,15 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             data.cursorSavedPixels);
         if (data.cursorRedrawFlag)
             *data.cursorRedrawFlag = 1;
+
+        sub_10055E00(
+            data.closedAreaGameDataArray,
+            nullptr,
+            8,
+            0,
+            0,
+            data.surfaceWidth - 1,
+            data.surfaceHeight - 1);
     }
 
     // Snapshot decorations only, after terrain/camera/world updates. At 1x
