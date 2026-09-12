@@ -112,10 +112,12 @@ In addition, you can configure the zoom indicator and its persistence:
 > Zoom=on
 > ZoomIndicator=right
 > PersistentZoomIndicator=on
+> InvertZoom=on
 > ```
 
 Use `Zoom=off` to disable zoom or `ZoomIndicator=hidden` to hide its indicator.
 `PersistentZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
+`InvertZoom=on` reverses the mouse wheel direction for zooming; it defaults to `off`.
 
 ### Replacement Menu or Game Modules
 

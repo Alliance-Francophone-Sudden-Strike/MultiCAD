@@ -90,6 +90,7 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     Zoom::GetState().setMode(Screen::GetZoom());
     Zoom::GetState().setIndicatorAnchor(Screen::GetZoomIndicator());
     Zoom::GetState().setPersistentIndicator(Screen::GetPersistentZoomIndicator());
+    Zoom::GetState().setInvertZoom(Screen::GetInvertZoom());
     return true;
 }
 

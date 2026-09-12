@@ -54,6 +54,10 @@ int main()
     state.setMode(Mode::On);
     assert(!state.addWheelDelta(60));
     assert(state.addWheelDelta(60) && state.scale() == 5);
+    state.setInvertZoom(true);
+    assert(state.addWheelDelta(-120) && state.scale() == 6); // inverted: negative delta zooms in
+    assert(state.addWheelDelta(120) && state.scale() == 5);
+    state.setInvertZoom(false);
     state.setBattlefield({ 10, 20, 100, 80 });
     assert(state.transform().destination.x == 10);
     assert(state.mapX(10) == 10 && state.mapX(109) == 109); // target is not presented yet

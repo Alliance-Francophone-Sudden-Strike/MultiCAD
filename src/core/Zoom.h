@@ -220,6 +220,7 @@ namespace Zoom
         bool battlefieldDragging() const { return battlefieldDragButtons_ != 0; }
         IndicatorAnchor indicatorAnchor() const { return indicatorAnchor_; }
         void setPersistentIndicator(bool persistent) { persistentIndicator_ = persistent; }
+        void setInvertZoom(bool invert) { invertZoom_ = invert; }
         void setIndicatorAnchor(IndicatorAnchor anchor)
         {
             indicatorAnchor_ = anchor;
@@ -409,7 +410,7 @@ namespace Zoom
             if (mode_ == Mode::Off || dragging())
                 return false;
 
-            wheelRemainder_ += delta;
+            wheelRemainder_ += invertZoom_ ? -delta : delta;
             const int oldScale = scale_;
             while (wheelRemainder_ >= 120)
             {
@@ -657,6 +658,7 @@ namespace Zoom
         bool worldIsolated_{};
         IndicatorAnchor indicatorAnchor_{ IndicatorAnchor::Left };
         bool persistentIndicator_{};
+        bool invertZoom_{};
         bool indicatorActive_{};
         uint32_t indicatorTick_{};
         int panX_{};
