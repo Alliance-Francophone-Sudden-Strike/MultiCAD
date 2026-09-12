@@ -1442,9 +1442,15 @@ private:
     static UIScale::Rect scaledUiRect(const UiElementBase* self);
     static UIScale::Rect nativeAreaRect(UiElementBase* elements, const UiEventArea* area);
     static void scaleUiEventArea(UiElementBase* elem);
-    static void drawScaledUiRegion(
-        const UiElementBase* self, const UIScale::Rect& rect,
-        int sourceLeft, int sourceTop, int sourceRight, int sourceBottom);
+    static void blitScaledUi(
+        const UiElementBase* self, const UIScale::Rect& rect, const UIScale::Rect& area);
+    static void repaintScaledUiBorders(const DrawDecorUiElementData& data);
+    static void repaintScaledUiUnderCursor(
+        const DrawDecorUiElementData& data, const UiElementBase* self, const UIScale::Rect& rect);
+    static bool hasScalableDecor(UIRenderElement* decor);
+    static bool beginScaledDecor(UiElementBase& target, int width, int height);
+    static void drawScaledDecor(int width, int height);
+    static void repaintPreviousScaledDecor(const DrawDecorUiElementData& data);
     static void repaintVanishedUiScaleRects(const DrawDecorUiElementData& data);
 
     static void prepareUiElements(UiElementBase* ui);

@@ -221,6 +221,7 @@ namespace Zoom
         IndicatorAnchor indicatorAnchor() const { return indicatorAnchor_; }
         void setPersistentIndicator(bool persistent) { persistentIndicator_ = persistent; }
         void setInvertZoom(bool invert) { invertZoom_ = invert; }
+        void setZoomOnCursor(bool enabled) { zoomOnCursor_ = enabled; }
         void setIndicatorAnchor(IndicatorAnchor anchor)
         {
             indicatorAnchor_ = anchor;
@@ -436,7 +437,12 @@ namespace Zoom
                 scale_ = std::max(scale_ - 1, kMinScale);
                 wheelRemainder_ += 120;
             }
-            return scale_ != oldScale;
+            if (scale_ == oldScale)
+                return false;
+
+            if (zoomOnCursor_)
+                anchorPanToPointer(oldScale);
+            return true;
         }
 
         void reset()
@@ -673,6 +679,7 @@ namespace Zoom
         IndicatorAnchor indicatorAnchor_{ IndicatorAnchor::Left };
         bool persistentIndicator_{};
         bool invertZoom_{};
+        bool zoomOnCursor_{};
         bool indicatorActive_{};
         uint32_t indicatorTick_{};
         int panX_{};
@@ -716,6 +723,29 @@ namespace Zoom
             const int battlefieldMargin = battlefieldExtent - ViewportExtent(battlefieldExtent, scale_);
             return battlefieldMargin > 0 ?
                 std::clamp(margin / 2 + pan * margin / battlefieldMargin, 0, margin) : 0;
+        }
+
+        void anchorPanToPointer(int oldScale)
+        {
+            if (!pointerValid_ ||
+                pointerX_ < battlefield_.x || pointerX_ >= battlefield_.x + battlefield_.width ||
+                pointerY_ < battlefield_.y || pointerY_ >= battlefield_.y + battlefield_.height)
+                return;
+
+            const auto anchor = [oldScale, this](int& pan, int pointer, int origin, int extent)
+            {
+                const int cursor = std::clamp(pointer - origin, 0, extent - 1);
+                const int oldViewport = ViewportExtent(extent, oldScale);
+                const int viewport = ViewportExtent(extent, scale_);
+                const int oldMargin = extent - oldViewport;
+                const int margin = extent - viewport;
+                const int offset = std::clamp(oldMargin / 2 + pan, 0, oldMargin) +
+                    cursor * oldViewport / extent - cursor * viewport / extent;
+                pan = std::clamp(offset, 0, margin) - margin / 2;
+            };
+
+            anchor(panX_, pointerX_, battlefield_.x, battlefield_.width);
+            anchor(panY_, pointerY_, battlefield_.y, battlefield_.height);
         }
 
         void updatePanAxis(int& pan, int direction, bool cameraStopped, int step, int battlefieldExtent)

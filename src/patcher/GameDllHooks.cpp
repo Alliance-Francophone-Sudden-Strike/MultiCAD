@@ -1518,9 +1518,54 @@ void GameDllHooks::repaintVanishedUiScaleRects(const DrawDecorUiElementData& dat
     previous.swap(current);
 }
 
+static bool isScalableDecor(const int type);
+
+static UIScale::Rect& lastDecorArea()
+{
+    static UIScale::Rect area{};
+    return area;
+}
+
+void GameDllHooks::repaintPreviousScaledDecor(const DrawDecorUiElementData& data)
+{
+    UIScale::Rect& previous = lastDecorArea();
+    if (previous.width <= 0 || previous.height <= 0)
+        return;
+
+    sub_10055E00(
+        data.closedAreaGameDataArray, nullptr, 0x10,
+        previous.x, previous.y,
+        previous.x + previous.width - 1, previous.y + previous.height - 1);
+
+    previous = {};
+
+    for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+    {
+        if (GetUIFilter().shouldIgnore(ui->type))
+            continue;
+
+        const UIScale::Rect rect = scaledUiRect(ui);
+        if (rect.width == ui->rightX - ui->leftX + 1 &&
+            rect.height == ui->bottomY - ui->topY + 1)
+        {
+            continue;
+        }
+
+        const UIScale::Rect closed = UIScale::TileInset(rect);
+        if (closed.width <= 0 || closed.height <= 0)
+            continue;
+
+        sub_10055F40(
+            data.closedAreaGameDataArray, nullptr, 0x10,
+            closed.x, closed.y,
+            closed.x + closed.width - 1, closed.y + closed.height - 1);
+    }
+}
+
 void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
     repaintVanishedUiScaleRects(data);
+    repaintPreviousScaledDecor(data);
     Zoom::GetState().updatePan(data.cameraX, data.cameraY, GetTickCount());
     const bool zoomed = prepareZoomPresentation(data);
 
@@ -1567,16 +1612,27 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         presentation.bottomY = presentation.clipBottom = data.surfaceHeight - 1;
     }
 
+    UiElementBase decorTarget{};
+    const bool scaledDecor = UIScale::Active() &&
+        hasScalableDecor(data.uiRenderElem) &&
+        beginScaledDecor(decorTarget, data.surfaceWidth, data.surfaceHeight);
+
     for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
     {
         if (GetUIFilter().shouldIgnoreDecor(uiObj->type))
             continue;
-        if (zoomed)
+
+        // The +0x20 callback draws the decoration into a UI buffer,
+        // including formatted chat. +0x04 fogs/writes the world instead.
+        using TargetFn = void(__thiscall*)(UIRenderElement*, UiElementBase*);
+
+        if (scaledDecor && isScalableDecor(uiObj->type))
         {
-            // The +0x20 callback draws the decoration into a UI buffer,
-            // including formatted chat. +0x04 fogs/writes the world instead.
-            using Fn = void(__thiscall*)(UIRenderElement*, UiElementBase*);
-            reinterpret_cast<Fn>(uiObj->vtable[8])(uiObj, &presentation);
+            reinterpret_cast<TargetFn>(uiObj->vtable[8])(uiObj, &decorTarget);
+        }
+        else if (zoomed)
+        {
+            reinterpret_cast<TargetFn>(uiObj->vtable[8])(uiObj, &presentation);
         }
         else
         {
@@ -1654,6 +1710,11 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
                 line[j] = (val & 0xBF) | 0x18;
         }
     }
+
+    if (scaledDecor)
+        drawScaledDecor(data.surfaceWidth, data.surfaceHeight);
+
+    repaintScaledUiBorders(data);
 }
 
 
@@ -3979,49 +4040,212 @@ UIScale::Rect GameDllHooks::nativeAreaRect(UiElementBase* elements, const UiEven
     return { area->x, area->y, area->width, area->height };
 }
 
-void GameDllHooks::drawScaledUiRegion(
-    const UiElementBase* self, const UIScale::Rect& rect,
-    int sourceLeft, int sourceTop, int sourceRight, int sourceBottom)
+void GameDllHooks::blitScaledUi(
+    const UiElementBase* self, const UIScale::Rect& rect, const UIScale::Rect& area)
 {
     const int width = self->rightX - self->leftX + 1;
     const int height = self->bottomY - self->topY + 1;
 
-    if (!self->sprites || self->stride < width || rect.width <= 0 || rect.height <= 0)
+    if (!self->sprites || self->stride < width ||
+        rect.width <= 0 || rect.height <= 0 || area.width <= 0 || area.height <= 0)
+    {
         return;
-
-    sourceLeft = std::clamp(sourceLeft, 0, width - 1);
-    sourceTop = std::clamp(sourceTop, 0, height - 1);
-    sourceRight = std::clamp(sourceRight, sourceLeft, width - 1);
-    sourceBottom = std::clamp(sourceBottom, sourceTop, height - 1);
-
-    const int left = rect.x + UIScale::Project(sourceLeft, width, rect.width);
-    const int top = rect.y + UIScale::Project(sourceTop, height, rect.height);
-    const int blitWidth = rect.x + UIScale::Project(sourceRight + 1, width, rect.width) - left;
-    const int blitHeight = rect.y + UIScale::Project(sourceBottom + 1, height, rect.height) - top;
-
-    if (blitWidth <= 0 || blitHeight <= 0)
-        return;
+    }
 
     static std::vector<Pixel> scaled;
     try
     {
-        scaled.resize(static_cast<size_t>(blitWidth) * blitHeight);
+        scaled.resize(static_cast<size_t>(area.width) * area.height);
     }
     catch (...)
     {
         return;
     }
 
-    for (int y = 0; y < blitHeight; ++y)
+    for (int y = 0; y < area.height; ++y)
     {
-        const Pixel* const source = self->sprites +
-            static_cast<size_t>(UIScale::Project(top + y - rect.y, rect.height, height)) * self->stride;
-        Pixel* const destination = scaled.data() + static_cast<size_t>(y) * blitWidth;
-        for (int x = 0; x < blitWidth; ++x)
-            destination[x] = source[UIScale::Project(left + x - rect.x, rect.width, width)];
+        const int row = std::clamp(
+            UIScale::Project(area.y + y - rect.y, rect.height, height), 0, height - 1);
+        const Pixel* const source = self->sprites + static_cast<size_t>(row) * self->stride;
+        Pixel* const destination = scaled.data() + static_cast<size_t>(y) * area.width;
+        for (int x = 0; x < area.width; ++x)
+            destination[x] = source[std::clamp(
+                UIScale::Project(area.x + x - rect.x, rect.width, width), 0, width - 1)];
     }
 
-    copyToRendererSurfaceRect(0, 0, blitWidth, blitHeight, left, top, blitWidth, scaled.data());
+    copyToRendererSurfaceRect(
+        0, 0, area.width, area.height, area.x, area.y, area.width, scaled.data());
+}
+
+static constexpr Pixel kDecorColorKey = 0xF81F;
+
+static std::vector<Pixel>& decorBuffer()
+{
+    static std::vector<Pixel> buffer;
+    return buffer;
+}
+
+
+static bool isScalableDecor(const int type)
+{
+    return GetUIFilter().isChatUI(type) || GetUIFilter().isPauseUi(type);
+}
+
+bool GameDllHooks::hasScalableDecor(UIRenderElement* decor)
+{
+    for (UIRenderElement* uiObj = decor; uiObj; uiObj = uiObj->prev)
+        if (!GetUIFilter().shouldIgnoreDecor(uiObj->type) && isScalableDecor(uiObj->type))
+            return true;
+
+    return false;
+}
+
+bool GameDllHooks::beginScaledDecor(UiElementBase& target, int width, int height)
+{
+    std::vector<Pixel>& buffer = decorBuffer();
+    try
+    {
+        buffer.assign(static_cast<size_t>(width) * height, kDecorColorKey);
+    }
+    catch (...)
+    {
+        return false;
+    }
+
+    target.sprites = buffer.data();
+    target.stride = width;
+    target.rightX = target.clipRight = width - 1;
+    target.bottomY = target.clipBottom = height - 1;
+    return true;
+}
+
+void GameDllHooks::drawScaledDecor(int width, int height)
+{
+    const std::vector<Pixel>& buffer = decorBuffer();
+    if (buffer.size() != static_cast<size_t>(width) * height)
+        return;
+
+    int left = width;
+    int top = height;
+    int right = -1;
+    int bottom = -1;
+
+    for (int y = 0; y < height; ++y)
+    {
+        const Pixel* const row = buffer.data() + static_cast<size_t>(y) * width;
+        for (int x = 0; x < width; ++x)
+        {
+            if (row[x] == kDecorColorKey)
+                continue;
+            if (x < left)
+                left = x;
+            if (x > right)
+                right = x;
+            if (y < top)
+                top = y;
+            bottom = y;
+        }
+    }
+
+    if (right < left || bottom < top)
+        return;
+
+    const UIScale::Rect source{ left, top, right - left + 1, bottom - top + 1 };
+    const UIScale::Rect area = UIScale::Apply(
+        source.x, source.y, source.width, source.height, width, height);
+
+    if (!g_moduleState)
+        return;
+
+    bool locked = false;
+    if (!g_moduleState->surface.renderer)
+    {
+        if (!lockDxSurface())
+            return;
+        locked = true;
+    }
+
+    for (int y = 0; y < area.height; ++y)
+    {
+        const int sourceY = source.y + UIScale::Project(y, area.height, source.height);
+        const Pixel* const row = buffer.data() + static_cast<size_t>(sourceY) * width;
+        Pixel* const destination = reinterpret_cast<Pixel*>(
+            reinterpret_cast<uintptr_t>(g_moduleState->surface.renderer) +
+            g_moduleState->pitch * (area.y + y));
+
+        for (int x = 0; x < area.width; ++x)
+        {
+            const Pixel pixel = row[source.x + UIScale::Project(x, area.width, source.width)];
+            if (pixel != kDecorColorKey)
+                destination[area.x + x] = pixel;
+        }
+    }
+
+    if (locked)
+        unlockDxSurface();
+
+    lastDecorArea() = area;
+}
+
+void GameDllHooks::repaintScaledUiBorders(const DrawDecorUiElementData& data)
+{
+    if (!UIScale::Active())
+        return;
+
+    for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+    {
+        if (GetUIFilter().shouldIgnore(ui->type))
+            continue;
+
+        const UIScale::Rect rect = scaledUiRect(ui);
+        if (rect.width == ui->rightX - ui->leftX + 1 &&
+            rect.height == ui->bottomY - ui->topY + 1)
+        {
+            continue;
+        }
+
+        const UIScale::Rect inset = UIScale::TileInset(rect);
+        if (inset.width <= 0 || inset.height <= 0)
+        {
+            blitScaledUi(ui, rect, rect);
+            continue;
+        }
+
+        blitScaledUi(ui, rect, { rect.x, rect.y, rect.width, inset.y - rect.y });
+        blitScaledUi(ui, rect, {
+            rect.x, inset.y + inset.height,
+            rect.width, rect.y + rect.height - inset.y - inset.height });
+        blitScaledUi(ui, rect, { rect.x, inset.y, inset.x - rect.x, inset.height });
+        blitScaledUi(ui, rect, {
+            inset.x + inset.width, inset.y,
+            rect.x + rect.width - inset.x - inset.width, inset.height });
+
+        repaintScaledUiUnderCursor(data, ui, rect);
+    }
+}
+
+void GameDllHooks::repaintScaledUiUnderCursor(
+    const DrawDecorUiElementData& data, const UiElementBase* self, const UIScale::Rect& rect)
+{
+    if (!data.cursorSavedX || !data.cursorSavedY ||
+        !data.cursorSavedWidth || !data.cursorSavedHeight ||
+        *data.cursorSavedWidth <= 0 || *data.cursorSavedHeight <= 0)
+    {
+        return;
+    }
+
+    const int left = std::max(rect.x, *data.cursorSavedX);
+    const int top = std::max(rect.y, *data.cursorSavedY);
+    const int right = std::min(rect.x + rect.width, *data.cursorSavedX + *data.cursorSavedWidth);
+    const int bottom = std::min(rect.y + rect.height, *data.cursorSavedY + *data.cursorSavedHeight);
+
+    if (right <= left || bottom <= top)
+        return;
+
+    blitScaledUi(self, rect, { left, top, right - left, bottom - top });
+
+    if (data.cursorRedrawFlag)
+        *data.cursorRedrawFlag = 1;
 }
 
 void GameDllHooks::addUiElement(UiElementBase* elem, const AddUiElementData& data)
@@ -4103,8 +4327,8 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
     int length = self->rightX - self->leftX;
     int height = self->bottomY - self->topY;
 
-    v6.maxX = tileX + ((length + 1) >> 4);
-    v6.maxY = tileY + ((height + 1) >> 3);
+    v6.maxX = upscaled ? (self->rightX >> 4) + 1 : tileX + ((length + 1) >> 4);
+    v6.maxY = upscaled ? (self->bottomY >> 3) + 1 : tileY + ((height + 1) >> 3);
     v6.x = tileX;
     v6.y = tileY;
 
@@ -4113,10 +4337,12 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
         do
         {
             if (upscaled)
-                drawScaledUiRegion(
-                    self, scaled,
-                    v6.alignX - self->leftX, v6.alignY - self->topY,
-                    v6.allowX - self->leftX, v6.allowY - self->topY);
+                blitScaledUi(self, scaled, UIScale::ProjectRegion(
+                    { 0, 0, length + 1, height + 1 }, scaled,
+                    {
+                        v6.alignX - self->leftX, v6.alignY - self->topY,
+                        v6.allowX - v6.alignX + 1, v6.allowY - v6.alignY + 1
+                    }));
             else
                 sub_98410(v6.alignX - self->leftX, v6.alignY - self->topY, v6.allowX - v6.alignX + 1, v6.allowY - v6.alignY + 1, self->leftX, self->topY, &self->sprites);
         } while (sub_79950(dword_103B708, &v6));
@@ -4129,10 +4355,21 @@ void GameDllHooks::calculateClosedArea(UiElementBase* self, const CalculateClose
         return;
 
     const UIScale::Rect scaled = scaledUiRect(self);
+    if (scaled.width == self->rightX - self->leftX + 1 &&
+        scaled.height == self->bottomY - self->topY + 1)
+    {
+        data.fn_794B0(data.dword_103CF10, 30, self->leftX, self->topY, self->rightX, self->bottomY);
+        return;
+    }
+
+    const UIScale::Rect closed = UIScale::TileInset(scaled);
+    if (closed.width <= 0 || closed.height <= 0)
+        return;
+
     data.fn_794B0(
         data.dword_103CF10, 30,
-        scaled.x, scaled.y,
-        scaled.x + scaled.width - 1, scaled.y + scaled.height - 1);
+        closed.x, closed.y,
+        closed.x + closed.width - 1, closed.y + closed.height - 1);
 }
 
 int  __declspec(noinline) __fastcall GameDllHooks::calculateCursorType(UiElementBase* self, void* /*dummy*/, int x, int y, int* a4)

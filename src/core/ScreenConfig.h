@@ -171,6 +171,17 @@ public:
         return Zoom::ParseMode(buffer) == Zoom::Mode::On;
     }
 
+    static bool GetZoomOnCursor()
+    {
+        const std::string iniPath = GetIniPath();
+        if (iniPath.empty())
+            return false;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "ZoomOnCursor", "off", buffer, sizeof(buffer), iniPath.c_str());
+        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
+    }
+
     static float GetUIScale()
     {
         const std::string iniPath = GetIniPath();

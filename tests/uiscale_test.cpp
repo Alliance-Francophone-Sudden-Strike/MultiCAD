@@ -1,6 +1,7 @@
 #include "UIScale.h"
 
 #include <cassert>
+#include <vector>
 
 namespace
 {
@@ -106,6 +107,60 @@ int main()
         }
     }
     assert(covered == panelRect.width);
+
+    UIScale::Set(1.25f);
+    {
+        const int nativeTop = kScreenHeight - 137;
+        const UIScale::Rect hud = apply(0, nativeTop, 352, 137);
+        const UIScale::Rect inset = UIScale::TileInset(hud);
+
+        assert(hud.y == kScreenHeight - 171);
+        assert(inset.y > hud.y && (inset.y & 7) == 0);
+        assert(inset.y + inset.height <= hud.y + hud.height);
+        assert(inset.x + inset.width <= hud.x + hud.width);
+
+        std::vector<bool> painted(kScreenHeight, false);
+        const auto paintRows = [&painted](const UIScale::Rect& area)
+        {
+            for (int y = area.y; y < area.y + area.height; ++y)
+            {
+                assert(!painted[y]);
+                painted[y] = true;
+            }
+        };
+
+        paintRows({ hud.x, hud.y, hud.width, inset.y - hud.y });
+        paintRows({ hud.x, inset.y, hud.width, inset.height });
+        paintRows({ hud.x, inset.y + inset.height, hud.width,
+            hud.y + hud.height - inset.y - inset.height });
+
+        for (int y = hud.y; y < hud.y + hud.height; ++y)
+            assert(painted[y]);
+
+        for (int tile = nativeTop >> 3; tile <= (nativeTop + 136) >> 3; ++tile)
+        {
+            const UIScale::Rect blit = UIScale::ProjectRegion(
+                { 0, 0, 352, 137 }, hud, { 0, tile * 8 - nativeTop, 352, 8 });
+
+            assert(blit.y >= hud.y);
+            assert(blit.y + blit.height <= hud.y + hud.height);
+            assert(blit.x >= hud.x && blit.x + blit.width <= hud.x + hud.width);
+        }
+
+        std::vector<bool> rows(kScreenHeight, false);
+        for (int tile = nativeTop >> 3; tile <= (nativeTop + 136) >> 3; ++tile)
+        {
+            const UIScale::Rect blit = UIScale::ProjectRegion(
+                { 0, 0, 352, 137 }, hud, { 0, tile * 8 - nativeTop, 352, 8 });
+            for (int y = blit.y; y < blit.y + blit.height; ++y)
+            {
+                assert(!rows[y]);
+                rows[y] = true;
+            }
+        }
+        for (int y = hud.y; y < hud.y + hud.height; ++y)
+            assert(rows[y]);
+    }
 
     UIScale::Set(UIScale::kMinFactor);
     assert(identical(apply(0, 943, 352, 137), 0, 943, 352, 137));

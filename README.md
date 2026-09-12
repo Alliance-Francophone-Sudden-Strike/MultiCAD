@@ -113,11 +113,16 @@ In addition, you can configure the zoom indicator and its persistence:
 > ZoomIndicator=right
 > PersistentZoomIndicator=on
 > InvertZoom=on
+> ZoomOnCursor=on
 > ```
 
 Use `Zoom=off` to disable zoom or `ZoomIndicator=hidden` to hide its indicator.
-`PersistentZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
-`InvertZoom=on` reverses the mouse wheel direction for zooming; it defaults to `off`.
+
+Other available settings settings:
+
+- `PersistentZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
+- `InvertZoom=on` reverses the mouse wheel direction for zooming; it defaults to `off`.
+- `ZoomOnCursor=on` zooms towards the cursor instead of the screen centre; it defaults to `off`.
 
 ### In-Game UI Scale
 

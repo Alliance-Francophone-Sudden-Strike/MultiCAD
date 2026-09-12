@@ -77,6 +77,29 @@ int main()
     assert(state.mapX(10) == state.transform().source.x);
     assert(state.mapX(109) == state.transform().source.x + state.transform().source.width - 1);
 
+    State cursorZoom;
+    cursorZoom.setMode(Mode::On);
+    cursorZoom.setZoomOnCursor(true);
+    cursorZoom.setBattlefield({ 0, 0, 100, 80 });
+    cursorZoom.setPointer(0, 0);
+    assert(cursorZoom.addWheelDelta(120));
+    assert(cursorZoom.transform().source.x == 0 && cursorZoom.transform().source.y == 0);
+    assert(cursorZoom.addWheelDelta(-120) && cursorZoom.scale() == kMinScale);
+    assert(cursorZoom.transform().source.x == 0 && cursorZoom.transform().source.y == 0);
+    cursorZoom.setPointer(99, 79);
+    assert(cursorZoom.addWheelDelta(480) && cursorZoom.scale() == kMaxScale);
+    assert(cursorZoom.transform().source.x == 50 && cursorZoom.transform().source.y == 40);
+    cursorZoom.setPointer(50, 40);
+    assert(cursorZoom.addWheelDelta(-480) && cursorZoom.scale() == kMinScale);
+    assert(cursorZoom.transform().source.x == 0 && cursorZoom.transform().source.y == 0);
+
+    State centeredZoom;
+    centeredZoom.setMode(Mode::On);
+    centeredZoom.setBattlefield({ 0, 0, 100, 80 });
+    centeredZoom.setPointer(0, 0);
+    assert(centeredZoom.addWheelDelta(480) && centeredZoom.scale() == kMaxScale);
+    assert(centeredZoom.transform().source.x == 25 && centeredZoom.transform().source.y == 20);
+
     State matchedSpeed;
     matchedSpeed.setMode(Mode::On);
     matchedSpeed.addWheelDelta(120);

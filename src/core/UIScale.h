@@ -31,9 +31,38 @@ namespace UIScale
         return Factor() > kMinFactor;
     }
 
+    constexpr int kTileWidth = 16;
+    constexpr int kTileHeight = 8;
+
+    inline Rect TileInset(const Rect& rect)
+    {
+        const int left = (rect.x + kTileWidth - 1) & ~(kTileWidth - 1);
+        const int top = (rect.y + kTileHeight - 1) & ~(kTileHeight - 1);
+        const int right = (rect.x + rect.width) & ~(kTileWidth - 1);
+        const int bottom = (rect.y + rect.height) & ~(kTileHeight - 1);
+
+        return { left, top, std::max(0, right - left), std::max(0, bottom - top) };
+    }
+
     inline int Project(int position, int fromExtent, int toExtent)
     {
         return position * toExtent / fromExtent;
+    }
+
+    inline Rect ProjectRegion(const Rect& native, const Rect& scaled, const Rect& source)
+    {
+        const int left = std::max(
+            scaled.x, scaled.x + Project(source.x, native.width, scaled.width));
+        const int top = std::max(
+            scaled.y, scaled.y + Project(source.y, native.height, scaled.height));
+        const int right = std::min(
+            scaled.x + scaled.width,
+            scaled.x + Project(source.x + source.width, native.width, scaled.width));
+        const int bottom = std::min(
+            scaled.y + scaled.height,
+            scaled.y + Project(source.y + source.height, native.height, scaled.height));
+
+        return { left, top, right - left, bottom - top };
     }
 
     inline int Anchor(int position, int extent, int scaledExtent, int screenExtent, float factor)
