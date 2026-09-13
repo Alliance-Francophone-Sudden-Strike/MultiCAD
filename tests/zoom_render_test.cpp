@@ -284,6 +284,32 @@ int main(int argc, char** argv)
         for (int x = 0; x <= panel.rightX; ++x)
             assert(renderer[y * pitch + x] == textColor);
 
+    constexpr Pixel iconColor = 0x2468;
+    Hooks::UiElementBase icon{};
+    icon.type = 320;
+    icon.leftX = icon.topY = 2;
+    icon.rightX = icon.bottomY = 5;
+    std::array<Pixel, 4 * 4> iconSprites;
+    iconSprites.fill(iconColor);
+    icon.sprites = iconSprites.data();
+    icon.stride = 4;
+    icon.prev = &panel;
+    panel.next = &icon;
+    data.uiElement = &icon;
+    module.surface.renderer = renderer.data();
+    module.pitch = pitch * sizeof(Pixel);
+    Hooks::drawDecorUiElements(data);
+    zoom.finishPresentation(module.surface.renderer, module.pitch, width, height);
+    for (int y = 0; y <= panel.bottomY; ++y)
+        for (int x = 0; x <= panel.rightX; ++x)
+        {
+            const bool inIcon = x >= icon.leftX && x <= icon.rightX &&
+                y >= icon.topY && y <= icon.bottomY;
+            assert(renderer[y * pitch + x] == (inIcon ? iconColor : textColor));
+        }
+    panel.next = nullptr;
+    data.uiElement = &panel;
+
     if (argc == 1)
     {
         // The game erases its cursor by stamping the save-under back over the

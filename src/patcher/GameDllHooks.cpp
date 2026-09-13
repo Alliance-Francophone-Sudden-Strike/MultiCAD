@@ -1450,7 +1450,11 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     // An element with no sprites of its own - the in-game menu's click targets, say
     // - has nothing to repaint from. The decoration behind it is redrawn in full
     // every frame, so let the world stand here and let that repaint over it.
-    for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+    UiElementBase* lowest = data.uiElement;
+    while (lowest && lowest->prev)
+        lowest = lowest->prev;
+
+    for (UiElementBase* ui = lowest; ui; ui = ui->next)
     {
         if (GetUIFilter().shouldIgnore(ui->type) ||
             (ui->uiEventArea && ui->uiEventArea->tag == 'FILD') ||

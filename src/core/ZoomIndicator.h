@@ -22,6 +22,11 @@ namespace Zoom
         return std::clamp(scale - (kMaxScale - dot) + 1.f, 0.f, 1.f);
     }
 
+    inline float IndicatorLevelPeakFraction(float scale, int dot)
+    {
+        return std::clamp(1.f - std::abs(scale - (kMaxScale - dot)), 0.f, 1.f);
+    }
+
     inline void DrawIndicatorSquares16(
         uint16_t* destination, int pitch, int width, int height, float scale, bool right,
         int opacity = 16)
@@ -65,7 +70,7 @@ namespace Zoom
     {
         constexpr int dots = kMaxScale - kMinScale + 1;
         constexpr int thickness = 2;
-        constexpr int gap = 14;
+        constexpr int gap = 18;
         constexpr int shortLen = 14;
         constexpr int longLen = 28;
         constexpr int margin = 12;
@@ -85,7 +90,7 @@ namespace Zoom
 
         for (int dot = 0; dot < dots; ++dot)
         {
-            const float fraction = IndicatorLevelFraction(scale, dot);
+            const float fraction = IndicatorLevelPeakFraction(scale, dot);
             const int len = shortLen + static_cast<int>((longLen - shortLen) * fraction + 0.5f);
             const uint16_t color = Blend565(outline, fill, static_cast<int>(fraction * 16.f + 0.5f));
             const int y = top + dot * (thickness + gap);

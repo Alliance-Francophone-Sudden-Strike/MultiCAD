@@ -203,18 +203,19 @@ int main()
 
     indicator.fill(0);
     DrawIndicatorBars16(indicator.data(), 64, 64, 128, static_cast<float>(kMinScale), false);
-    assert(indicator[31 * 64 + 12] != 0);
-    assert(indicator[31 * 64 + 32] == 0);
-    assert(indicator[95 * 64 + 12] != 0);
-    assert(indicator[95 * 64 + 32] != 0);
+    assert(indicator[23 * 64 + 12] != 0);
+    assert(indicator[23 * 64 + 32] == 0);
+    assert(indicator[103 * 64 + 12] != 0);
+    assert(indicator[103 * 64 + 32] != 0);
     indicator.fill(0);
     DrawIndicatorBars16(indicator.data(), 64, 64, 128, static_cast<float>(kMaxScale), true);
-    assert(indicator[31 * 64 + 51] != 0);
-    assert(indicator[31 * 64 + 12] == 0);
+    assert(indicator[23 * 64 + 51] != 0);
+    assert(indicator[23 * 64 + 12] == 0);
+    assert(indicator[103 * 64 + 24] == 0);
 
     indicator.fill(0);
     DrawIndicator16(IndicatorShape::Bars, indicator.data(), 64, 64, 128, static_cast<float>(kMinScale), false);
-    assert(indicator[31 * 64 + 12] != 0);
+    assert(indicator[103 * 64 + 12] != 0);
     indicator.fill(0);
     DrawIndicator16(IndicatorShape::Squares, indicator.data(), 64, 64, 128, static_cast<float>(kMinScale), false);
     assert(indicator[18 * 64 + 12] != 0);
