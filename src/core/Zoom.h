@@ -241,7 +241,6 @@ namespace Zoom
             reset();
             if (mode == Mode::Off)
             {
-                clean_.clear();
                 world_.clear();
                 presentation_.clear();
                 isolatedWorld_.clear();
@@ -490,7 +489,6 @@ namespace Zoom
             presented_ = {};
             presentedScale_ = kMinScale;
             hasPresented_ = false;
-            restorePending_ = false;
             presentationValid_ = false;
             routed_ = false;
             worldIsolated_ = false;
@@ -526,7 +524,6 @@ namespace Zoom
             {
                 if (presentation_.size() != pixels)
                     presentationValid_ = false;
-                clean_.resize(pixels);
                 world_.resize(pixels);
                 presentation_.resize(pixels);
                 return true;
@@ -538,7 +535,6 @@ namespace Zoom
             }
         }
 
-        uint16_t* cleanBuffer() { return clean_.data(); }
         uint16_t* worldBuffer() { return world_.data(); }
         uint16_t* presentationBuffer() { return presentation_.data(); }
 
@@ -559,27 +555,6 @@ namespace Zoom
             right = std::min(width, *savedX + std::min(*savedWidth, kCursorPitch));
             bottom = std::min(height, *savedY + std::min(*savedHeight, kCursorPitch));
             return right > left && bottom > top;
-        }
-
-        void restoreCursor(
-            uint16_t* clean, uint16_t* presentation, int width, int height,
-            const int* nativeX, const int* nativeY,
-            const int* nativeWidth, const int* nativeHeight,
-            const uint16_t* nativePixels) const
-        {
-            int left, top, right, bottom;
-            if (!clean || !presentation || !nativePixels ||
-                !cursorSaveRect(width, height, nativeX, nativeY, nativeWidth, nativeHeight,
-                    left, top, right, bottom))
-                return;
-
-            for (int row = top; row < bottom; ++row)
-            {
-                const uint16_t* source =
-                    nativePixels + (row - *nativeY) * kCursorPitch + left - *nativeX;
-                std::copy(source, source + right - left, clean + row * width + left);
-                std::copy(source, source + right - left, presentation + row * width + left);
-            }
         }
 
         // Composition replaced everything under the cursor, so hand the game a
@@ -644,7 +619,6 @@ namespace Zoom
                 std::memcpy(presentation_.data() + y * width, source + y * pitch, width * sizeof(uint16_t));
             presentationValid_ = true;
 
-            std::copy(presentation_.begin(), presentation_.end(), clean_.begin());
             actualRenderer_ = renderer;
             actualPitch_ = pitch;
             renderer = presentation_.data();
@@ -665,15 +639,6 @@ namespace Zoom
             routed_ = false;
         }
 
-        void deferMainRestore() { restorePending_ = true; }
-
-        void restoreMain(uint16_t* main, size_t pixels)
-        {
-            if (restorePending_ && clean_.size() == pixels)
-                std::copy(clean_.begin(), clean_.end(), main);
-            restorePending_ = false;
-        }
-
     private:
         Mode mode_{ Mode::Off };
         int scale_{ kMinScale };
@@ -687,7 +652,6 @@ namespace Zoom
         int cameraMovementScale_{ kMinScale };
         int cameraRemainderX_{};
         int cameraRemainderY_{};
-        bool restorePending_{};
         bool presentationValid_{};
         bool routed_{};
         bool worldIsolated_{};
@@ -715,7 +679,6 @@ namespace Zoom
         static constexpr int kCursorPitch = 64;
         void* actualRenderer_{};
         uint32_t actualPitch_{};
-        std::vector<uint16_t> clean_;
         std::vector<uint16_t> world_;
         std::vector<uint16_t> presentation_;
         std::vector<uint16_t> isolatedWorld_;

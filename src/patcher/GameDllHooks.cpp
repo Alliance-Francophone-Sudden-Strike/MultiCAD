@@ -1403,7 +1403,6 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     if (!zoom.ensureBuffers(pixels))
         return false;
 
-    Pixel* const clean = zoom.cleanBuffer();
     Pixel* const world = zoom.worldBuffer();
 
     void* const renderer = g_moduleState->surface.renderer;
@@ -1419,13 +1418,6 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         g_moduleState->pitch,
         width,
         height);
-
-    const auto rendererRow = [](int y)
-    {
-        return reinterpret_cast<Pixel*>(
-            reinterpret_cast<uintptr_t>(g_moduleState->surface.renderer) +
-            g_moduleState->pitch * y);
-    };
 
     Zoom::ScaleNearest16(
         world,
@@ -1444,104 +1436,35 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             zoom.indicatorAnchor() == Zoom::IndicatorAnchor::Right,
             zoom.indicatorOpacity(indicatorTick));
 
-    // Panels redraw incrementally, so keep their previous pixels until native
-    // UI rendering updates them below.
+    // A panel keeps its whole image in its own sprite buffer - that is what the
+    // incremental path blits its dirty tiles from - so repaint it from there.
+    // Reading the presented frame back instead picks up whatever the game last left
+    // on screen, and what it leaves there is its cursor: the save-under erase runs
+    // at a moment this hook never sees, so any cursor still on screen at snapshot
+    // time lands inside a panel that only ever repaints where it is marked dirty -
+    // and is then read back again on every frame after that, which is what pins a
+    // stray block of cursor over the panel's hovered-name zone for good.
+    //
+    // An element with no sprites of its own - the in-game menu's click targets, say
+    // - has nothing to repaint from. The decoration behind it is redrawn in full
+    // every frame, so let the world stand here and let that repaint over it.
     for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
     {
         if (GetUIFilter().shouldIgnore(ui->type) ||
-            (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
-            continue;
-
-        // An element with no sprites of its own - the in-game menu's click targets,
-        // say - has nothing the incremental path can update it from, so carrying its
-        // pixels forward carries them forward for good. Whatever the game last left
-        // there sticks: most visibly the block its cursor erase stamped back, which
-        // stops matching the moment a modal opens on top and the menu is laid out
-        // afresh. The decoration behind it is redrawn in full every frame, so let the
-        // world stand here and let that repaint over it.
-        if (!ui->sprites)
+            (ui->uiEventArea && ui->uiEventArea->tag == 'FILD') ||
+            !ui->sprites || ui->stride < ui->rightX - ui->leftX + 1)
             continue;
 
         const int left = std::max(0, ui->leftX);
         const int top = std::max(0, ui->topY);
         const int right = std::min(width, ui->rightX + 1);
         const int bottom = std::min(height, ui->bottomY + 1);
-        for (int y = top; y < bottom; ++y)
-            std::copy(clean + y * width + left, clean + y * width + right, rendererRow(y) + left);
-    }
-
-    // Erase the previous physical cursor after composing the UI. Restoring it
-    // earlier would copy stale UI pixels from the save-under back over panels.
-    zoom.restoreCursor(
-        clean,
-        static_cast<Pixel*>(g_moduleState->surface.renderer),
-        width,
-        height,
-        data.cursorSavedX,
-        data.cursorSavedY,
-        data.cursorSavedWidth,
-        data.cursorSavedHeight,
-        data.cursorSavedPixels);
-
-    int cursorLeft, cursorTop, cursorRight, cursorBottom;
-    if (zoom.cursorSaveRect(
-        width, height,
-        data.cursorSavedX, data.cursorSavedY, data.cursorSavedWidth, data.cursorSavedHeight,
-        cursorLeft, cursorTop, cursorRight, cursorBottom))
-    {
-        // The save-under is a frame behind the panels: it is captured before they
-        // repaint, so stamping it back reverts whatever they drew under the cursor
-        // since - a selection border on the action just clicked, say. Those tiles
-        // are no longer dirty, so the game never paints them again and the border
-        // stays broken. Redraw them from the element's own sprites, which the
-        // incremental path reads too and which are always current.
-        for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
-        {
-            if (GetUIFilter().shouldIgnore(ui->type) ||
-                (ui->uiEventArea && ui->uiEventArea->tag == 'FILD') ||
-                !ui->sprites || ui->stride < ui->rightX - ui->leftX + 1)
-                continue;
-
-            const int left = std::max(cursorLeft, ui->leftX);
-            const int top = std::max(cursorTop, ui->topY);
-            const int right = std::min(cursorRight, ui->rightX + 1);
-            const int bottom = std::min(cursorBottom, ui->bottomY + 1);
-            if (right > left && bottom > top)
-                copyToRendererSurfaceRect(
-                    left - ui->leftX, top - ui->topY,
-                    right - left, bottom - top,
-                    left, top,
-                    ui->stride, ui->sprites);
-        }
-
-        cursorLeft = std::max(cursorLeft, transform.destination.x);
-        cursorTop = std::max(cursorTop, transform.destination.y);
-        cursorRight = std::min(cursorRight, transform.destination.x + transform.destination.width);
-        cursorBottom = std::min(cursorBottom, transform.destination.y + transform.destination.height);
-
-        const auto isPanelPixel = [&](int x, int y)
-        {
-            for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
-            {
-                if (GetUIFilter().shouldIgnore(ui->type) ||
-                    (ui->uiEventArea && ui->uiEventArea->tag == 'FILD') ||
-                    !ui->sprites) // Nothing to hold back the world for: see above.
-                    continue;
-                if (x >= ui->leftX && x <= ui->rightX &&
-                    y >= ui->topY && y <= ui->bottomY)
-                    return true;
-            }
-            return false;
-        };
-
-        for (int y = cursorTop; y < cursorBottom; ++y)
-        {
-            Pixel* const destination = rendererRow(y);
-            const Pixel* const source = world + transform.sourceY(y) * width;
-            for (int x = cursorLeft; x < cursorRight; ++x)
-                if (!isPanelPixel(x, y))
-                    destination[x] = source[transform.sourceX(x)];
-        }
+        if (right > left && bottom > top)
+            copyToRendererSurfaceRect(
+                left - ui->leftX, top - ui->topY,
+                right - left, bottom - top,
+                left, top,
+                ui->stride, ui->sprites);
     }
 
     return true;

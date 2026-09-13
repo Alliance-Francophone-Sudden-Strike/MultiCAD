@@ -197,14 +197,6 @@ int main()
     assert(indicator[18 * 64 + 40] != 0);
     assert(indicator[18 * 64 + 12] == 0);
 
-    std::array<uint16_t, 4> main{ 1, 2, 3, 4 };
-    assert(state.ensureBuffers(main.size()));
-    std::copy(main.begin(), main.end(), state.cleanBuffer());
-    main[0] = 9;
-    state.deferMainRestore();
-    state.restoreMain(main.data(), main.size());
-    assert((main == std::array<uint16_t, 4>{ 1, 2, 3, 4 }));
-
     State presentation;
     presentation.setMode(Mode::On);
     assert(presentation.ensureBuffers(6));
@@ -229,22 +221,6 @@ int main()
     uint32_t cursorRendererPitch = 4 * sizeof(uint16_t);
     int cursorX = 1, cursorY = 1, cursorWidth = 2, cursorHeight = 2;
     std::array<uint16_t, 64 * 64> cursorSave{};
-    cursorSave[0] = 10;
-    cursorSave[1] = 11;
-    cursorSave[64] = 12;
-    cursorSave[65] = 13;
-
-    // Composition rebuilds the frame from the pre-cursor snapshot, so the
-    // cursor has to be erased out of both the panel source and the frame.
-    std::array<uint16_t, 16> cursorClean{}, cursorFrame{};
-    cursorFrame.fill(99);
-    cursor.restoreCursor(
-        cursorClean.data(), cursorFrame.data(), 4, 4,
-        &cursorX, &cursorY, &cursorWidth, &cursorHeight, cursorSave.data());
-    assert(cursorFrame[5] == 10 && cursorFrame[6] == 11);
-    assert(cursorFrame[9] == 12 && cursorFrame[10] == 13);
-    assert(cursorClean[5] == 10 && cursorClean[10] == 13);
-    assert(cursorFrame[0] == 99 && cursorFrame[15] == 99); // Only the cursor rect.
 
     for (int i = 0; i < 16; ++i)
         cursorRenderer[i] = static_cast<uint16_t>(100 + i);
@@ -269,11 +245,10 @@ int main()
     assert(cursorSave[1] == 0 && cursorSave[64] == 0);
 
     int hidden = 0;
-    cursorFrame.fill(99);
-    cursor.restoreCursor(
-        cursorClean.data(), cursorFrame.data(), 4, 4,
-        &cursorX, &cursorY, &cursorWidth, &hidden, cursorSave.data());
-    assert(cursorFrame[5] == 99); // No cursor drawn, nothing to erase.
+    cursorSave.fill(0);
+    cursor.refreshCursorSave(
+        4, 4, &cursorX, &cursorY, &cursorWidth, &hidden, cursorSave.data());
+    assert(cursorSave[0] == 0); // No cursor drawn, nothing to hand back.
 
     State viewport;
     viewport.setMode(Mode::On);

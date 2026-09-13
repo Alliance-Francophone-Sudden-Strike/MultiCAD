@@ -267,6 +267,23 @@ int main(int argc, char** argv)
         for (int x = savedX; x < savedX + savedWidth; ++x)
             assert(renderer[y * pitch + x] == textColor);
 
+    // The game draws its cursor straight onto the presented frame and erases it at
+    // a moment the hook never sees. Composing a panel out of what is on screen
+    // reads whatever is left of that cursor into a panel that repaints only where
+    // it is marked dirty - and reads it back again every frame after that, which is
+    // what pinned a block of cursor over the panel for good.
+    constexpr Pixel ghost = 0x4321;
+    for (int y = 0; y < savedY; ++y)
+        for (int x = savedX; x < savedX + savedWidth; ++x)
+            renderer[y * pitch + x] = ghost;
+    module.surface.renderer = renderer.data();
+    module.pitch = pitch * sizeof(Pixel);
+    Hooks::drawDecorUiElements(data);
+    zoom.finishPresentation(module.surface.renderer, module.pitch, width, height);
+    for (int y = 0; y <= panel.bottomY; ++y)
+        for (int x = 0; x <= panel.rightX; ++x)
+            assert(renderer[y * pitch + x] == textColor);
+
     if (argc == 1)
     {
         // The game erases its cursor by stamping the save-under back over the
