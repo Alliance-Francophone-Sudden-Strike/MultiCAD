@@ -1393,7 +1393,8 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         transform.destination.width <= 0 || transform.destination.height <= 0 ||
         transform.destination.x < 0 || transform.destination.y < 0 ||
         transform.destination.x + transform.destination.width > width ||
-        transform.destination.y + transform.destination.height > height)
+        transform.destination.y + transform.destination.height > height ||
+        screenCoveredByUi(data.uiElement, width, height))
     {
         return false;
     }
@@ -1461,11 +1462,10 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         if (!ui->sprites)
             continue;
 
-        const UIScale::Rect panel = scaledUiRect(ui);
-        const int left = std::max(0, panel.x);
-        const int top = std::max(0, panel.y);
-        const int right = std::min(width, panel.x + panel.width);
-        const int bottom = std::min(height, panel.y + panel.height);
+        const int left = std::max(0, ui->leftX);
+        const int top = std::max(0, ui->topY);
+        const int right = std::min(width, ui->rightX + 1);
+        const int bottom = std::min(height, ui->bottomY + 1);
         for (int y = top; y < bottom; ++y)
             std::copy(clean + y * width + left, clean + y * width + right, rendererRow(y) + left);
     }
@@ -1498,16 +1498,20 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
         {
             if (GetUIFilter().shouldIgnore(ui->type) ||
-                (ui->uiEventArea && ui->uiEventArea->tag == 'FILD'))
+                (ui->uiEventArea && ui->uiEventArea->tag == 'FILD') ||
+                !ui->sprites || ui->stride < ui->rightX - ui->leftX + 1)
                 continue;
 
-            const UIScale::Rect panel = scaledUiRect(ui);
-            const int left = std::max(cursorLeft, panel.x);
-            const int top = std::max(cursorTop, panel.y);
-            const int right = std::min(cursorRight, panel.x + panel.width);
-            const int bottom = std::min(cursorBottom, panel.y + panel.height);
+            const int left = std::max(cursorLeft, ui->leftX);
+            const int top = std::max(cursorTop, ui->topY);
+            const int right = std::min(cursorRight, ui->rightX + 1);
+            const int bottom = std::min(cursorBottom, ui->bottomY + 1);
             if (right > left && bottom > top)
-                blitScaledUi(ui, panel, { left, top, right - left, bottom - top });
+                copyToRendererSurfaceRect(
+                    left - ui->leftX, top - ui->topY,
+                    right - left, bottom - top,
+                    left, top,
+                    ui->stride, ui->sprites);
         }
 
         cursorLeft = std::max(cursorLeft, transform.destination.x);
@@ -1523,9 +1527,8 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
                     (ui->uiEventArea && ui->uiEventArea->tag == 'FILD') ||
                     !ui->sprites) // Nothing to hold back the world for: see above.
                     continue;
-                const UIScale::Rect panel = scaledUiRect(ui);
-                if (x >= panel.x && x < panel.x + panel.width &&
-                    y >= panel.y && y < panel.y + panel.height)
+                if (x >= ui->leftX && x <= ui->rightX &&
+                    y >= ui->topY && y <= ui->bottomY)
                     return true;
             }
             return false;
@@ -1544,111 +1547,28 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     return true;
 }
 
-void GameDllHooks::repaintVanishedUiScaleRects(const DrawDecorUiElementData& data)
+// The strategic map is a UI element that covers the screen and owns every pixel of
+// it, and it repaints only where the game marks it dirty. So everything the panels
+// beneath it compose lands on top of it and stays there: the world from a rect we
+// reopen for a redraw, their own pixels carried over from the previous frame. None
+// of it is meant to be visible while the map is up. Test the geometry rather than
+// the element - the map paints through dstBuf, not sprites.
+// The battlefield element covers the screen too, but it is the world itself.
+bool GameDllHooks::screenCoveredByUi(UiElementBase* ui, int width, int height)
 {
-    static std::vector<UIScale::Rect> previous;
-    static std::vector<UIScale::Rect> current;
-
-    current.clear();
-    for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
-    {
-        const UIScale::Rect rect = scaledUiRect(ui);
-        if (rect.width != ui->rightX - ui->leftX + 1 || rect.height != ui->bottomY - ui->topY + 1)
-            current.push_back(rect);
-    }
-
-    for (const UIScale::Rect& rect : previous)
-    {
-        const auto same = [&rect](const UIScale::Rect& other)
+    for (; ui; ui = ui->prev)
+        if ((!ui->uiEventArea || ui->uiEventArea->tag != 'FILD') &&
+            ui->leftX <= 0 && ui->topY <= 0 &&
+            ui->rightX >= width - 1 && ui->bottomY >= height - 1)
         {
-            return other.x == rect.x && other.y == rect.y &&
-                other.width == rect.width && other.height == rect.height;
-        };
-
-        if (std::none_of(current.begin(), current.end(), same))
-            sub_10055E00(
-                data.closedAreaGameDataArray, nullptr, 0x10,
-                rect.x, rect.y,
-                rect.x + rect.width - 1, rect.y + rect.height - 1);
-    }
-
-    previous.swap(current);
-}
-
-static bool isScalableDecor(const int type);
-
-static UIScale::Rect& lastDecorArea()
-{
-    static UIScale::Rect area{};
-    return area;
-}
-
-// Native rect the decorations paint into the scaling buffer, widest seen while the
-// same ones are on screen. drawScaledDecor keeps it; drawDecorUiElements clears it
-// once they go away.
-static UIScale::Rect& lastDecorSource()
-{
-    static UIScale::Rect source{};
-    return source;
-}
-
-static UIScale::Rect unionRect(const UIScale::Rect& a, const UIScale::Rect& b)
-{
-    if (a.width <= 0 || a.height <= 0)
-        return b;
-    if (b.width <= 0 || b.height <= 0)
-        return a;
-
-    const int left = std::min(a.x, b.x);
-    const int top = std::min(a.y, b.y);
-    return {
-        left,
-        top,
-        std::max(a.x + a.width, b.x + b.width) - left,
-        std::max(a.y + a.height, b.y + b.height) - top
-    };
-}
-
-void GameDllHooks::repaintPreviousScaledDecor(const DrawDecorUiElementData& data)
-{
-    UIScale::Rect& previous = lastDecorArea();
-    if (previous.width <= 0 || previous.height <= 0)
-        return;
-
-    sub_10055E00(
-        data.closedAreaGameDataArray, nullptr, 0x10,
-        previous.x, previous.y,
-        previous.x + previous.width - 1, previous.y + previous.height - 1);
-
-    previous = {};
-
-    for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
-    {
-        if (GetUIFilter().shouldIgnore(ui->type))
-            continue;
-
-        const UIScale::Rect rect = scaledUiRect(ui);
-        if (rect.width == ui->rightX - ui->leftX + 1 &&
-            rect.height == ui->bottomY - ui->topY + 1)
-        {
-            continue;
+            return true;
         }
 
-        const UIScale::Rect closed = UIScale::TileInset(rect);
-        if (closed.width <= 0 || closed.height <= 0)
-            continue;
-
-        sub_10055F40(
-            data.closedAreaGameDataArray, nullptr, 0x10,
-            closed.x, closed.y,
-            closed.x + closed.width - 1, closed.y + closed.height - 1);
-    }
+    return false;
 }
 
 void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
-    repaintVanishedUiScaleRects(data);
-    repaintPreviousScaledDecor(data);
     Zoom::GetState().updatePan(data.cameraX, data.cameraY, GetTickCount());
     const bool zoomed = prepareZoomPresentation(data);
 
@@ -1689,45 +1609,16 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         presentation.bottomY = presentation.clipBottom = data.surfaceHeight - 1;
     }
 
-    UiElementBase decorTarget{};
-    const bool scaledDecor = UIScale::Active() &&
-        hasScalableDecor(data.uiRenderElem) &&
-        beginScaledDecor(decorTarget, data.surfaceWidth, data.surfaceHeight);
-
-    // The remembered extent may not outlive the decorations it was measured from.
-    // It only ever grows, so closing a modal would leave the menu mapped through the
-    // rect the pair of them occupied - the modal's edges stay behind as seams. Start
-    // it over whenever the set changes; the game repaints everything on that frame
-    // anyway, so there is a full extent to measure.
-    static size_t decorSignature = 0;
-    size_t signature = 0;
-    for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
-        if (scaledDecor && isScalableDecor(uiObj->type) &&
-            !GetUIFilter().shouldIgnoreDecor(uiObj->type))
-            signature = signature * 31 + reinterpret_cast<uintptr_t>(uiObj);
-
-    if (signature != decorSignature)
-    {
-        decorSignature = signature;
-        lastDecorSource() = {};
-    }
-
     for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
     {
         if (GetUIFilter().shouldIgnoreDecor(uiObj->type))
             continue;
-
-        // The +0x20 callback draws the decoration into a UI buffer,
-        // including formatted chat. +0x04 fogs/writes the world instead.
-        using TargetFn = void(__thiscall*)(UIRenderElement*, UiElementBase*);
-
-        if (scaledDecor && isScalableDecor(uiObj->type))
+        if (zoomed)
         {
-            reinterpret_cast<TargetFn>(uiObj->vtable[8])(uiObj, &decorTarget);
-        }
-        else if (zoomed)
-        {
-            reinterpret_cast<TargetFn>(uiObj->vtable[8])(uiObj, &presentation);
+            // The +0x20 callback draws the decoration into a UI buffer,
+            // including formatted chat. +0x04 fogs/writes the world instead.
+            using Fn = void(__thiscall*)(UIRenderElement*, UiElementBase*);
+            reinterpret_cast<Fn>(uiObj->vtable[8])(uiObj, &presentation);
         }
         else
         {
@@ -1805,29 +1696,6 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
                 line[j] = (val & 0xBF) | 0x18;
         }
     }
-
-    if (scaledDecor)
-    {
-        drawScaledDecor(data.surfaceWidth, data.surfaceHeight);
-
-        // The game erases its cursor by stamping the save-under back, after we have
-        // composed the frame and at a moment we never see. Over scaled decoration that
-        // leaves pixels nothing repaints: the decoration writes only where it is
-        // opaque, so a stale glyph stranded in a gap stays for good. Reopen wherever
-        // the cursor is, so the next frame repaints what it stamped over.
-        int left, top, right, bottom;
-        if (Zoom::GetState().cursorSaveRect(
-            data.surfaceWidth, data.surfaceHeight,
-            data.cursorSavedX, data.cursorSavedY,
-            data.cursorSavedWidth, data.cursorSavedHeight,
-            left, top, right, bottom))
-        {
-            lastDecorArea() = unionRect(
-                lastDecorArea(), { left, top, right - left, bottom - top });
-        }
-    }
-
-    repaintScaledUiBorders(data);
 
     // Last write to the presented frame: the cursor is drawn on top of it right
     // after this, and erased from it by native code at a moment we do not see.
@@ -4103,297 +3971,6 @@ void GameDllHooks::drawPlaneCrossOnStrategicMap(PlaneData* mapData, const PlaneM
     data.drawVertLine(data.mapData, mapX, mapY - 2, 5, data.colors[mapData->teamId]);
 }
 
-static bool isScalableUiTag(const int tag)
-{
-    return tag != 'FILD' && tag != 'TMAP' && tag != UIFilter::getCustomTag();
-}
-
-UIScale::Rect GameDllHooks::scaledUiRect(const UiElementBase* self)
-{
-    const UIScale::Rect native
-    {
-        self->leftX,
-        self->topY,
-        self->rightX - self->leftX + 1,
-        self->bottomY - self->topY + 1
-    };
-
-    if (self->type == UIFilter::getCustomType())
-        return native;
-
-    if (self->uiEventArea && !isScalableUiTag(self->uiEventArea->tag))
-        return native;
-
-    return UIScale::Apply(native.x, native.y, native.width, native.height, Screen::width_, Screen::height_);
-}
-
-void GameDllHooks::scaleUiEventArea(UiElementBase* elem)
-{
-    UiEventArea* const area = elem->uiEventArea;
-    if (!area || !isScalableUiTag(area->tag))
-        return;
-
-    const int width = elem->rightX - elem->leftX + 1;
-    const int height = elem->bottomY - elem->topY + 1;
-
-    if (area->x != elem->leftX || area->y != elem->topY ||
-        std::abs(area->width - width) > 1 || std::abs(area->height - height) > 1)
-    {
-        return;
-    }
-
-    const UIScale::Rect scaled = scaledUiRect(elem);
-    if (scaled.width == width && scaled.height == height)
-        return;
-
-    area->x = scaled.x;
-    area->y = scaled.y;
-    area->width = UIScale::Project(area->width, width, scaled.width);
-    area->height = UIScale::Project(area->height, height, scaled.height);
-}
-
-UIScale::Rect GameDllHooks::nativeAreaRect(UiElementBase* elements, const UiEventArea* area)
-{
-    if (UIScale::Active())
-        for (UiElementBase* ui = elements; ui; ui = ui->prev)
-            if (ui->uiEventArea == area)
-                return {
-                    ui->leftX,
-                    ui->topY,
-                    ui->rightX - ui->leftX + 1,
-                    ui->bottomY - ui->topY + 1
-                };
-
-    return { area->x, area->y, area->width, area->height };
-}
-
-void GameDllHooks::blitScaledUi(
-    const UiElementBase* self, const UIScale::Rect& rect, const UIScale::Rect& area)
-{
-    const int width = self->rightX - self->leftX + 1;
-    const int height = self->bottomY - self->topY + 1;
-
-    if (!self->sprites || self->stride < width ||
-        rect.width <= 0 || rect.height <= 0 || area.width <= 0 || area.height <= 0)
-    {
-        return;
-    }
-
-    static std::vector<Pixel> scaled;
-    try
-    {
-        scaled.resize(static_cast<size_t>(area.width) * area.height);
-    }
-    catch (...)
-    {
-        return;
-    }
-
-    for (int y = 0; y < area.height; ++y)
-    {
-        const int row = std::clamp(
-            UIScale::Project(area.y + y - rect.y, rect.height, height), 0, height - 1);
-        const Pixel* const source = self->sprites + static_cast<size_t>(row) * self->stride;
-        Pixel* const destination = scaled.data() + static_cast<size_t>(y) * area.width;
-        for (int x = 0; x < area.width; ++x)
-            destination[x] = source[std::clamp(
-                UIScale::Project(area.x + x - rect.x, rect.width, width), 0, width - 1)];
-    }
-
-    copyToRendererSurfaceRect(
-        0, 0, area.width, area.height, area.x, area.y, area.width, scaled.data());
-}
-
-static constexpr Pixel kDecorColorKey = 0xF81F;
-
-static std::vector<Pixel>& decorBuffer()
-{
-    static std::vector<Pixel> buffer;
-    return buffer;
-}
-
-
-static bool isScalableDecor(const int type)
-{
-    return GetUIFilter().isChatUI(type) || GetUIFilter().isPauseUi(type);
-}
-
-bool GameDllHooks::hasScalableDecor(UIRenderElement* decor)
-{
-    for (UIRenderElement* uiObj = decor; uiObj; uiObj = uiObj->prev)
-        if (!GetUIFilter().shouldIgnoreDecor(uiObj->type) && isScalableDecor(uiObj->type))
-            return true;
-
-    return false;
-}
-
-bool GameDllHooks::beginScaledDecor(UiElementBase& target, int width, int height)
-{
-    std::vector<Pixel>& buffer = decorBuffer();
-    try
-    {
-        buffer.assign(static_cast<size_t>(width) * height, kDecorColorKey);
-    }
-    catch (...)
-    {
-        return false;
-    }
-
-    target.sprites = buffer.data();
-    target.stride = width;
-    target.rightX = target.clipRight = width - 1;
-    target.bottomY = target.clipBottom = height - 1;
-    return true;
-}
-
-void GameDllHooks::drawScaledDecor(int width, int height)
-{
-    const std::vector<Pixel>& buffer = decorBuffer();
-    if (buffer.size() != static_cast<size_t>(width) * height)
-        return;
-
-    int left = width;
-    int top = height;
-    int right = -1;
-    int bottom = -1;
-
-    for (int y = 0; y < height; ++y)
-    {
-        const Pixel* const row = buffer.data() + static_cast<size_t>(y) * width;
-        for (int x = 0; x < width; ++x)
-        {
-            if (row[x] == kDecorColorKey)
-                continue;
-            if (x < left)
-                left = x;
-            if (x > right)
-                right = x;
-            if (y < top)
-                top = y;
-            bottom = y;
-        }
-    }
-
-    if (right < left || bottom < top)
-        return;
-
-    const UIScale::Rect source{ left, top, right - left + 1, bottom - top + 1 };
-
-    // Anchor the widest rect the decorations have painted into, never just what this
-    // frame happened to repaint. UIScale::Anchor is piecewise - top edge, bottom edge
-    // or centre, chosen from where the rect sits against the screen middle - so a
-    // fragment of the menu picks a different rule from the menu itself and lands
-    // somewhere else entirely. That is what puts the top border decoration inside the
-    // menu at native size. Mapping every frame through the same rect instead keeps a
-    // partial repaint landing exactly where the full one did.
-    // ponytail: monotonic union, bounded by the screen. It converges on the real
-    // extent rather than creeping, because reopening it below forces a full repaint
-    // next frame; the reset in drawDecorUiElements is what bounds its lifetime.
-    UIScale::Rect& extent = lastDecorSource();
-    extent = unionRect(extent, source);
-
-    const UIScale::Rect area = UIScale::Apply(
-        extent.x, extent.y, extent.width, extent.height, width, height);
-
-    if (!g_moduleState)
-        return;
-
-    bool locked = false;
-    if (!g_moduleState->surface.renderer)
-    {
-        if (!lockDxSurface())
-            return;
-        locked = true;
-    }
-
-    for (int y = 0; y < area.height; ++y)
-    {
-        const int sourceY = extent.y + UIScale::Project(y, area.height, extent.height);
-        const Pixel* const row = buffer.data() + static_cast<size_t>(sourceY) * width;
-        Pixel* const destination = reinterpret_cast<Pixel*>(
-            reinterpret_cast<uintptr_t>(g_moduleState->surface.renderer) +
-            g_moduleState->pitch * (area.y + y));
-
-        for (int x = 0; x < area.width; ++x)
-        {
-            const Pixel pixel = row[extent.x + UIScale::Project(x, area.width, extent.width)];
-            if (pixel != kDecorColorKey)
-                destination[area.x + x] = pixel;
-        }
-    }
-
-    if (locked)
-        unlockDxSurface();
-
-    // Reopen the native rect the decorations paint into as well as the scaled area
-    // they were presented in. The game repaints decorations by dirty region and at
-    // native coordinates, so leaving that rect closed only ever repaints the menu in
-    // the patches the game itself dirtied, and the decoration writes nothing where it
-    // is transparent - so whatever composition left in a gap stays there.
-    lastDecorArea() = unionRect(area, extent);
-}
-
-void GameDllHooks::repaintScaledUiBorders(const DrawDecorUiElementData& data)
-{
-    if (!UIScale::Active())
-        return;
-
-    for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
-    {
-        if (GetUIFilter().shouldIgnore(ui->type))
-            continue;
-
-        const UIScale::Rect rect = scaledUiRect(ui);
-        if (rect.width == ui->rightX - ui->leftX + 1 &&
-            rect.height == ui->bottomY - ui->topY + 1)
-        {
-            continue;
-        }
-
-        const UIScale::Rect inset = UIScale::TileInset(rect);
-        if (inset.width <= 0 || inset.height <= 0)
-        {
-            blitScaledUi(ui, rect, rect);
-            continue;
-        }
-
-        blitScaledUi(ui, rect, { rect.x, rect.y, rect.width, inset.y - rect.y });
-        blitScaledUi(ui, rect, {
-            rect.x, inset.y + inset.height,
-            rect.width, rect.y + rect.height - inset.y - inset.height });
-        blitScaledUi(ui, rect, { rect.x, inset.y, inset.x - rect.x, inset.height });
-        blitScaledUi(ui, rect, {
-            inset.x + inset.width, inset.y,
-            rect.x + rect.width - inset.x - inset.width, inset.height });
-
-        repaintScaledUiUnderCursor(data, ui, rect);
-    }
-}
-
-void GameDllHooks::repaintScaledUiUnderCursor(
-    const DrawDecorUiElementData& data, const UiElementBase* self, const UIScale::Rect& rect)
-{
-    if (!data.cursorSavedX || !data.cursorSavedY ||
-        !data.cursorSavedWidth || !data.cursorSavedHeight ||
-        *data.cursorSavedWidth <= 0 || *data.cursorSavedHeight <= 0)
-    {
-        return;
-    }
-
-    const int left = std::max(rect.x, *data.cursorSavedX);
-    const int top = std::max(rect.y, *data.cursorSavedY);
-    const int right = std::min(rect.x + rect.width, *data.cursorSavedX + *data.cursorSavedWidth);
-    const int bottom = std::min(rect.y + rect.height, *data.cursorSavedY + *data.cursorSavedHeight);
-
-    if (right <= left || bottom <= top)
-        return;
-
-    blitScaledUi(self, rect, { left, top, right - left, bottom - top });
-
-    if (data.cursorRedrawFlag)
-        *data.cursorRedrawFlag = 1;
-}
-
 void GameDllHooks::addUiElement(UiElementBase* elem, const AddUiElementData& data)
 {
     UiElementBase** pointed = data.pointed;
@@ -4412,7 +3989,6 @@ void GameDllHooks::addUiElement(UiElementBase* elem, const AddUiElementData& dat
     }
 
     elem->type = data.type;
-    scaleUiEventArea(elem);
 
     UiElementBase* it;
     for (it = *tail; it; it = it->prev)
@@ -4464,17 +4040,13 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
     v6.mask = 0xFF;
     v6.maskValue = 0xFE;
 
-    const UIScale::Rect scaled = scaledUiRect(self);
-    const bool upscaled = scaled.width != self->rightX - self->leftX + 1 ||
-        scaled.height != self->bottomY - self->topY + 1;
-
     int tileX = self->leftX >> 4;
     int tileY = self->topY >> 3;
     int length = self->rightX - self->leftX;
     int height = self->bottomY - self->topY;
 
-    v6.maxX = upscaled ? (self->rightX >> 4) + 1 : tileX + ((length + 1) >> 4);
-    v6.maxY = upscaled ? (self->bottomY >> 3) + 1 : tileY + ((height + 1) >> 3);
+    v6.maxX = tileX + ((length + 1) >> 4);
+    v6.maxY = tileY + ((height + 1) >> 3);
     v6.x = tileX;
     v6.y = tileY;
 
@@ -4482,15 +4054,7 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
     {
         do
         {
-            if (upscaled)
-                blitScaledUi(self, scaled, UIScale::ProjectRegion(
-                    { 0, 0, length + 1, height + 1 }, scaled,
-                    {
-                        v6.alignX - self->leftX, v6.alignY - self->topY,
-                        v6.allowX - v6.alignX + 1, v6.allowY - v6.alignY + 1
-                    }));
-            else
-                sub_98410(v6.alignX - self->leftX, v6.alignY - self->topY, v6.allowX - v6.alignX + 1, v6.allowY - v6.alignY + 1, self->leftX, self->topY, &self->sprites);
+            sub_98410(v6.alignX - self->leftX, v6.alignY - self->topY, v6.allowX - v6.alignX + 1, v6.allowY - v6.alignY + 1, self->leftX, self->topY, &self->sprites);
         } while (sub_79950(dword_103B708, &v6));
     }
 }
@@ -4500,47 +4064,13 @@ void GameDllHooks::calculateClosedArea(UiElementBase* self, const CalculateClose
     if (GetUIFilter().shouldIgnore(self->type))
         return;
 
-    const UIScale::Rect scaled = scaledUiRect(self);
-    if (scaled.width == self->rightX - self->leftX + 1 &&
-        scaled.height == self->bottomY - self->topY + 1)
-    {
-        data.fn_794B0(data.dword_103CF10, 30, self->leftX, self->topY, self->rightX, self->bottomY);
-        return;
-    }
-
-    const UIScale::Rect closed = UIScale::TileInset(scaled);
-    if (closed.width <= 0 || closed.height <= 0)
-        return;
-
-    data.fn_794B0(
-        data.dword_103CF10, 30,
-        closed.x, closed.y,
-        closed.x + closed.width - 1, closed.y + closed.height - 1);
+    data.fn_794B0(data.dword_103CF10, 30, self->leftX, self->topY, self->rightX, self->bottomY);
 }
 
 int  __declspec(noinline) __fastcall GameDllHooks::calculateCursorType(UiElementBase* self, void* /*dummy*/, int x, int y, int* a4)
 {
     if (GetUIFilter().shouldIgnore(self->type))
         return 0;
-
-    const UIScale::Rect scaled = scaledUiRect(self);
-    const int nativeWidth = self->rightX - self->leftX + 1;
-    const int nativeHeight = self->bottomY - self->topY + 1;
-
-    if (scaled.width != nativeWidth || scaled.height != nativeHeight)
-    {
-        const int physicalX = x + self->leftX;
-        const int physicalY = y + self->topY;
-
-        if (physicalX < scaled.x || physicalX >= scaled.x + scaled.width ||
-            physicalY < scaled.y || physicalY >= scaled.y + scaled.height)
-        {
-            return 0;
-        }
-
-        x = (physicalX - scaled.x) * nativeWidth / scaled.width;
-        y = (physicalY - scaled.y) * nativeHeight / scaled.height;
-    }
 
     if (self->forced)
     {
@@ -4618,18 +4148,13 @@ void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& 
         if (area->flags & data.eventTag)
         {
             const bool battlefield = area->tag == 'FILD';
-            const UIScale::Rect native = nativeAreaRect(data.uiElements, area);
-            const int eventX = battlefield
-                ? Zoom::GetState().mapX(mouseX) - left
-                : (mouseX - left) * native.width / area->width;
-            const int eventY = battlefield
-                ? Zoom::GetState().mapY(mouseY) - top
-                : (mouseY - top) * native.height / area->height;
+            const int eventX = battlefield ? Zoom::GetState().mapX(mouseX) : mouseX;
+            const int eventY = battlefield ? Zoom::GetState().mapY(mouseY) : mouseY;
             writeEventToRingBuffer(
                 area->tag,
                 data.eventTag,
-                eventX,
-                eventY);
+                eventX - left,
+                eventY - top);
 
             // Stop propagation
             if (area->flags & UI_STOP_PROPAGATION)
@@ -4672,18 +4197,13 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
         if (wasInside && !isInside && (area->flags & UI_MOUSE_LEAVE))
         {
             const bool battlefield = area->tag == 'FILD';
-            const UIScale::Rect native = nativeAreaRect(data.uiElements, area);
-            const int eventX = battlefield
-                ? Zoom::GetState().mapX(data.mouseX) - left
-                : (data.mouseX - left) * native.width / area->width;
-            const int eventY = battlefield
-                ? Zoom::GetState().mapY(data.mouseY) - top
-                : (data.mouseY - top) * native.height / area->height;
+            const int eventX = battlefield ? Zoom::GetState().mapX(data.mouseX) : data.mouseX;
+            const int eventY = battlefield ? Zoom::GetState().mapY(data.mouseY) : data.mouseY;
             writeEventToRingBuffer(
                 area->tag,
                 UI_MOUSE_LEAVE,
-                eventX,
-                eventY);
+                eventX - left,
+                eventY - top);
         }
     }
 
@@ -4728,18 +4248,13 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
         if (!wasInside && (area->flags & UI_MOUSE_ENTER))
         {
             const bool battlefield = area->tag == 'FILD';
-            const UIScale::Rect native = nativeAreaRect(data.uiElements, area);
-            const int eventX = battlefield
-                ? Zoom::GetState().mapX(data.mouseX) - left
-                : (data.mouseX - left) * native.width / area->width;
-            const int eventY = battlefield
-                ? Zoom::GetState().mapY(data.mouseY) - top
-                : (data.mouseY - top) * native.height / area->height;
+            const int eventX = battlefield ? Zoom::GetState().mapX(data.mouseX) : data.mouseX;
+            const int eventY = battlefield ? Zoom::GetState().mapY(data.mouseY) : data.mouseY;
             writeEventToRingBuffer(
                 area->tag,
                 UI_MOUSE_ENTER,
-                eventX,
-                eventY);
+                eventX - left,
+                eventY - top);
         }
 
         // MouseMove / Hover
@@ -4748,18 +4263,13 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
             if (area->flags & UI_MOUSE_MOVE)
             {
                 const bool battlefield = area->tag == 'FILD';
-                const UIScale::Rect native = nativeAreaRect(data.uiElements, area);
-                const int eventX = battlefield
-                    ? Zoom::GetState().mapX(data.mouseX) - left
-                    : (data.mouseX - left) * native.width / area->width;
-                const int eventY = battlefield
-                    ? Zoom::GetState().mapY(data.mouseY) - top
-                    : (data.mouseY - top) * native.height / area->height;
+                const int eventX = battlefield ? Zoom::GetState().mapX(data.mouseX) : data.mouseX;
+                const int eventY = battlefield ? Zoom::GetState().mapY(data.mouseY) : data.mouseY;
                 writeEventToRingBuffer(
                     area->tag,
                     UI_MOUSE_MOVE,
-                    eventX,
-                    eventY);
+                    eventX - left,
+                    eventY - top);
             }
 
             if (area->flags & UI_STOP_PROPAGATION)

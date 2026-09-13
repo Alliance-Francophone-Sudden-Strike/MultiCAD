@@ -8,7 +8,6 @@
 bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const std::wstring& path)
 {
     Zoom::GetState().setMode(Zoom::Mode::Off);
-    UIScale::Set(UIScale::kMinFactor);
     std::thread([] { AudioHelper::EnsureMaxVolume(); }).detach();
 
     DllVersionDetector& detector = DllVersionDetector::GetInstance();
@@ -93,14 +92,12 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     Zoom::GetState().setPersistentIndicator(Screen::GetPersistentZoomIndicator());
     Zoom::GetState().setInvertZoom(Screen::GetInvertZoom());
     Zoom::GetState().setZoomOnCursor(Screen::GetZoomOnCursor());
-    UIScale::Set(Screen::GetUIScale());
     return true;
 }
 
 bool UninstallGamePatches(TargetState& state)
 {
     Zoom::GetState().setMode(Zoom::Mode::Off);
-    UIScale::Set(UIScale::kMinFactor);
 
     if (state.active)
     {

@@ -3,7 +3,6 @@
 #include "types.h"
 #include "util.h"
 #include "Zoom.h"
-#include "UIScale.h"
 
 namespace Graphics
 {
@@ -180,24 +179,6 @@ public:
         char buffer[8]{};
         GetPrivateProfileStringA("Game", "ZoomOnCursor", "off", buffer, sizeof(buffer), iniPath.c_str());
         return Zoom::ParseMode(buffer) == Zoom::Mode::On;
-    }
-
-    static float GetUIScale()
-    {
-        const std::string iniPath = GetIniPath();
-        if (iniPath.empty())
-            return UIScale::kMinFactor;
-
-        char buffer[16]{};
-        GetPrivateProfileStringA("Game", "UIScale", "1", buffer, sizeof(buffer), iniPath.c_str());
-        for (char& c : buffer)
-            if (c == ',')
-                c = '.';
-
-        // Snap to 0.05: enough steps to tune the panels, few enough that the
-        // value in the ini is the value on screen.
-        const float requested = static_cast<float>(std::atof(buffer));
-        return static_cast<int>(requested * 20.0f + 0.5f) / 20.0f;
     }
 
 private:

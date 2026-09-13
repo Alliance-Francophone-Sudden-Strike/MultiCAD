@@ -2,7 +2,6 @@
 
 #include "types.h"
 #include "cad.h"
-#include "UIScale.h"
 #include "DllHooksBase.h"
 
 #include <vector>
@@ -1021,7 +1020,6 @@ private:
         int mouseY;
         UiEventArea* uiEventAreas;
         int(__cdecl* writeEventToRingBuffer)(int, int, int, int);
-        UiElementBase* uiElements;
     };
 
     struct DispatchMouseMoveEventData
@@ -1032,7 +1030,6 @@ private:
         int mouseY;
         UiEventArea* uiEventAreas;
         int(__cdecl* writeEventToRingBuffer)(int, int, int, int);
-        UiElementBase* uiElements;
     };
 
     struct DispatchWndMessageData
@@ -1379,8 +1376,7 @@ public:
             g->getValue<int>(A.mouseX),
             g->getValue<int>(A.mouseY),
             g->getValue<UiEventArea*>(A.uiEventAreas),
-            g->getFn<int(__cdecl)(int, int, int, int)>(A.fnWriteEventToRingBuffer),
-            g->getValue<UiElementBase*>(A.pointedUiElem + 0x8)
+            g->getFn<int(__cdecl)(int, int, int, int)>(A.fnWriteEventToRingBuffer)
         };
 
         dispatchMouseButtonEvent(data);
@@ -1401,8 +1397,7 @@ public:
             mouseX,
             mouseY,
             g->getValue<UiEventArea*>(A.uiEventAreas),
-            g->getFn<int(__cdecl)(int, int, int, int)>(A.fnWriteEventToRingBuffer),
-            g->getValue<UiElementBase*>(A.pointedUiElem + 0x8)
+            g->getFn<int(__cdecl)(int, int, int, int)>(A.fnWriteEventToRingBuffer)
         };
 
         dispatchMouseMoveEvent(data);
@@ -1439,19 +1434,7 @@ public:
         return dispatchWndMessage(data);
     }
 private:
-    static UIScale::Rect scaledUiRect(const UiElementBase* self);
-    static UIScale::Rect nativeAreaRect(UiElementBase* elements, const UiEventArea* area);
-    static void scaleUiEventArea(UiElementBase* elem);
-    static void blitScaledUi(
-        const UiElementBase* self, const UIScale::Rect& rect, const UIScale::Rect& area);
-    static void repaintScaledUiBorders(const DrawDecorUiElementData& data);
-    static void repaintScaledUiUnderCursor(
-        const DrawDecorUiElementData& data, const UiElementBase* self, const UIScale::Rect& rect);
-    static bool hasScalableDecor(UIRenderElement* decor);
-    static bool beginScaledDecor(UiElementBase& target, int width, int height);
-    static void drawScaledDecor(int width, int height);
-    static void repaintPreviousScaledDecor(const DrawDecorUiElementData& data);
-    static void repaintVanishedUiScaleRects(const DrawDecorUiElementData& data);
+    static bool screenCoveredByUi(UiElementBase* ui, int width, int height);
 
     static void prepareUiElements(UiElementBase* ui);
     static void withBattlefieldMouseCoordinates(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());

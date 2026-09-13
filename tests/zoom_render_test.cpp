@@ -267,17 +267,17 @@ int main(int argc, char** argv)
         for (int x = savedX; x < savedX + savedWidth; ++x)
             assert(renderer[y * pitch + x] == textColor);
 
-    // A decoration repaints by dirty region at its native coordinates, so the rect
-    // reopened for the next frame has to cover those and not just the scaled area it
-    // was presented in. Miss them and the buffer holds a fragment of the menu, which
-    // anchors as if it were the whole of it.
     if (argc == 1)
     {
-        UIScale::Set(2.0f);
-        pause.x = 4; pause.y = 5; // Scales to row 10: a different tile row from the source.
-        pause.prev = nullptr;
+        // The game erases its cursor by stamping the save-under back over the
+        // presented frame, after composition and at a moment the hook never sees.
+        // Under an element that owns no sprites - the in-game menu's click targets,
+        // drawn by the decoration rather than by itself - holding its pixels back for
+        // an incremental redraw that can never come keeps that stamp on screen for good.
+        pause.x = 4; pause.y = 5;
+        pause.prev = &chat;
+        chat.x = 20; chat.y = 2; chat.prev = nullptr;
         data.uiRenderElem = &pause;
-        data.uiElement = nullptr;
         const auto decorFrame = [&]
         {
             module.surface.renderer = renderer.data();
@@ -285,69 +285,7 @@ int main(int argc, char** argv)
             Hooks::drawDecorUiElements(data);
             zoom.finishPresentation(module.surface.renderer, module.pitch, width, height);
         };
-        const auto reopenedTileRow0 = [&]
-        {
-            return reinterpret_cast<const uint8_t*>(coverage.data() + 2)[0] & 0x10;
-        };
-        const auto clearCoverage = [&]
-        {
-            coverage.fill(0);
-            coverage[0] = width / 16; coverage[1] = height / 8;
-        };
-        decorFrame();
-        clearCoverage();
-        decorFrame();
-        assert(reopenedTileRow0());
 
-        // Only the cursor's rect is dirty on most frames, so the decoration repaints
-        // somewhere else entirely. The rect reopened for the next frame still has to
-        // cover everywhere it has been painting, or the menu is only ever redrawn in
-        // patches and the cursor scrubs the rest of it away.
-        pause.y = 12; // Scales to row 8: this frame alone would reopen tile row 1 only.
-        decorFrame();
-        clearCoverage();
-        decorFrame();
-        assert(reopenedTileRow0());
-
-        // Same reason the rect may not shrink: every frame has to place what it does
-        // repaint through the same mapping. Anchoring a partial repaint on its own
-        // picks a different rule from the whole decoration - here rows 8..9 instead of
-        // 14..15 - which is the top border decoration landing inside the menu.
-        assert(renderer[14 * pitch + 8] == textColor);
-        assert(renderer[15 * pitch + 8] == textColor);
-
-        // The cursor's own rect has to be reopened too. It sits in tile column 1,
-        // which the decoration never paints into.
-        savedX = 20; savedY = 2; savedWidth = 4; savedHeight = 4;
-        decorFrame();
-        clearCoverage();
-        decorFrame();
-        assert(reinterpret_cast<const uint8_t*>(coverage.data() + 2)[1] & 0x10);
-
-        // The game erases its cursor by stamping the save-under back over the presented
-        // frame, after composition and at a moment the hook never sees. Composing the
-        // next frame has to clear whatever it stamped, or a block of the previous
-        // layout stays under the cursor - which is what shows when a modal opens on
-        // top of the menu and the decoration is laid out afresh.
-        chat.x = 20; chat.y = 2; chat.prev = nullptr;
-        pause.prev = &chat; // A second modal on top: more decoration, new layout.
-        savedX = 8; savedY = 8; savedWidth = 8; savedHeight = 6;
-        decorFrame();
-        decorFrame(); // Settled: same state in, same pixels out.
-        std::array<Pixel, pitch * height> reference = renderer;
-
-        constexpr Pixel stale = 0x1234;
-        for (int y = savedY; y < savedY + savedHeight; ++y)
-            for (int x = savedX; x < savedX + savedWidth; ++x)
-                renderer[y * pitch + x] = stale;
-
-        decorFrame();
-        assert(renderer == reference);
-
-        // The same stamp, but left where the cursor has since moved away from, under
-        // an element that owns no sprites - the menu's click targets. Holding its
-        // pixels back for an incremental redraw that can never come keeps that stamp
-        // on screen for good.
         Hooks::UiElementBase targets{};
         targets.leftX = 8; targets.topY = 8;
         targets.rightX = 15; targets.bottomY = 13;
@@ -355,38 +293,48 @@ int main(int argc, char** argv)
         data.uiElement = &targets;
         savedX = 0; savedY = 0; savedWidth = 4; savedHeight = 4;
         decorFrame();
-        decorFrame();
-        reference = renderer;
+        decorFrame(); // Settled: same state in, same pixels out.
+        const std::array<Pixel, pitch * height> reference = renderer;
 
-        const UIScale::Rect covered = Hooks::scaledUiRect(&targets);
-        for (int y = covered.y; y < covered.y + covered.height; ++y)
-            for (int x = covered.x; x < covered.x + covered.width; ++x)
+        constexpr Pixel stale = 0x1234;
+        for (int y = targets.topY; y <= targets.bottomY; ++y)
+            for (int x = targets.leftX; x <= targets.rightX; ++x)
                 renderer[y * pitch + x] = stale;
 
         decorFrame();
         assert(renderer == reference);
-        data.uiElement = nullptr;
 
-        // Opening a modal on top of the menu and closing it again has to leave the
-        // menu exactly as it was. The extent is measured from whatever is on screen,
-        // so it has to be given up with them - otherwise the menu stays mapped through
-        // the rect the pair occupied and the modal's edges stay behind as seams.
+        // The strategic map covers the screen and repaints only where the game marks
+        // it dirty, so nothing beneath it may compose over it: not the world from a
+        // rect reopened for the decoration, and not the zoomed presentation, which
+        // holds the panels' own rects back from the previous frame. Both leave the
+        // bottom-left panel's rect showing the screen as it was before the map opened.
+        // It paints through dstBuf, so it owns no sprites to recognise it by.
+        Hooks::UiEventArea mapArea{};
+        mapArea.tag = 'TMAP';
+        Hooks::UiElementBase map{};
+        map.uiEventArea = &mapArea;
+        map.rightX = map.clipRight = width - 1;
+        map.bottomY = map.clipBottom = height - 1;
+        map.stride = width;
+        assert(!map.sprites);
+        data.uiElement = &map;
         data.uiRenderElem = nullptr;
-        decorFrame();
-        pause.prev = nullptr;
-        data.uiRenderElem = &pause;
-        decorFrame();
-        decorFrame();
-        reference = renderer;
 
-        pause.prev = &chat; // The modal opens on top,
+        assert(zoom.addWheelDelta(120));
+        const int held = zoom.presentedScale();
+        coverage.fill(0);
+        coverage[0] = width / 16; coverage[1] = height / 8;
         decorFrame();
-        decorFrame();
-        pause.prev = nullptr; // and closes again.
-        decorFrame();
-        decorFrame();
-        assert(renderer == reference);
-        UIScale::Set(UIScale::kMinFactor);
+        for (int row = 0; row < height / 8; ++row)
+            for (int column = 0; column < width / 16; ++column)
+                assert((reinterpret_cast<const uint8_t*>(coverage.data() + 2)
+                    [column + kRowStrideByteSize * row] & 0x10) == 0);
+        assert(zoom.presentedScale() == held); // Nothing presented over the map.
+
+        data.uiElement = nullptr;
+        decorFrame(); // The map closes and the world composes again.
+        assert(zoom.presentedScale() == zoom.scale());
     }
 
     puts("Zoom rendering: pause/chat, 1x-2x, clipping, pitch, circular wrap, source preservation OK");
