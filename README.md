@@ -111,7 +111,7 @@ In addition, you can configure the zoom indicator and its persistence:
 > [Game]
 > Zoom=on
 > ZoomIndicator=right
-> ScrollIndicatorShape=bars
+> ZoomIndicatorShape=bars
 > PersistentZoomIndicator=on
 > InvertZoom=on
 > ZoomOnCursor=on
@@ -121,7 +121,7 @@ Use `Zoom=off` to disable zoom or `ZoomIndicator=hidden` to hide its indicator. 
 
 Other available settings settings:
 
-- `ScrollIndicatorShape=bars` draws the indicator as growing bars instead of squares; it can be set to `squares` or `bars` and defaults to `squares`.
+- `ZoomIndicatorShape=bars` draws the indicator as growing bars instead of squares; it can be set to `squares` or `bars` and defaults to `squares`.
 - `PersistentZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
 - `InvertZoom=on` reverses the mouse wheel direction for zooming; it defaults to `off`.
 - `ZoomOnCursor=on` zooms towards the cursor instead of the screen centre; it defaults to `off`.
