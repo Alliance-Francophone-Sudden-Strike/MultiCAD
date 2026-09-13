@@ -148,6 +148,20 @@ public:
         return Zoom::ParseIndicatorAnchor(buffer);
     }
 
+    static Zoom::IndicatorShape GetScrollIndicatorShape()
+    {
+        const std::string iniPath = GetIniPath();
+        if (iniPath.empty())
+            return Zoom::IndicatorShape::Squares;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "ScrollIndicatorShape", "squares", buffer, sizeof(buffer), iniPath.c_str());
+        for (char& c : buffer)
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c + ('a' - 'A'));
+        return Zoom::ParseIndicatorShape(buffer);
+    }
+
     static bool GetPersistentZoomIndicator()
     {
         const std::string iniPath = GetIniPath();

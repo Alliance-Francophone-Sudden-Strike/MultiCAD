@@ -3,6 +3,7 @@
 #include "renderer.h"
 #include "UiFilter.h"
 #include "types.h"
+#include "ZoomIndicator.h"
 
 int __declspec(noinline) __fastcall GameDllHooks::sub_1001D240(GameData5* self, void* /*dummy*/, int** a2)
 {
@@ -1428,11 +1429,12 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
 
     if (showIndicator)
         Zoom::DrawIndicator16(
+            zoom.indicatorShape(),
             static_cast<Pixel*>(g_moduleState->surface.renderer),
             g_moduleState->pitch / sizeof(Pixel),
             width,
             height,
-            zoom.scale(),
+            zoom.animatedScale(),
             zoom.indicatorAnchor() == Zoom::IndicatorAnchor::Right,
             zoom.indicatorOpacity(indicatorTick));
 

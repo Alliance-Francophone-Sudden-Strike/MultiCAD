@@ -57,6 +57,19 @@ namespace Zoom
         return IndicatorAnchor::Left;
     }
 
+    enum class IndicatorShape
+    {
+        Squares,
+        Bars
+    };
+
+    constexpr IndicatorShape ParseIndicatorShape(std::string_view value)
+    {
+        if (value == "bars")
+            return IndicatorShape::Bars;
+        return IndicatorShape::Squares;
+    }
+
     struct Rect
     {
         int x{};
@@ -122,6 +135,7 @@ namespace Zoom
     constexpr int kMaxScale = 8; // 8 == 2x
     constexpr uint32_t kIndicatorHoldMs = 1500;
     constexpr uint32_t kIndicatorFadeMs = 250;
+    constexpr uint32_t kIndicatorAnimMs = 150;
 
     constexpr int ViewportExtent(int nativeExtent, int scale)
     {
@@ -166,58 +180,6 @@ namespace Zoom
         }
     }
 
-    inline void DrawIndicator16(
-        uint16_t* destination, int pitch, int width, int height, int scale, bool right,
-        int opacity = 16)
-    {
-        constexpr int size = 12;
-        constexpr int gap = 8;
-        constexpr int margin = 12;
-        constexpr uint16_t outline = 0x8410;
-        constexpr uint16_t fill = 0xC618;
-        constexpr int totalHeight = (kMaxScale - kMinScale + 1) * size +
-            (kMaxScale - kMinScale) * gap;
-        const int left = right ? width - margin - size : margin;
-        const int top = (height - totalHeight) / 2;
-
-        if (!destination || left < 0 || top < 0 || left + size > width || top + totalHeight > height)
-            return;
-
-        scale = std::clamp(scale, kMinScale, kMaxScale);
-        opacity = std::clamp(opacity, 0, 16);
-        for (int dot = 0; dot <= kMaxScale - kMinScale; ++dot)
-        {
-            const bool reached = scale >= kMaxScale - dot;
-            const int y = top + dot * (size + gap);
-            for (int dy = 0; dy < size; ++dy)
-                for (int dx = 0; dx < size; ++dx)
-                {
-                    const bool border = dx == 0 || dx == size - 1 || dy == 0 || dy == size - 1;
-                    if (!reached && !border)
-                        continue;
-
-                    uint16_t& pixel = destination[(y + dy) * pitch + left + dx];
-                    const uint16_t color = reached ? fill : outline;
-                    if (opacity == 16)
-                    {
-                        pixel = color;
-                        continue;
-                    }
-
-                    const int sourceRed = (color >> 11) & 0x1F;
-                    const int sourceGreen = (color >> 5) & 0x3F;
-                    const int sourceBlue = color & 0x1F;
-                    const int targetRed = (pixel >> 11) & 0x1F;
-                    const int targetGreen = (pixel >> 5) & 0x3F;
-                    const int targetBlue = pixel & 0x1F;
-                    pixel = static_cast<uint16_t>(
-                        (((sourceRed * opacity + targetRed * (16 - opacity) + 8) / 16) << 11) |
-                        (((sourceGreen * opacity + targetGreen * (16 - opacity) + 8) / 16) << 5) |
-                        ((sourceBlue * opacity + targetBlue * (16 - opacity) + 8) / 16));
-                }
-        }
-    }
-
     class State
     {
     public:
@@ -254,6 +216,8 @@ namespace Zoom
         bool dragging() const { return dragButtons_ != 0; }
         bool battlefieldDragging() const { return battlefieldDragButtons_ != 0; }
         IndicatorAnchor indicatorAnchor() const { return indicatorAnchor_; }
+        IndicatorShape indicatorShape() const { return indicatorShape_; }
+        void setIndicatorShape(IndicatorShape shape) { indicatorShape_ = shape; }
         void setPersistentIndicator(bool persistent) { persistentIndicator_ = persistent; }
         void setInvertZoom(bool invert) { invertZoom_ = invert; }
         void setZoomOnCursor(bool enabled) { zoomOnCursor_ = enabled; }
@@ -288,6 +252,9 @@ namespace Zoom
             return static_cast<int>((kIndicatorHoldMs - elapsed) * 16 / kIndicatorFadeMs);
         }
         bool indicatorPending() const { return indicatorActive_; }
+        // Eases toward scale() a little each updatePan() tick, so DrawIndicator16
+        // can sweep a level's bar smoothly instead of snapping it.
+        float animatedScale() const { return animatedScale_; }
         void finishIndicatorFrame(uint32_t tick)
         {
             if (!indicatorVisible(tick))
@@ -331,6 +298,8 @@ namespace Zoom
         }
         void updatePan(int cameraX, int cameraY, uint32_t tick)
         {
+            advanceIndicatorAnimation(tick);
+
             if (mode_ == Mode::Off || scale_ == kMinScale)
             {
                 lastCameraStepX_ = 0;
@@ -656,11 +625,15 @@ namespace Zoom
         bool routed_{};
         bool worldIsolated_{};
         IndicatorAnchor indicatorAnchor_{ IndicatorAnchor::Left };
+        IndicatorShape indicatorShape_{ IndicatorShape::Squares };
         bool persistentIndicator_{};
         bool invertZoom_{};
         bool zoomOnCursor_{};
         bool indicatorActive_{};
         uint32_t indicatorTick_{};
+        float animatedScale_{ static_cast<float>(kMinScale) };
+        uint32_t animTick_{};
+        bool animValid_{};
         int panX_{};
         int panY_{};
         int notifiedScale_{ kMinScale };
@@ -683,6 +656,21 @@ namespace Zoom
         std::vector<uint16_t> presentation_;
         std::vector<uint16_t> isolatedWorld_;
         std::vector<uint16_t> isolatedBack_;
+
+        void advanceIndicatorAnimation(uint32_t tick)
+        {
+            if (!animValid_)
+            {
+                animatedScale_ = static_cast<float>(scale_);
+                animTick_ = tick;
+                animValid_ = true;
+                return;
+            }
+            const uint32_t elapsed = tick - animTick_;
+            animTick_ = tick;
+            const float factor = std::min(1.f, elapsed / static_cast<float>(kIndicatorAnimMs));
+            animatedScale_ += (static_cast<float>(scale_) - animatedScale_) * factor;
+        }
 
         int scaledPanOffset(int nativeExtent, int battlefieldExtent, int pan) const
         {

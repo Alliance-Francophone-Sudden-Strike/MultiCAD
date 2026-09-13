@@ -1,4 +1,5 @@
 #include "Zoom.h"
+#include "ZoomIndicator.h"
 
 #include <array>
 #include <cassert>
@@ -188,14 +189,51 @@ int main()
         movement.addWheelDelta(120);
     }
 
+    static_assert(ParseIndicatorShape("bars") == IndicatorShape::Bars);
+    static_assert(ParseIndicatorShape("unknown") == IndicatorShape::Squares);
+
     std::array<uint16_t, 64 * 128> indicator{};
-    DrawIndicator16(indicator.data(), 64, 64, 128, kMinScale, false);
-    assert(indicator[18 * 64 + 12] != 0); // Highest level has an outline.
-    assert(indicator[98 * 64 + 12] != 0); // Current level is filled.
+    DrawIndicatorSquares16(indicator.data(), 64, 64, 128, static_cast<float>(kMinScale), false);
+    assert(indicator[18 * 64 + 12] != 0);
+    assert(indicator[98 * 64 + 12] != 0);
     indicator.fill(0);
-    DrawIndicator16(indicator.data(), 64, 64, 128, kMaxScale, true);
+    DrawIndicatorSquares16(indicator.data(), 64, 64, 128, static_cast<float>(kMaxScale), true);
     assert(indicator[18 * 64 + 40] != 0);
     assert(indicator[18 * 64 + 12] == 0);
+
+    indicator.fill(0);
+    DrawIndicatorBars16(indicator.data(), 64, 64, 128, static_cast<float>(kMinScale), false);
+    assert(indicator[31 * 64 + 12] != 0);
+    assert(indicator[31 * 64 + 32] == 0);
+    assert(indicator[95 * 64 + 12] != 0);
+    assert(indicator[95 * 64 + 32] != 0);
+    indicator.fill(0);
+    DrawIndicatorBars16(indicator.data(), 64, 64, 128, static_cast<float>(kMaxScale), true);
+    assert(indicator[31 * 64 + 51] != 0);
+    assert(indicator[31 * 64 + 12] == 0);
+
+    indicator.fill(0);
+    DrawIndicator16(IndicatorShape::Bars, indicator.data(), 64, 64, 128, static_cast<float>(kMinScale), false);
+    assert(indicator[31 * 64 + 12] != 0);
+    indicator.fill(0);
+    DrawIndicator16(IndicatorShape::Squares, indicator.data(), 64, 64, 128, static_cast<float>(kMinScale), false);
+    assert(indicator[18 * 64 + 12] != 0);
+
+    State shape;
+    assert(shape.indicatorShape() == IndicatorShape::Squares);
+    shape.setIndicatorShape(IndicatorShape::Bars);
+    assert(shape.indicatorShape() == IndicatorShape::Bars);
+
+    State anim;
+    anim.setMode(Mode::On);
+    anim.setBattlefield({ 0, 0, 100, 80 });
+    anim.updatePan(0, 0, 0); // primes animatedScale() at the current (min) scale
+    assert(anim.animatedScale() == static_cast<float>(kMinScale));
+    anim.addWheelDelta(120); // scale steps to 5; the bar should ease toward it, not snap
+    anim.updatePan(0, 0, kIndicatorAnimMs / 2);
+    assert(anim.animatedScale() > 4.f && anim.animatedScale() < 5.f);
+    anim.updatePan(0, 0, kIndicatorAnimMs * 4);
+    assert(anim.animatedScale() == 5.f); // settles once fully eased
 
     State presentation;
     presentation.setMode(Mode::On);
