@@ -10,6 +10,9 @@ It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) �
 >
 > An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.
 
+> [!WARNING]
+> This fork also provides 2 new features only for SS2 and HS2 at the moment: the ability to zoom and the control-group panel.
+
 ## Supported Games
 
 ### Original Games
@@ -125,6 +128,21 @@ Other available settings settings:
 - `PersistentZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
 - `InvertZoom=on` reverses the mouse wheel direction for zooming; it defaults to `off`.
 - `ZoomOnCursor=on` zooms towards the cursor instead of the screen centre; it defaults to `off`.
+
+### Control-Group Panel
+
+MultiCAD can also show a row of ten indicator cells for your control groups, labelled `1`–`9` and `0`, in the screen's top-right corner. Groups that currently hold units light up; empty groups stay dim.
+
+To enable it, set `GroupPanel=on` in the game's ini:
+
+> ```ini
+> [Game]
+> GroupPanel=on
+> ```
+
+Use `GroupPanel=off` to disable it; it defaults to `off`.
+
+> 💡 Note: The panel is currently only available for **Sudden Strike 2** and **Hidden Stroke 2**, and only when the version is auto-detected: it stays off under a forced `GameProfile`.
 
 ### Replacement Menu or Game Modules
 
