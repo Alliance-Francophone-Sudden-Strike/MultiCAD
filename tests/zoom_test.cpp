@@ -302,6 +302,22 @@ int main()
         4, 4, &cursorX, &cursorY, &cursorWidth, &hidden, cursorSave.data());
     assert(cursorSave[0] == 0); // No cursor drawn, nothing to hand back.
 
+    std::array<uint16_t, 16> overlay{};
+    for (int i = 0; i < 16; ++i)
+        overlay[i] = static_cast<uint16_t>(200 + i);
+    cursorSave.fill(0);
+    cursor.refreshCursorSaveRect(
+        overlay.data(), 4, { 2, 1, 2, 3 },
+        4, 4, &cursorX, &cursorY, &cursorWidth, &cursorHeight, cursorSave.data());
+    assert(cursorSave[0] == 0);
+    assert(cursorSave[1] == 206);
+    assert(cursorSave[64] == 0 && cursorSave[65] == 210);
+    cursorSave.fill(0);
+    cursor.refreshCursorSaveRect(
+        overlay.data(), 4, { 0, 0, 1, 1 },
+        4, 4, &cursorX, &cursorY, &cursorWidth, &cursorHeight, cursorSave.data());
+    assert(cursorSave[0] == 0 && cursorSave[1] == 0);
+
     State viewport;
     viewport.setMode(Mode::On);
     viewport.setBattlefield({ 0, 0, 64, 32 });

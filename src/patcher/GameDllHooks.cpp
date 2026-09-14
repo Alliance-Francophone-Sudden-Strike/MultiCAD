@@ -10,6 +10,49 @@ namespace
 {
     GroupPanelReader g_groupPanel;
     GroupPanel::Fade g_groupPanelFade;
+    int g_groupPanelOpacity = 0;
+    int g_groupPanelSurfaceWidth = 0;
+    int g_groupPanelSurfaceHeight = 0;
+    const int* g_groupPanelCursorX = nullptr;
+    const int* g_groupPanelCursorY = nullptr;
+    const int* g_groupPanelCursorWidth = nullptr;
+    const int* g_groupPanelCursorHeight = nullptr;
+    Pixel* g_groupPanelCursorPixels = nullptr;
+
+    Zoom::Rect GroupPanelRect()
+    {
+        const Zoom::Rect first = GroupPanel::CellRect(0, g_groupPanelSurfaceWidth);
+        return { first.x, first.y, GroupPanel::Width(), GroupPanel::Height() };
+    }
+
+    void DrawGroupPanelOverlay()
+    {
+        if (g_groupPanelOpacity <= 0 || !g_moduleState || !g_moduleState->surface.renderer)
+            return;
+
+        auto* const destination = static_cast<Pixel*>(g_moduleState->surface.renderer);
+        const int pitch = static_cast<int>(g_moduleState->pitch / sizeof(Pixel));
+
+        GroupPanel::Draw16(
+            destination,
+            pitch,
+            g_groupPanelSurfaceWidth,
+            g_groupPanelSurfaceHeight,
+            g_groupPanelFade.slots(),
+            g_groupPanelOpacity);
+
+        Zoom::GetState().refreshCursorSaveRect(
+            destination,
+            pitch,
+            GroupPanelRect(),
+            g_groupPanelSurfaceWidth,
+            g_groupPanelSurfaceHeight,
+            g_groupPanelCursorX,
+            g_groupPanelCursorY,
+            g_groupPanelCursorWidth,
+            g_groupPanelCursorHeight,
+            g_groupPanelCursorPixels);
+    }
 }
 
 void GameDllHooks::configureGroupPanel(GameVersion version)
@@ -19,6 +62,7 @@ void GameDllHooks::configureGroupPanel(GameVersion version)
     else
         g_groupPanel = {};
     g_groupPanelFade = {};
+    g_groupPanelOpacity = 0;
 }
 
 int __declspec(noinline) __fastcall GameDllHooks::sub_1001D240(GameData5* self, void* /*dummy*/, int** a2)
@@ -1517,13 +1561,26 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     const uint32_t tick = GetTickCount();
     Zoom::GetState().updatePan(data.cameraX, data.cameraY, tick);
     const bool zoomed = prepareZoomPresentation(data);
-    const std::array<bool, GroupPanel::kCount>* panelGroups = nullptr;
-    int panelOpacity = 0;
-    if (g_groupPanel.bound() && GroupPanel::Fits(data.surfaceWidth, data.surfaceHeight))
+
+    const int lastPanelOpacity = g_groupPanelOpacity;
+    g_groupPanelOpacity = 0;
+    g_groupPanelSurfaceWidth = data.surfaceWidth;
+    g_groupPanelSurfaceHeight = data.surfaceHeight;
+    g_groupPanelCursorX = data.cursorSavedX;
+    g_groupPanelCursorY = data.cursorSavedY;
+    g_groupPanelCursorWidth = data.cursorSavedWidth;
+    g_groupPanelCursorHeight = data.cursorSavedHeight;
+    g_groupPanelCursorPixels = data.cursorSavedPixels;
+
+    const bool panelCovered = screenCoveredByUi(data.uiElement, data.surfaceWidth, data.surfaceHeight);
+
+    if (g_groupPanel.bound() && GetUIFilter().isEnabled() && !panelCovered &&
+        GroupPanel::Fits(data.surfaceWidth, data.surfaceHeight))
     {
-        panelGroups = &g_groupPanel.groups(tick);
-        panelOpacity = g_groupPanelFade.update(*panelGroups, tick);
+        g_groupPanelOpacity = g_groupPanelFade.update(g_groupPanel.groups(tick), tick);
     }
+
+    const bool panelPainted = !panelCovered && (g_groupPanelOpacity > 0 || lastPanelOpacity > 0);
 
     if (zoomed)
     {
@@ -1541,19 +1598,19 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             data.surfaceWidth - 1,
             data.surfaceHeight - 1);
     }
-    else if (panelGroups)
+    else if (panelPainted)
     {
         // The native 1x surface is incremental. Reopen the panel's tiles so
         // its previous pixels are repainted even when the last group vanishes.
-        const Zoom::Rect first = GroupPanel::CellRect(0, data.surfaceWidth);
+        const Zoom::Rect panel = GroupPanelRect();
         sub_10055E00(
             data.closedAreaGameDataArray,
             nullptr,
             16,
-            first.x,
-            first.y,
-            first.x + GroupPanel::Width() - 1,
-            first.y + GroupPanel::Height() - 1);
+            panel.x,
+            panel.y,
+            panel.x + panel.width - 1,
+            panel.y + panel.height - 1);
     }
 
     // Snapshot decorations only, after terrain/camera/world updates. At 1x
@@ -1666,15 +1723,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 
     // Last write to the presented frame: the cursor is drawn on top of it right
     // after this, and erased from it by native code at a moment we do not see.
-    if (GetUIFilter().isEnabled() && panelGroups &&
-        g_moduleState && g_moduleState->surface.renderer)
-        GroupPanel::Draw16(
-            static_cast<Pixel*>(g_moduleState->surface.renderer),
-            static_cast<int>(g_moduleState->pitch / sizeof(Pixel)),
-            data.surfaceWidth,
-            data.surfaceHeight,
-            g_groupPanelFade.slots(),
-            panelOpacity);
+    DrawGroupPanelOverlay();
 
     if (zoomed)
     {
@@ -4033,6 +4082,16 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
         {
             sub_98410(v6.alignX - self->leftX, v6.alignY - self->topY, v6.allowX - v6.alignX + 1, v6.allowY - v6.alignY + 1, self->leftX, self->topY, &self->sprites);
         } while (sub_79950(dword_103B708, &v6));
+    }
+
+    if (g_groupPanelOpacity > 0)
+    {
+        const Zoom::Rect panel = GroupPanelRect();
+        if (self->rightX >= panel.x && self->leftX < panel.x + panel.width &&
+            self->bottomY >= panel.y && self->topY < panel.y + panel.height)
+        {
+            DrawGroupPanelOverlay();
+        }
     }
 }
 

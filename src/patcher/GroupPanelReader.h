@@ -95,6 +95,8 @@ private:
     void refresh()
     {
         active_.fill(false);
+        regionStart_ = 0;
+        regionEnd_ = 0;
 
         auto* headSlot = globals_->getPtr<uint8_t*>(addresses_->unitListHead);
         if (!isReadable(headSlot, sizeof(uint8_t*)))
@@ -106,22 +108,37 @@ private:
                  ? addresses_->unitGroupOffset
                  : addresses_->unitNextOffset) + sizeof(void*));
 
+        int missing = GroupPanel::kCount;
         uint8_t* unit = *headSlot;
         for (int guard = 0; unit && guard < kMaxUnits; ++guard)
         {
-            if (!isReadable(unit, probe))
+            if (!isReadableCached(unit, probe))
                 return;                       // corrupt list: keep what we have
 
             const int slot = GroupPanel::SlotForStoredValue(unit[addresses_->unitGroupOffset]);
-            if (slot >= 0)
+            if (slot >= 0 && !active_[static_cast<size_t>(slot)])
+            {
                 active_[static_cast<size_t>(slot)] = true;
+                if (--missing == 0)
+                    return;
+            }
 
             unit = *reinterpret_cast<uint8_t**>(unit + addresses_->unitNextOffset);
         }
     }
 
+    bool isReadableCached(const void* p, size_t bytes)
+    {
+        const auto first = reinterpret_cast<uintptr_t>(p);
+        if (regionEnd_ && first >= regionStart_ && first + bytes <= regionEnd_)
+            return true;
+
+        return isReadable(p, bytes, &regionStart_, &regionEnd_);
+    }
+
     // Same shape as GameDllHooks::is_valid_ptr, which is private to that class.
-    static bool isReadable(const void* p, size_t bytes)
+    static bool isReadable(const void* p, size_t bytes,
+                           uintptr_t* regionStart = nullptr, uintptr_t* regionEnd = nullptr)
     {
         if (!p || bytes == 0)
             return false;
@@ -139,12 +156,22 @@ private:
         const auto start = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
         const auto end = start + mbi.RegionSize;
         const auto first = reinterpret_cast<uintptr_t>(p);
-        return first >= start && first + bytes <= end;
+        if (first < start || first + bytes > end)
+            return false;
+
+        if (regionStart && regionEnd)
+        {
+            *regionStart = start;
+            *regionEnd = end;
+        }
+        return true;
     }
 
     GameGlobals* globals_{ nullptr };
     const GroupPanelAddresses* addresses_{ nullptr };
     std::array<bool, GroupPanel::kCount> active_{};
+    uintptr_t regionStart_{ 0 };
+    uintptr_t regionEnd_{ 0 };
     uint32_t lastTick_{ 0 };
     bool primed_{ false };
 };

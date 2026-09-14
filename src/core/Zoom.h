@@ -550,6 +550,33 @@ namespace Zoom
             }
         }
 
+        void refreshCursorSaveRect(
+            const uint16_t* source, int sourcePitch,
+            const Rect& region,
+            int width, int height,
+            const int* savedX, const int* savedY,
+            const int* savedWidth, const int* savedHeight,
+            uint16_t* savedPixels) const
+        {
+            int left, top, right, bottom;
+            if (!source || !savedPixels || sourcePitch <= 0 ||
+                !cursorSaveRect(width, height, savedX, savedY, savedWidth, savedHeight,
+                    left, top, right, bottom))
+                return;
+
+            left = std::max(left, region.x);
+            top = std::max(top, region.y);
+            right = std::min(right, region.x + region.width);
+            bottom = std::min(bottom, region.y + region.height);
+
+            for (int row = top; row < bottom; ++row)
+            {
+                const uint16_t* begin = source + static_cast<size_t>(row) * sourcePitch + left;
+                std::copy(begin, begin + (right - left),
+                    savedPixels + (row - *savedY) * kCursorPitch + left - *savedX);
+            }
+        }
+
         void beginWorldIsolation(uint16_t* main, uint16_t* back, size_t pixels)
         {
             finishWorldIsolation(main, back);
