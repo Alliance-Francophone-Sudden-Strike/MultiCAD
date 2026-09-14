@@ -2,7 +2,7 @@
 #
 #   make            build bin/cadMulti_mt.dll and bin/cadMulti.dll
 #   make mt         only the fully-static cadMulti_mt.dll
-#   make test       LoadLibrary smoke-test both DLLs under Wine
+#   make test       host unit tests, then LoadLibrary smoke-test both DLLs under Wine
 #   make clean      remove obj/ and bin/
 #
 # The Visual Studio project stays the source of truth; this path copies src/
@@ -44,7 +44,7 @@ GCC_LIBDIR := $(dir $(shell $(CXX) -print-libgcc-file-name))
 
 SRC_FILES := $(shell find $(SRCDIR) -type f 2>/dev/null)
 
-.PHONY: all mt clean test zoom-test zoom-render-test prep
+.PHONY: all mt clean test zoom-test group-panel-test zoom-render-test prep
 all: bin/cadMulti_mt.dll bin/cadMulti.dll
 mt:  bin/cadMulti_mt.dll
 
@@ -83,7 +83,7 @@ bin/cadMulti.dll: $(OBJS) $(RES)
 
 # LoadLibrary smoke test under Wine. Runs from bin/ so cadMulti.dll finds its
 # sidecar runtime DLLs (mirrors dropping everything into the game folder).
-test: zoom-test all
+test: zoom-test group-panel-test all
 	@i686-w64-mingw32-gcc -m32 -O2 $(HERE)loadtest.c -o bin/loadtest.exe
 	@cd bin && for d in cadMulti_mt.dll cadMulti.dll; do \
 	    echo "== $$d =="; WINEDEBUG=-all wine loadtest.exe "$$d" || exit 1; \
@@ -94,6 +94,11 @@ zoom-test:
 	@mkdir -p obj
 	$(HOST_CXX) -std=c++20 -Wall -Wextra -pedantic -I$(SRCDIR)/core ../tests/zoom_test.cpp -o obj/zoom_test
 	obj/zoom_test
+
+group-panel-test:
+	@mkdir -p obj
+	$(HOST_CXX) -std=c++20 -Wall -Wextra -pedantic -I$(SRCDIR)/core -I$(SRCDIR)/patcher ../tests/group_panel_test.cpp -o obj/group_panel_test
+	obj/group_panel_test
 
 # Exercise the actual composition hook and sprite renderer under Wine.
 bin/zoom_render_test.exe: ../tests/zoom_render_test.cpp $(OBJS)
