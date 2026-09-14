@@ -135,7 +135,7 @@ namespace Zoom
     constexpr int kMaxScale = 8; // 8 == 2x
     constexpr uint32_t kIndicatorHoldMs = 1500;
     constexpr uint32_t kIndicatorFadeMs = 250;
-    constexpr uint32_t kIndicatorAnimMs = 150;
+    constexpr uint32_t kIndicatorAnimMs = 1;
 
     constexpr int ViewportExtent(int nativeExtent, int scale)
     {

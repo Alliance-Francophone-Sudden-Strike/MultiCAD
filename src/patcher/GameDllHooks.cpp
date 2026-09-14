@@ -1,9 +1,23 @@
 #include "pch.h"
 #include "GameDllHooks.h"
+#include "GroupPanelReader.h"
 #include "renderer.h"
 #include "UiFilter.h"
 #include "types.h"
 #include "ZoomIndicator.h"
+
+namespace
+{
+    GroupPanelReader g_groupPanel;
+}
+
+void GameDllHooks::configureGroupPanel(GameVersion version)
+{
+    if (globals_)
+        g_groupPanel.bind(*globals_, version);
+    else
+        g_groupPanel = {};
+}
 
 int __declspec(noinline) __fastcall GameDllHooks::sub_1001D240(GameData5* self, void* /*dummy*/, int** a2)
 {
@@ -1498,8 +1512,12 @@ bool GameDllHooks::screenCoveredByUi(UiElementBase* ui, int width, int height)
 
 void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
-    Zoom::GetState().updatePan(data.cameraX, data.cameraY, GetTickCount());
+    const uint32_t tick = GetTickCount();
+    Zoom::GetState().updatePan(data.cameraX, data.cameraY, tick);
     const bool zoomed = prepareZoomPresentation(data);
+    const std::array<bool, GroupPanel::kCount>* panelGroups = nullptr;
+    if (g_groupPanel.bound() && GroupPanel::Fits(data.surfaceWidth, data.surfaceHeight))
+        panelGroups = &g_groupPanel.groups(tick);
 
     if (zoomed)
     {
@@ -1516,6 +1534,20 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             0,
             data.surfaceWidth - 1,
             data.surfaceHeight - 1);
+    }
+    else if (panelGroups)
+    {
+        // The native 1x surface is incremental. Reopen the panel's tiles so
+        // its previous pixels are repainted even when the last group vanishes.
+        const Zoom::Rect first = GroupPanel::CellRect(0, data.surfaceWidth);
+        sub_10055E00(
+            data.closedAreaGameDataArray,
+            nullptr,
+            16,
+            first.x,
+            first.y,
+            first.x + GroupPanel::Width() - 1,
+            first.y + GroupPanel::Height() - 1);
     }
 
     // Snapshot decorations only, after terrain/camera/world updates. At 1x
@@ -1628,6 +1660,15 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 
     // Last write to the presented frame: the cursor is drawn on top of it right
     // after this, and erased from it by native code at a moment we do not see.
+    if (GetUIFilter().isEnabled() && panelGroups &&
+        g_moduleState && g_moduleState->surface.renderer)
+        GroupPanel::Draw16(
+            static_cast<Pixel*>(g_moduleState->surface.renderer),
+            static_cast<int>(g_moduleState->pitch / sizeof(Pixel)),
+            data.surfaceWidth,
+            data.surfaceHeight,
+            *panelGroups);
+
     if (zoomed)
     {
         Zoom::GetState().refreshCursorSave(

@@ -1148,6 +1148,13 @@ private:
 #pragma endregion Common_Function_Structs
 
 public:
+    static void configureGroupPanel(GameVersion version);
+    static void shutdown()
+    {
+        configureGroupPanel(GameVersion::UNKNOWN);
+        DllHooksBase<GameTag>::shutdown();
+    }
+
     static int  __declspec(noinline) __fastcall sub_1001D240(GameData5* self, void* /*dummy*/, int** a2);
     static void __declspec(noinline) __cdecl    sub_1003E7B0(UnkEntry* a1, int a2, int* a3, int a4);
     static void __declspec(noinline) __cdecl    sub_1003E7B0_de(UnkEntry* a1, int a2, int* a3, int a4);

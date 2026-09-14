@@ -13,12 +13,15 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     DllVersionDetector& detector = DllVersionDetector::GetInstance();
     GameVersion version = detector.GetOrDetectGameVersion(DllType::Game, path, base, size);
     DetectionStatus status = detector.GetDetectionStatus(DllType::Game);
+    const GameVersion detectedVersion = version;
+    const DetectionStatus detectedStatus = status;
+    GameVersion forced = GameVersion::UNKNOWN;
 
     // "[Game] GameProfile=" forces a profile onto a dll we couldn't identify. Only once the
     // file was read and hashed, otherwise ModuleInfo has nothing to patch against.
     if (status == DetectionStatus::Supported || status == DetectionStatus::UnsupportedHash)
     {
-        const GameVersion forced = ProfileOverride::GetProfileOverride(DllType::Game);
+        forced = ProfileOverride::GetProfileOverride(DllType::Game);
         if (forced != GameVersion::UNKNOWN)
         {
             version = forced;
@@ -93,6 +96,13 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     Zoom::GetState().setPersistentIndicator(Screen::GetPersistentZoomIndicator());
     Zoom::GetState().setInvertZoom(Screen::GetInvertZoom());
     Zoom::GetState().setZoomOnCursor(Screen::GetZoomOnCursor());
+    GameDllHooks::configureGroupPanel(
+        Screen::GetGroupPanel() &&
+        detectedStatus == DetectionStatus::Supported &&
+        (detectedVersion == GameVersion::SS_2 || detectedVersion == GameVersion::HS_2) &&
+        forced == GameVersion::UNKNOWN
+            ? detectedVersion
+            : GameVersion::UNKNOWN);
     return true;
 }
 

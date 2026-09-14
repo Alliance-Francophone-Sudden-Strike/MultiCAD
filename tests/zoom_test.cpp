@@ -225,16 +225,29 @@ int main()
     shape.setIndicatorShape(IndicatorShape::Bars);
     assert(shape.indicatorShape() == IndicatorShape::Bars);
 
+    // Indicator easing. kIndicatorAnimMs is a tuning knob and may legitimately
+    // be set to 1, which makes the bar snap; assert the contract that holds for
+    // any duration, and only check the mid-flight curve when the configured
+    // duration can actually express one.
     State anim;
     anim.setMode(Mode::On);
     anim.setBattlefield({ 0, 0, 100, 80 });
     anim.updatePan(0, 0, 0); // primes animatedScale() at the current (min) scale
     assert(anim.animatedScale() == static_cast<float>(kMinScale));
-    anim.addWheelDelta(120); // scale steps to 5; the bar should ease toward it, not snap
-    anim.updatePan(0, 0, kIndicatorAnimMs / 2);
-    assert(anim.animatedScale() > 4.f && anim.animatedScale() < 5.f);
+    anim.addWheelDelta(120); // scale steps to 5
+    anim.updatePan(0, 0, 0); // no time elapsed: nothing moves yet
+    assert(anim.animatedScale() == static_cast<float>(kMinScale));
+
+    if constexpr (kIndicatorAnimMs >= 2)
+    {
+        anim.updatePan(0, 0, kIndicatorAnimMs / 2); // eases toward the target rather than snapping
+        assert(anim.animatedScale() > 4.f && anim.animatedScale() < 5.f);
+    }
+
     anim.updatePan(0, 0, kIndicatorAnimMs * 4);
-    assert(anim.animatedScale() == 5.f); // settles once fully eased
+    assert(anim.animatedScale() == 5.f); // settles once fully eased, without overshooting
+    anim.updatePan(0, 0, kIndicatorAnimMs * 8);
+    assert(anim.animatedScale() == 5.f); // and stays settled
 
     State presentation;
     presentation.setMode(Mode::On);
