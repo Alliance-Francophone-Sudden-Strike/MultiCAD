@@ -138,10 +138,10 @@ int main()
         const Zoom::Rect zero = CellRect(9, width);
         assert(pixels[one.y * pitch + one.x] == kActiveBorder);
         assert(pixels[(one.y + 1) * pitch + one.x + 1] == kActiveFill);
-        assert(pixels[(one.y + 6) * pitch + one.x + 12] == kActiveText); // top of "1"
+        assert(pixels[(one.y + 4) * pitch + one.x + 8] == kActiveText); // top of "1"
         assert(pixels[two.y * pitch + two.x] == kInactiveBorder);
         assert(pixels[(two.y + 1) * pitch + two.x + 1] == kInactiveFill);
-        assert(pixels[(two.y + 6) * pitch + two.x + 9] == kInactiveText); // top of "2"
+        assert(pixels[(two.y + 4) * pitch + two.x + 6] == kInactiveText); // top of "2"
         assert(pixels[zero.y * pitch + zero.x] == kActiveBorder);
         assert(pixels[0] == untouched);
         assert(pixels[(height - 1) * pitch + width] == untouched); // row padding
@@ -151,6 +151,46 @@ int main()
         Draw16(tooSmall.data(), 4, 4, 4, active);
         for (uint16_t pixel : tooSmall)
             assert(pixel == untouched);
+    }
+
+    // --- fade in/out, same ramp as the zoom indicator -------------------------
+    {
+        constexpr int width = 360;
+        constexpr int height = 80;
+        constexpr int pitch = width + 4;
+        constexpr uint16_t untouched = 0xABCD;
+        std::array<uint16_t, pitch * height> pixels{};
+        pixels.fill(untouched);
+        std::array<bool, kCount> active{};
+        active[0] = true;
+
+        Draw16(pixels.data(), pitch, width, height, active, 0);
+        for (uint16_t pixel : pixels)
+            assert(pixel == untouched); // zero opacity: nothing drawn
+
+        Draw16(pixels.data(), pitch, width, height, active, 8);
+        const Zoom::Rect one = CellRect(0, width);
+        const uint16_t halfBlended = pixels[one.y * pitch + one.x];
+        assert(halfBlended != untouched && halfBlended != kActiveBorder); // blended, not snapped
+
+        Fade fade;
+        std::array<bool, kCount> none{};
+        constexpr uint32_t fadeMs = Zoom::kIndicatorFadeMs;
+        constexpr uint32_t base = 2000;
+
+        assert(fade.update(none, 1000) == 0); // never needed: stays hidden
+
+        assert(fade.update(active, base) == 0); // just became needed: fades in from 0
+        const int fadingIn = fade.update(active, base + fadeMs / 2);
+        assert(fadingIn > 0 && fadingIn < 16);
+        assert(fade.update(active, base + fadeMs) == 16); // fully faded in
+        assert(fade.slots()[0]);
+
+        assert(fade.update(none, base + fadeMs) == 16); // just stopped being needed: still full
+        const int fadingOut = fade.update(none, base + fadeMs + fadeMs / 2);
+        assert(fadingOut > 0 && fadingOut < 16);
+        assert(fade.update(none, base + 2 * fadeMs) == 0); // fully faded out
+        assert(fade.slots()[0]); // keeps the last active pattern while fading
     }
 
     // --- signature matching --------------------------------------------------

@@ -9,6 +9,7 @@
 namespace
 {
     GroupPanelReader g_groupPanel;
+    GroupPanel::Fade g_groupPanelFade;
 }
 
 void GameDllHooks::configureGroupPanel(GameVersion version)
@@ -17,6 +18,7 @@ void GameDllHooks::configureGroupPanel(GameVersion version)
         g_groupPanel.bind(*globals_, version);
     else
         g_groupPanel = {};
+    g_groupPanelFade = {};
 }
 
 int __declspec(noinline) __fastcall GameDllHooks::sub_1001D240(GameData5* self, void* /*dummy*/, int** a2)
@@ -1516,8 +1518,12 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     Zoom::GetState().updatePan(data.cameraX, data.cameraY, tick);
     const bool zoomed = prepareZoomPresentation(data);
     const std::array<bool, GroupPanel::kCount>* panelGroups = nullptr;
+    int panelOpacity = 0;
     if (g_groupPanel.bound() && GroupPanel::Fits(data.surfaceWidth, data.surfaceHeight))
+    {
         panelGroups = &g_groupPanel.groups(tick);
+        panelOpacity = g_groupPanelFade.update(*panelGroups, tick);
+    }
 
     if (zoomed)
     {
@@ -1667,7 +1673,8 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             static_cast<int>(g_moduleState->pitch / sizeof(Pixel)),
             data.surfaceWidth,
             data.surfaceHeight,
-            *panelGroups);
+            g_groupPanelFade.slots(),
+            panelOpacity);
 
     if (zoomed)
     {

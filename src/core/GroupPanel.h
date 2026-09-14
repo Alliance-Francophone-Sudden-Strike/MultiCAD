@@ -4,7 +4,8 @@
 // Deliberately free of Windows and game dependencies so the host compiler can
 // test it (see tests/group_panel_test.cpp). Live state stays in the patcher.
 
-#include "Zoom.h"   // Rect
+#include "Zoom.h"           // Rect, kIndicatorFadeMs
+#include "ZoomIndicator.h"  // Blend565
 
 #include <algorithm>
 #include <array>
@@ -55,8 +56,9 @@ namespace GroupPanel
         return 0x30 + KeyIndexForSlot(slot);
     }
 
-    constexpr int kCell = 27;
-    constexpr int kGap = 4;
+    // 33% smaller than the original 27px cell / 4px gap.
+    constexpr int kCell = 18;
+    constexpr int kGap = 3;
     constexpr int kMargin = 12;
 
     constexpr int Width() { return kColumns * kCell + (kColumns - 1) * kGap; }
@@ -120,13 +122,16 @@ namespace GroupPanel
         int pitch,
         int width,
         int height,
-        const std::array<bool, kCount>& active)
+        const std::array<bool, kCount>& active,
+        int opacity = 16)
     {
-        if (!destination || pitch < width || !Fits(width, height) ||
+        if (!destination || pitch < width || !Fits(width, height) || opacity <= 0 ||
             std::none_of(active.begin(), active.end(), [](bool value) { return value; }))
             return;
 
-        constexpr int glyphScale = 3;
+        opacity = std::clamp(opacity, 0, 16);
+
+        constexpr int glyphScale = 2;
         constexpr int glyphX = (kCell - 3 * glyphScale) / 2;
         constexpr int glyphY = (kCell - 5 * glyphScale) / 2;
 
@@ -139,8 +144,11 @@ namespace GroupPanel
 
             for (int y = 0; y < kCell; ++y)
                 for (int x = 0; x < kCell; ++x)
-                    destination[(cell.y + y) * pitch + cell.x + x] =
-                        x == 0 || y == 0 || x == kCell - 1 || y == kCell - 1 ? border : fill;
+                {
+                    uint16_t& pixel = destination[(cell.y + y) * pitch + cell.x + x];
+                    const uint16_t color = x == 0 || y == 0 || x == kCell - 1 || y == kCell - 1 ? border : fill;
+                    pixel = opacity == 16 ? color : Zoom::Blend565(pixel, color, opacity);
+                }
 
             const int digit = LabelForSlot(slot) - '0';
             for (int y = 0; y < 5; ++y)
@@ -148,10 +156,51 @@ namespace GroupPanel
                     if (kDigits[digit][y] & (1 << (2 - x)))
                         for (int dy = 0; dy < glyphScale; ++dy)
                             for (int dx = 0; dx < glyphScale; ++dx)
-                                destination[(cell.y + glyphY + y * glyphScale + dy) * pitch +
-                                            cell.x + glyphX + x * glyphScale + dx] = text;
+                            {
+                                uint16_t& pixel = destination[(cell.y + glyphY + y * glyphScale + dy) * pitch +
+                                            cell.x + glyphX + x * glyphScale + dx];
+                                pixel = opacity == 16 ? text : Zoom::Blend565(pixel, text, opacity);
+                            }
         }
     }
+
+    // Fades the panel in and out around changes in whether it's needed (any
+    // group active), using the same linear ramp/blend as the zoom indicator
+    // (Zoom::kIndicatorFadeMs, Zoom::Blend565). Unlike the indicator, there is
+    // no hold timer: the panel is needed for as long as a group stays active,
+    // and only ramps opacity across that need changing.
+    class Fade
+    {
+    public:
+        // Call once per frame with the live active-slot pattern. Returns the
+        // opacity (0-16) to draw at. While fading out, active is already all
+        // false, so slots() keeps returning the last pattern that had
+        // anything active instead of blanking before the fade finishes.
+        int update(const std::array<bool, kCount>& active, uint32_t tick)
+        {
+            const bool needed = std::any_of(active.begin(), active.end(), [](bool value) { return value; });
+            if (needed)
+                lastActive_ = active;
+
+            if (needed != wasNeeded_)
+            {
+                changeTick_ = tick;
+                wasNeeded_ = needed;
+            }
+
+            const uint32_t elapsed = tick - changeTick_;
+            const int ramp = elapsed >= Zoom::kIndicatorFadeMs
+                ? 16 : static_cast<int>(elapsed * 16 / Zoom::kIndicatorFadeMs);
+            return needed ? ramp : 16 - ramp;
+        }
+
+        const std::array<bool, kCount>& slots() const { return lastActive_; }
+
+    private:
+        std::array<bool, kCount> lastActive_{};
+        bool wasNeeded_ = false;
+        uint32_t changeTick_ = 0;
+    };
 
     // Hex byte pattern with "??" wildcards, e.g. "8a511ab8??????84". Used to
     // reject a Game_Dll that is not the build these offsets were proved
