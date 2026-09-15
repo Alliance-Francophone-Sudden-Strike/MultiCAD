@@ -142,13 +142,10 @@ public:
 private:
     void refresh()
     {
-        active_.fill(false);
-        house_.fill(false);
-        wheel_.fill(false);
-        counts_.fill(0);
         units_ = {};
         vtables_ = {};
         code_ = {};
+        vtableCount_ = 0;
 
         auto* headSlot = globals_->getPtr<uint8_t*>(addresses_->unitListHead);
         if (!isReadable(headSlot, sizeof(uint8_t*)))
@@ -158,22 +155,27 @@ private:
         const size_t group = static_cast<size_t>(addresses_->unitGroupOffset) + 1;
         const size_t probe = next > group ? next : group;
 
+        std::array<bool, GroupPanel::kCount> active{};
+        std::array<bool, GroupPanel::kCount> house{};
+        std::array<bool, GroupPanel::kCount> wheel{};
+        GroupPanel::Counts counts{};
+
         uint8_t* unit = *headSlot;
         for (int guard = 0; unit && guard < kMaxUnits; ++guard)
         {
             if (!isReadableCached(units_, unit, probe))
                 return;                       // corrupt list: keep what we have
 
-            auto* const alive = vtableFn<AliveFn>(unit, addresses_->unitAliveVtableOffset);
-            auto* const inGroup = vtableFn<InGroupFn>(unit, addresses_->unitGroupVtableOffset);
+            AliveFn* alive = nullptr;
+            InGroupFn* inGroup = nullptr;
 
-            if (alive && inGroup && alive(unit))
+            if (resolveUnit(unit, alive, inGroup) && alive(unit))
             {
                 const int ownSlot = GroupPanel::SlotForStoredValue(unit[addresses_->unitGroupOffset]);
                 if (ownSlot >= 0)
                 {
-                    active_[static_cast<size_t>(ownSlot)] = true;
-                    ++counts_[static_cast<size_t>(ownSlot)];
+                    active[static_cast<size_t>(ownSlot)] = true;
+                    ++counts[static_cast<size_t>(ownSlot)];
                 }
 
                 for (int slot = 0; slot < GroupPanel::kCount; ++slot)
@@ -187,23 +189,54 @@ private:
                     if (!inGroup(unit, stored, kAltModifier))
                         continue;
 
-                    active_[index] = true;
-                    ++counts_[index];
-                    if (inGroup(unit, stored, 0))
-                        house_[index] = true;
-                    else
-                        wheel_[index] = true;
+                    active[index] = true;
+                    ++counts[index];
+
+                    if (!house[index] || !wheel[index])
+                    {
+                        if (inGroup(unit, stored, 0))
+                            house[index] = true;
+                        else
+                            wheel[index] = true;
+                    }
                 }
             }
 
             unit = *reinterpret_cast<uint8_t**>(unit + addresses_->unitNextOffset);
         }
+
+        active_ = active;
+        house_ = house;
+        wheel_ = wheel;
+        counts_ = counts;
+    }
+
+    bool resolveUnit(uint8_t* unit, AliveFn*& alive, InGroupFn*& inGroup)
+    {
+        auto* const vtable = *reinterpret_cast<uint8_t**>(unit);
+
+        for (int i = 0; i < vtableCount_; ++i)
+        {
+            if (vtableCache_[static_cast<size_t>(i)].vtable == vtable)
+            {
+                alive = vtableCache_[static_cast<size_t>(i)].alive;
+                inGroup = vtableCache_[static_cast<size_t>(i)].inGroup;
+                return alive && inGroup;
+            }
+        }
+
+        alive = vtableFn<AliveFn>(vtable, addresses_->unitAliveVtableOffset);
+        inGroup = vtableFn<InGroupFn>(vtable, addresses_->unitGroupVtableOffset);
+
+        if (vtableCount_ < kVtableCacheSize)
+            vtableCache_[static_cast<size_t>(vtableCount_++)] = { vtable, alive, inGroup };
+
+        return alive && inGroup;
     }
 
     template<typename Fn>
-    Fn* vtableFn(uint8_t* unit, uintptr_t offset)
+    Fn* vtableFn(uint8_t* vtable, uintptr_t offset)
     {
-        auto* const vtable = *reinterpret_cast<uint8_t**>(unit);
         if (!isReadableCached(vtables_, vtable, static_cast<size_t>(offset) + sizeof(void*)))
             return nullptr;
 
@@ -268,6 +301,18 @@ private:
     std::array<bool, GroupPanel::kCount> house_{};
     std::array<bool, GroupPanel::kCount> wheel_{};
     GroupPanel::Counts counts_{};
+
+    struct VtableEntry
+    {
+        const void* vtable;
+        AliveFn* alive;
+        InGroupFn* inGroup;
+    };
+
+    static constexpr int kVtableCacheSize = 8;
+    std::array<VtableEntry, kVtableCacheSize> vtableCache_{};
+    int vtableCount_{ 0 };
+
     Region units_{};
     Region vtables_{};
     Region code_{};

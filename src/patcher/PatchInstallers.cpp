@@ -97,7 +97,8 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     Zoom::GetState().setZoomOnCursor(Screen::GetZoomOnCursor());
     GameDllHooks::configureGroupPanel(
         Screen::GetGroupPanel() ? version : GameVersion::UNKNOWN,
-        Screen::GetGroupPanelCount());
+        Screen::GetGroupPanelCount(),
+        Screen::GetGroupPanelDebug());
     return true;
 }
 

@@ -1285,7 +1285,7 @@ private:
 #pragma endregion Common_Function_Structs
 
 public:
-    static void configureGroupPanel(GameVersion version, bool showCounts = false);
+    static void configureGroupPanel(GameVersion version, bool showCounts = false, bool debug = false);
     static void shutdown()
     {
         configureGroupPanel(GameVersion::UNKNOWN);
@@ -1617,5 +1617,7 @@ private:
     static void dispatchMouseButtonEvent(const DispatchMouseButtonEventData& data);
     static void dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data);
     static UiEventArea* battlefieldAt(UiEventArea* areas, int x, int y);
+    static void syncGroupPanelArea(const DispatchWndMessageData& data);
+    inline static UiEventArea* groupPanelArea_{ nullptr };
     static int  dispatchWndMessage(const DispatchWndMessageData& data);
 };

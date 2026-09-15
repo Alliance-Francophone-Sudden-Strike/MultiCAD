@@ -306,14 +306,21 @@ namespace GroupPanel
 
             if (needed != wasNeeded_)
             {
-                changeTick_ = tick;
+                const int current = opacityAt(tick);
+                const int ramp = needed ? current : 16 - current;
+                changeTick_ = tick - ramp * Zoom::kIndicatorFadeMs / 16;
                 wasNeeded_ = needed;
             }
 
+            return opacityAt(tick);
+        }
+
+        int opacityAt(uint32_t tick) const
+        {
             const uint32_t elapsed = tick - changeTick_;
             const int ramp = elapsed >= Zoom::kIndicatorFadeMs
                 ? 16 : static_cast<int>(elapsed * 16 / Zoom::kIndicatorFadeMs);
-            return needed ? ramp : 16 - ramp;
+            return wasNeeded_ ? ramp : 16 - ramp;
         }
 
         const Slots& slots() const { return lastActive_; }

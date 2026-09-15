@@ -27,6 +27,16 @@ enum SpriteType
     SPRITE_TYPE_ANIMATION = 0xA9,
 };
 
+extern void (*g_surfaceRegionRepair)(int left, int top, int right, int bottom);
+extern void (*g_surfacePresentRepair)();
+extern bool g_surfaceRepairSuppressed;
+
+inline void RepairSurfaceRegion(int left, int top, int right, int bottom)
+{
+    if (g_surfaceRegionRepair && !g_surfaceRepairSuppressed)
+        g_surfaceRegionRepair(left, top, right, bottom);
+}
+
 struct Surfaces
 {
     Pixel main[Graphics::kMaxWidth * (Graphics::kMaxHeight + 1)];     // 0x1001d588   // Main buffer. Contains the final image. Used for dynamic objects like units, explosions

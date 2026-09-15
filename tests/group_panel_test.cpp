@@ -480,6 +480,37 @@ int main()
         assert(fade.counts()[2] == 4);
     }
 
+    // --- a blip in the reader must not flash the panel ------------------------
+    {
+        Fade fade;
+        Slots active{};
+        Slots none{};
+        active[0] = true;
+        constexpr uint32_t fadeMs = Zoom::kIndicatorFadeMs;
+        constexpr uint32_t t0 = 5000;
+
+        fade.update(active, none, none, t0 - fadeMs);
+        assert(fade.update(active, none, none, t0) == 16);
+
+        assert(fade.update(none, none, none, t0) == 16);
+        const int dipped = fade.update(none, none, none, t0 + fadeMs / 2);
+        assert(dipped > 0 && dipped < 16);
+
+        const int resumed = fade.update(active, none, none, t0 + fadeMs / 2);
+        assert(resumed >= dipped - 1 && resumed <= dipped + 1);
+
+        const int climbing = fade.update(active, none, none, t0 + fadeMs / 2 + fadeMs / 8);
+        assert(climbing >= resumed);
+        assert(fade.update(active, none, none, t0 + 3 * fadeMs) == 16);
+
+        const uint32_t t1 = t0 + 3 * fadeMs;
+        assert(fade.update(none, none, none, t1) == 16);
+        const int falling = fade.update(none, none, none, t1 + fadeMs / 4);
+        assert(falling > 0 && falling < 16);
+        const int back = fade.update(active, none, none, t1 + fadeMs / 4);
+        assert(back >= falling - 1 && back <= falling + 1);
+    }
+
     // --- assign is reachable through the runtime lookup ----------------------
     {
         const GameVersion bound[]

@@ -318,6 +318,26 @@ int main()
         4, 4, &cursorX, &cursorY, &cursorWidth, &cursorHeight, cursorSave.data());
     assert(cursorSave[0] == 0 && cursorSave[1] == 0);
 
+    // A cursor band that overlaps the region's rows but none of its columns
+    // leaves right < left after clipping. Without an emptiness check that is a
+    // std::copy with a negative count, which memmoves a huge block.
+    int leftOfX = 0, leftOfY = 1;
+    cursorSave.fill(0);
+    cursor.refreshCursorSaveRect(
+        overlay.data(), 4, { 3, 0, 1, 4 },
+        4, 4, &leftOfX, &leftOfY, &cursorWidth, &cursorHeight, cursorSave.data());
+    for (uint16_t saved : cursorSave)
+        assert(saved == 0);
+
+    // and the mirror case: columns overlap, rows do not
+    int aboveX = 1, aboveY = 0;
+    cursorSave.fill(0);
+    cursor.refreshCursorSaveRect(
+        overlay.data(), 4, { 0, 3, 4, 1 },
+        4, 4, &aboveX, &aboveY, &cursorWidth, &cursorHeight, cursorSave.data());
+    for (uint16_t saved : cursorSave)
+        assert(saved == 0);
+
     State viewport;
     viewport.setMode(Mode::On);
     viewport.setBattlefield({ 0, 0, 64, 32 });

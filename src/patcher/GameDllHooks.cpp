@@ -19,11 +19,30 @@ namespace
     const int* g_groupPanelCursorHeight = nullptr;
     Pixel* g_groupPanelCursorPixels = nullptr;
     bool g_groupPanelShowCount = false;
+    bool g_groupPanelDebug = false;
 
     Zoom::Rect GroupPanelRect()
     {
         const Zoom::Rect first = GroupPanel::CellRect(0, g_groupPanelSurfaceWidth);
         return { first.x, first.y, GroupPanel::Width(), GroupPanel::Height() };
+    }
+
+    constexpr int kGroupPanelTag = 'GRPP';
+
+    bool groupPanelVisible()
+    {
+        return g_groupPanelOpacity > 0 && g_groupPanel.bound() && GetUIFilter().isEnabled() &&
+            GroupPanel::Fits(g_groupPanelSurfaceWidth, g_groupPanelSurfaceHeight);
+    }
+
+    bool groupPanelContains(int x, int y)
+    {
+        if (!groupPanelVisible())
+            return false;
+
+        const Zoom::Rect panel = GroupPanelRect();
+        return x >= panel.x && y >= panel.y &&
+            x < panel.x + panel.width && y < panel.y + panel.height;
     }
 
     bool groupPanelClick(int eventTag, int x, int y)
@@ -34,19 +53,80 @@ namespace
         if (eventTag != kLeftButtonDown && eventTag != kRightButtonDown)
             return false;
 
-        if (g_groupPanelOpacity <= 0 || !g_groupPanel.bound() || !GetUIFilter().isEnabled())
+        if (!groupPanelContains(x, y))
             return false;
 
         const int slot = GroupPanel::HitTest(x, y, g_groupPanelSurfaceWidth);
-        if (slot < 0)
-            return false;
-
-        if (eventTag == kRightButtonDown)
-            g_groupPanel.assign(slot);
-        else if (g_groupPanelFade.slots()[static_cast<size_t>(slot)])
-            g_groupPanel.select(slot);
+        if (slot >= 0)
+        {
+            if (eventTag == kRightButtonDown)
+                g_groupPanel.assign(slot);
+            else if (g_groupPanelFade.slots()[static_cast<size_t>(slot)])
+                g_groupPanel.select(slot);
+        }
 
         return true;
+    }
+
+    void DrawGroupPanelOverlay();
+
+    void RepairGroupPanelRegion(int left, int top, int right, int bottom)
+    {
+        if (g_groupPanelOpacity != 16)
+            return;
+
+        const Zoom::Rect panel = GroupPanelRect();
+        if (right < panel.x || left >= panel.x + panel.width ||
+            bottom < panel.y || top >= panel.y + panel.height)
+            return;
+
+        DrawGroupPanelOverlay();
+    }
+
+    void DrawGroupPanelDebugMarkers()
+    {
+        if (!g_groupPanelDebug || !g_moduleState || !g_moduleState->surface.renderer ||
+            !GroupPanel::Fits(g_groupPanelSurfaceWidth, g_groupPanelSurfaceHeight))
+            return;
+
+        auto* const destination = static_cast<Pixel*>(g_moduleState->surface.renderer);
+        const int pitch = static_cast<int>(g_moduleState->pitch / sizeof(Pixel));
+        const Zoom::Rect panel = GroupPanelRect();
+
+        const int size = 8;
+        const int markerY = panel.y;
+        const int stateX = panel.x - 2 * (size + 4);
+        const int frameX = panel.x - (size + 4);
+
+        for (int y = 0; y < size; ++y)
+        {
+            for (int x = 0; x < size; ++x)
+            {
+                if (stateX >= 0)
+                    destination[(markerY + y) * pitch + stateX + x] =
+                        g_groupPanelOpacity == 16 ? 0x07E0 : (g_groupPanelOpacity > 0 ? 0xFFE0 : 0xF800);
+                if (frameX >= 0)
+                    destination[(markerY + y) * pitch + frameX + x] = 0x001F;
+            }
+        }
+    }
+
+    void RepairGroupPanelOnPresent()
+    {
+        if (g_groupPanelOpacity != 16)
+            return;
+
+        const Zoom::Rect panel = GroupPanelRect();
+        if (g_groupPanelCursorX && g_groupPanelCursorY &&
+            g_groupPanelCursorWidth && g_groupPanelCursorHeight &&
+            *g_groupPanelCursorWidth > 0 && *g_groupPanelCursorHeight > 0 &&
+            *g_groupPanelCursorX < panel.x + panel.width &&
+            *g_groupPanelCursorX + *g_groupPanelCursorWidth > panel.x &&
+            *g_groupPanelCursorY < panel.y + panel.height &&
+            *g_groupPanelCursorY + *g_groupPanelCursorHeight > panel.y)
+            return;
+
+        DrawGroupPanelOverlay();
     }
 
     void DrawGroupPanelOverlay()
@@ -82,8 +162,11 @@ namespace
     }
 }
 
-void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts)
+void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, bool debug)
 {
+    g_groupPanelDebug = debug;
+    g_surfaceRegionRepair = &RepairGroupPanelRegion;
+    g_surfacePresentRepair = &RepairGroupPanelOnPresent;
     if (globals_)
         g_groupPanel.bind(*globals_, version);
     else
@@ -1450,12 +1533,21 @@ void GameDllHooks::calculateCursorTypeAtZoom(
     void(__cdecl* fn)(int, int, int*))
 {
     const MouseMapGuard guard;
+    const int physicalX = x;
+    const int physicalY = y;
     if (guard.outermost && battlefieldAt(areas, x, y))
     {
         x = Zoom::GetState().mapX(x);
         y = Zoom::GetState().mapY(y);
     }
     fn(x, y, result);
+
+    if (guard.outermost && result && groupPanelContains(physicalX, physicalY))
+    {
+        result[0] = 0;
+        result[1] = 0;
+        result[2] = 0;
+    }
 }
 
 bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
@@ -1492,7 +1584,10 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     const uint32_t pitch = g_moduleState->pitch;
     g_moduleState->surface.renderer = world;
     g_moduleState->pitch = width * sizeof(Pixel);
+    const bool wasSuppressed = g_surfaceRepairSuppressed;
+    g_surfaceRepairSuppressed = true;
     copyMainSurfaceToRendererWithWarFog(0, 0, width - 1, height - 1);
+    g_surfaceRepairSuppressed = wasSuppressed;
     g_moduleState->surface.renderer = renderer;
     g_moduleState->pitch = pitch;
 
@@ -1749,6 +1844,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     // Last write to the presented frame: the cursor is drawn on top of it right
     // after this, and erased from it by native code at a moment we do not see.
     DrawGroupPanelOverlay();
+    DrawGroupPanelDebugMarkers();
 
     if (zoomed)
     {
@@ -4189,6 +4285,40 @@ int  __declspec(noinline) __fastcall GameDllHooks::calculateCursorType(UiElement
     return 1;
 }
 
+void GameDllHooks::syncGroupPanelArea(const DispatchWndMessageData& data)
+{
+    if (!data.addUiEventArea || !data.removeUiEventAreaSafe)
+        return;
+
+    const bool wanted = groupPanelVisible();
+    const Zoom::Rect rect = wanted ? GroupPanelRect() : Zoom::Rect{};
+
+    if (groupPanelArea_ &&
+        (!wanted ||
+            groupPanelArea_->x != rect.x || groupPanelArea_->y != rect.y ||
+            groupPanelArea_->width != rect.width || groupPanelArea_->height != rect.height))
+    {
+        data.removeUiEventAreaSafe(groupPanelArea_);
+        delete groupPanelArea_;
+        groupPanelArea_ = nullptr;
+    }
+
+    if (wanted && !groupPanelArea_)
+    {
+        auto* const area = new UiEventArea();
+        area->tag = kGroupPanelTag;
+        area->x = rect.x;
+        area->y = rect.y;
+        area->width = rect.width;
+        area->height = rect.height;
+        area->flags = 0;
+        area->flags_2 = 0;
+        area->next = nullptr;
+        data.addUiEventArea(area);
+        groupPanelArea_ = area;
+    }
+}
+
 void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& data)
 {
     const int mouseX = data.mouseX;
@@ -4398,6 +4528,8 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
     int* const dword_11070720 = dword_1106F6F0 + 12;
     int* const dword_11070724 = dword_1106F6F0 + 13;
     int* const dword_11070728 = dword_1106F6F0 + 14;
+
+    syncGroupPanelArea(data);
 
     auto const dispatchMouseButtonEvent = data.dispatchMouseButtonEvent;
     auto const dispatchMouseMoveEvent = data.dispatchMouseMoveEvent;

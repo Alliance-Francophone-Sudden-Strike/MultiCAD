@@ -569,6 +569,9 @@ namespace Zoom
             right = std::min(right, region.x + region.width);
             bottom = std::min(bottom, region.y + region.height);
 
+            if (right <= left || bottom <= top)
+                return;
+
             for (int row = top; row < bottom; ++row)
             {
                 const uint16_t* begin = source + static_cast<size_t>(row) * sourcePitch + left;

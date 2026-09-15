@@ -1492,8 +1492,15 @@ bool lockDxSurface()
 }
 
 // 0x10002970
+void (*g_surfaceRegionRepair)(int, int, int, int) = nullptr;
+void (*g_surfacePresentRepair)() = nullptr;
+bool g_surfaceRepairSuppressed = false;
+
 void unlockDxSurface()
 {
+    if (g_surfacePresentRepair && !g_surfaceRepairSuppressed)
+        g_surfacePresentRepair();
+
     Zoom::GetState().finishPresentation(
         g_moduleState->surface.renderer,
         g_moduleState->pitch,
@@ -1609,6 +1616,8 @@ bool copyMainSurfaceToRenderer(S32 x, S32 y, S32 width, S32 height)
 
         copyRows(copyHeight);
     }
+
+    RepairSurfaceRegion(x, y, x + width - 1, y + height - 1);
 
     if (locked)
     {
@@ -1871,6 +1880,8 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
         g_rendererState.fogRenderParams.blocksCount = blocksNumber;
         src = (DoublePixel*)((Addr)src - screenSizeInBytes);
     } while (remainingExcessRows);
+
+    RepairSurfaceRegion(x, y, endX, endY);
 
     if (locked)
     {
