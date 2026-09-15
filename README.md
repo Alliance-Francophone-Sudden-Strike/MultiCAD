@@ -143,7 +143,7 @@ Other available settings settings:
 
 MultiCAD can also show a row of ten indicator cells for your control groups, labelled `1`–`9` and `0`, in the screen's top-right corner. Groups that currently hold units light up; empty groups stay dim.
 
-A cell shows a small house badge in its top-right corner when at least one member is inside a building, and a wheel badge in its top-left when at least one is inside a vehicle.
+A cell shows a grey house in its top-right corner for members inside a building, a grey wheel in its bottom-left for vehicle drivers, and a grey-outlined dim-green square in its top-left for transported units.
 
 The cells are clickable:
 

@@ -146,7 +146,8 @@ namespace
             g_groupPanelFade.houses(),
             g_groupPanelFade.wheels(),
             g_groupPanelOpacity,
-            g_groupPanelShowCount ? &g_groupPanelFade.counts() : nullptr);
+            g_groupPanelShowCount ? &g_groupPanelFade.counts() : nullptr,
+            &g_groupPanelFade.transports());
 
         Zoom::GetState().refreshCursorSaveRect(
             destination,
@@ -1696,7 +1697,8 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     {
         const auto& active = g_groupPanel.groups(tick);
         g_groupPanelOpacity = g_groupPanelFade.update(
-            active, g_groupPanel.house(), g_groupPanel.wheel(), tick, &g_groupPanel.counts());
+            active, g_groupPanel.house(), g_groupPanel.wheel(), tick,
+            &g_groupPanel.counts(), &g_groupPanel.transport());
     }
 
     const bool panelPainted = !panelCovered && (g_groupPanelOpacity > 0 || lastPanelOpacity > 0);

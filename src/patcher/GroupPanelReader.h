@@ -8,11 +8,9 @@
 // __try/__except (see mingw/prep.py) and would otherwise be unprotected.
 //
 // Membership is decided by the game's own per-unit virtuals, in the same order
-// fnGroupSelect uses them, so whatever a class does to answer "am I in group
-// N" - a building answering for the squad garrisoned inside it, a vehicle for
-// its crew - the panel inherits for free. Reading the unit's group byte
-// directly cannot see any of that. Both virtuals are pure reads, and both
-// pointers are validated before the call.
+// fnGroupSelect uses them. Vehicle crew is the one exception: the common-unit
+// predicate only searches its passenger list, so its adjacent crew list is
+// read directly. All pointers are validated before use.
 
 #include "GameGlobals.h"
 #include "GroupPanel.h"
@@ -48,6 +46,7 @@ public:
     // Upper bound on the unit list. A live mission ran ~400; this only has to
     // stop a corrupt or cyclic list from spinning forever.
     static constexpr int kMaxUnits = 8192;
+    static constexpr int kMaxVehicleSlots = 64;
 
     static constexpr int kAltModifier = 0x2;
 
@@ -58,6 +57,7 @@ public:
         active_.fill(false);
         house_.fill(false);
         wheel_.fill(false);
+        transport_.fill(false);
         counts_.fill(0);
         primed_ = false;
 
@@ -102,6 +102,7 @@ public:
 
     const std::array<bool, GroupPanel::kCount>& house() const { return house_; }
     const std::array<bool, GroupPanel::kCount>& wheel() const { return wheel_; }
+    const std::array<bool, GroupPanel::kCount>& transport() const { return transport_; }
     const GroupPanel::Counts& counts() const { return counts_; }
 
     // Runs the game's own group-select, exactly as the number-row key does.
@@ -118,7 +119,9 @@ public:
         if (!fn)
             return false;
 
-        fn(self, GroupPanel::KeyIndexForSlot(slot), wheel_[static_cast<size_t>(slot)] ? kAltModifier : 0);
+        const auto index = static_cast<size_t>(slot);
+        fn(self, GroupPanel::KeyIndexForSlot(slot),
+           wheel_[index] || transport_[index] ? kAltModifier : 0);
         return true;
     }
 
@@ -145,6 +148,7 @@ private:
         units_ = {};
         vtables_ = {};
         code_ = {};
+        occupants_ = {};
         vtableCount_ = 0;
 
         auto* headSlot = globals_->getPtr<uint8_t*>(addresses_->unitListHead);
@@ -158,6 +162,7 @@ private:
         std::array<bool, GroupPanel::kCount> active{};
         std::array<bool, GroupPanel::kCount> house{};
         std::array<bool, GroupPanel::kCount> wheel{};
+        std::array<bool, GroupPanel::kCount> transport{};
         GroupPanel::Counts counts{};
 
         uint8_t* unit = *headSlot;
@@ -168,9 +173,15 @@ private:
 
             AliveFn* alive = nullptr;
             InGroupFn* inGroup = nullptr;
+            bool crew = false;
+            uint8_t vehicleContainer = 0;
 
-            if (resolveUnit(unit, alive, inGroup) && alive(unit))
+            if (resolveUnit(unit, alive, inGroup, crew, vehicleContainer) && alive(unit))
             {
+                if (vehicleContainer &&
+                    !scanVehicleGroups(unit + vehicleContainer, wheel, transport, active, counts))
+                    return;
+
                 const int ownSlot = GroupPanel::SlotForStoredValue(unit[addresses_->unitGroupOffset]);
                 if (ownSlot >= 0)
                 {
@@ -190,15 +201,15 @@ private:
                         continue;
 
                     active[index] = true;
-                    ++counts[index];
+                    if (!vehicleContainer) // vehicle occupants were counted from their records
+                        ++counts[index];
 
-                    if (!house[index] || !wheel[index])
-                    {
-                        if (inGroup(unit, stored, 0))
-                            house[index] = true;
-                        else
-                            wheel[index] = true;
-                    }
+                    if (inGroup(unit, stored, 0))
+                        house[index] = true;
+                    else if (crew)
+                        wheel[index] = true;
+                    else
+                        transport[index] = true;
                 }
             }
 
@@ -208,10 +219,12 @@ private:
         active_ = active;
         house_ = house;
         wheel_ = wheel;
+        transport_ = transport;
         counts_ = counts;
     }
 
-    bool resolveUnit(uint8_t* unit, AliveFn*& alive, InGroupFn*& inGroup)
+    bool resolveUnit(uint8_t* unit, AliveFn*& alive, InGroupFn*& inGroup,
+                     bool& crew, uint8_t& vehicleContainer)
     {
         auto* const vtable = *reinterpret_cast<uint8_t**>(unit);
 
@@ -221,17 +234,103 @@ private:
             {
                 alive = vtableCache_[static_cast<size_t>(i)].alive;
                 inGroup = vtableCache_[static_cast<size_t>(i)].inGroup;
+                crew = vtableCache_[static_cast<size_t>(i)].crew;
+                vehicleContainer = vtableCache_[static_cast<size_t>(i)].vehicleContainer;
                 return alive && inGroup;
             }
         }
 
         alive = vtableFn<AliveFn>(vtable, addresses_->unitAliveVtableOffset);
         inGroup = vtableFn<InGroupFn>(vtable, addresses_->unitGroupVtableOffset);
+        crew = isCrewPredicate(inGroup);
+        vehicleContainer = vehicleContainerOffset(inGroup);
 
         if (vtableCount_ < kVtableCacheSize)
-            vtableCache_[static_cast<size_t>(vtableCount_++)] = { vtable, alive, inGroup };
+            vtableCache_[static_cast<size_t>(vtableCount_++)] =
+                { vtable, alive, inGroup, crew, vehicleContainer };
 
         return alive && inGroup;
+    }
+
+    bool isCrewPredicate(InGroupFn* fn)
+    {
+        constexpr std::string_view ss2Pattern =
+            "33c0568a41??8b7424083bc67509b8010000005ec208008b44240c85c0742033d2"
+            "8d81????????8b48f285c9740833c98a083bce74d84283c0??83fa027ce833c05ec20800";
+        constexpr std::string_view goldPattern =
+            "33c08a41??568b7424083bc67509b8010000005ec208008b44240c85c0742033d2"
+            "8d81????????8b48f285c9740833c98a083bce74d84283c0??83fa027ce833c05ec20800";
+        if (!fn || !isReadableCached(code_, fn, GroupPanel::SignatureLength(ss2Pattern)))
+            return false;
+
+        const auto* code = reinterpret_cast<const uint8_t*>(fn);
+        return GroupPanel::Matches(code, ss2Pattern) || GroupPanel::Matches(code, goldPattern);
+    }
+
+    uint8_t vehicleContainerOffset(InGroupFn* fn)
+    {
+        // The common-unit predicate adds this container offset before calling
+        // the game's passenger-list search. The same container holds crew at
+        // +4/+0xc and passengers at +0x10/+0x18.
+        constexpr std::string_view pattern =
+            "8b44240433d28a51??3bd0741a8b54240885d2740d5083c1??e8????????"
+            "85c0750533c0c20800b801000000c20800";
+        if (!fn || !isReadableCached(code_, fn, GroupPanel::SignatureLength(pattern)))
+            return 0;
+
+        const auto* code = reinterpret_cast<const uint8_t*>(fn);
+        return GroupPanel::Matches(code, pattern) ? code[24] : 0;
+    }
+
+    bool scanVehicleGroups(uint8_t* container,
+                           std::array<bool, GroupPanel::kCount>& crew,
+                           std::array<bool, GroupPanel::kCount>& passengers,
+                           std::array<bool, GroupPanel::kCount>& active,
+                           GroupPanel::Counts& counts)
+    {
+        constexpr size_t kCrewData = 0x4;
+        constexpr size_t kCrewCount = 0xC;
+        constexpr size_t kPassengerData = 0x10;
+        constexpr size_t kPassengerCount = 0x18;
+        constexpr size_t kContainerSize = kPassengerCount + sizeof(int);
+
+        if (!isReadableCached(units_, container, kContainerSize))
+            return false;
+
+        auto* crewData = *reinterpret_cast<uint8_t**>(container + kCrewData);
+        const int crewCount = *reinterpret_cast<int*>(container + kCrewCount);
+        auto* passengerData = *reinterpret_cast<uint8_t**>(container + kPassengerData);
+        const int passengerCount = *reinterpret_cast<int*>(container + kPassengerCount);
+        return scanOccupantGroups(crewData, crewCount, crew, active, counts) &&
+               scanOccupantGroups(passengerData, passengerCount, passengers, active, counts);
+    }
+
+    bool scanOccupantGroups(uint8_t* records, int count,
+                            std::array<bool, GroupPanel::kCount>& badges,
+                            std::array<bool, GroupPanel::kCount>& active,
+                            GroupPanel::Counts& counts)
+    {
+        constexpr size_t kRecordSize = 0x15;
+        constexpr size_t kGroupOffset = 0xE;
+        if (count < 0 || count > kMaxVehicleSlots)
+            return false;
+        if (count == 0)
+            return true;
+        if (!isReadableCached(occupants_, records, static_cast<size_t>(count) * kRecordSize))
+            return false;
+
+        for (int i = 0; i < count; ++i)
+        {
+            const int slot = GroupPanel::SlotForStoredValue(
+                records[static_cast<size_t>(i) * kRecordSize + kGroupOffset]);
+            if (slot >= 0)
+            {
+                badges[static_cast<size_t>(slot)] = true;
+                active[static_cast<size_t>(slot)] = true;
+                ++counts[static_cast<size_t>(slot)];
+            }
+        }
+        return true;
     }
 
     template<typename Fn>
@@ -300,6 +399,7 @@ private:
     std::array<bool, GroupPanel::kCount> active_{};
     std::array<bool, GroupPanel::kCount> house_{};
     std::array<bool, GroupPanel::kCount> wheel_{};
+    std::array<bool, GroupPanel::kCount> transport_{};
     GroupPanel::Counts counts_{};
 
     struct VtableEntry
@@ -307,6 +407,8 @@ private:
         const void* vtable;
         AliveFn* alive;
         InGroupFn* inGroup;
+        bool crew;
+        uint8_t vehicleContainer;
     };
 
     static constexpr int kVtableCacheSize = 8;
@@ -316,6 +418,7 @@ private:
     Region units_{};
     Region vtables_{};
     Region code_{};
+    Region occupants_{};
     uint32_t lastTick_{ 0 };
     bool primed_{ false };
 };

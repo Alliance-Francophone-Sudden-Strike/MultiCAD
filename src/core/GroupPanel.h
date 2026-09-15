@@ -143,13 +143,18 @@ namespace GroupPanel
     constexpr int kIconSize = 5;
     constexpr int kIconInset = 2;
     constexpr int kWheelX = kIconInset;
+    constexpr int kTransportX = kIconInset;
     constexpr int kHouseX = kCell - kIconInset - kIconSize;
     constexpr int kIconY = kIconInset;
-    constexpr uint16_t kContainedIcon = 0xFFE0;
+    constexpr int kWheelY = kCell - kIconInset - kIconSize;
+    constexpr uint16_t kContainedIcon = 0xC618;
+    constexpr uint16_t kTransportFill = 0x0300;
 
     static_assert(kWheelX >= 2 && kWheelX + kIconSize <= glyphX);
+    static_assert(kTransportX >= 2 && kTransportX + kIconSize <= glyphX);
     static_assert(kHouseX >= glyphX + 3 * glyphScale && kHouseX + kIconSize <= kCell - 2);
     static_assert(kIconY >= 2 && kIconY + kIconSize <= kCell - 2);
+    static_assert(kWheelY >= 2 && kWheelY + kIconSize <= kCell - 2);
 
     static_assert(CountDigits(kCountMax) == kCountMaxDigits);
     static_assert(CountLeft(kCountMax) - kCountOutline >= 0);
@@ -201,7 +206,8 @@ namespace GroupPanel
         const Slots& house,
         const Slots& wheel,
         int opacity = 16,
-        const Counts* counts = nullptr)
+        const Counts* counts = nullptr,
+        const Slots* transport = nullptr)
     {
         if (!destination || pitch < width || !Fits(width, height) || opacity <= 0 ||
             std::none_of(active.begin(), active.end(), [](bool value) { return value; }))
@@ -274,8 +280,14 @@ namespace GroupPanel
 
             if (house[slot])
                 blit(kHouse, kIconSize, kIconSize, cell.x + kHouseX, cell.y + kIconY, 1, kContainedIcon);
+            if (transport && (*transport)[slot])
+            {
+                fillRect(cell.x + kTransportX, cell.y + kIconY, kIconSize, kIconSize, kContainedIcon);
+                fillRect(cell.x + kTransportX + 1, cell.y + kIconY + 1,
+                         kIconSize - 2, kIconSize - 2, kTransportFill);
+            }
             if (wheel[slot])
-                blit(kWheel, kIconSize, kIconSize, cell.x + kWheelX, cell.y + kIconY, 1, kContainedIcon);
+                blit(kWheel, kIconSize, kIconSize, cell.x + kWheelX, cell.y + kWheelY, 1, kContainedIcon);
         }
     }
 
@@ -292,7 +304,7 @@ namespace GroupPanel
         // false, so slots() keeps returning the last pattern that had
         // anything active instead of blanking before the fade finishes.
         int update(const Slots& active, const Slots& house, const Slots& wheel, uint32_t tick,
-                   const Counts* counts = nullptr)
+                   const Counts* counts = nullptr, const Slots* transport = nullptr)
         {
             const bool needed = std::any_of(active.begin(), active.end(), [](bool value) { return value; });
             if (needed)
@@ -302,6 +314,8 @@ namespace GroupPanel
                 lastWheel_ = wheel;
                 if (counts)
                     lastCounts_ = *counts;
+                if (transport)
+                    lastTransport_ = *transport;
             }
 
             if (needed != wasNeeded_)
@@ -326,12 +340,14 @@ namespace GroupPanel
         const Slots& slots() const { return lastActive_; }
         const Slots& houses() const { return lastHouse_; }
         const Slots& wheels() const { return lastWheel_; }
+        const Slots& transports() const { return lastTransport_; }
         const Counts& counts() const { return lastCounts_; }
 
     private:
         Slots lastActive_{};
         Slots lastHouse_{};
         Slots lastWheel_{};
+        Slots lastTransport_{};
         Counts lastCounts_{};
         bool wasNeeded_ = false;
         uint32_t changeTick_ = 0;
