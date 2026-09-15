@@ -20,7 +20,7 @@ sudo apt install g++-mingw-w64-i686 mingw-w64 make python3
 cd mingw
 make            # -> bin/cadMulti_mt.dll  and  bin/cadMulti.dll
 make mt         # only the standalone cadMulti_mt.dll
-make test       # LoadLibrary smoke test both DLLs under Wine
+make test       # unit tests, AnalyzeDll hash check, LoadLibrary smoke test (Wine)
 make clean
 ```
 
@@ -31,9 +31,24 @@ make clean
 | File | Deps | Notes |
 |------|------|-------|
 | `bin/cadMulti_mt.dll` | none beyond system DLLs | **use this** — static libstdc++/libgcc/libwinpthread, analogue of the VS `Release_MT` config |
-| `bin/cadMulti.dll` | `libstdc++-6.dll`, `libgcc_s_dw2-1.dll`, `libwinpthread-1.dll` (copied into `bin/` by the build) | analogue of the VS `Release` config; drop all four files into the game folder together |
+| `bin/cadMulti.dll` | `libstdc++-6.dll`, `libgcc_s_dw2-1.dll` (copied into `bin/` by the build, stripped) | analogue of the VS `Release` config — the GCC equivalent of the VC++ redist the MSVC build needs; drop them into the game folder together. `libwinpthread-1.dll` is also copied but nothing imports it on a win32-threads GCC; it is insurance for a posix-threads toolchain. |
 
 Both export exactly `CADraw_Init` (the symbol the game's CAD loader looks up).
+
+### Size
+
+Roughly at parity with the upstream MSVC builds (346KB / 542KB). Three things
+kept it from being so, all toolchain rather than code:
+
+- `-O2` inlining cost ~28% of `.text` for no measured gain, hence `-Os`.
+- `std::ifstream` in `DllVersionDetector.cpp` instantiated the whole libstdc++
+  locale/iostream tree, ~730KB in the static build, for three reads. It now
+  uses `CreateFileW`/`ReadFile` (`tests/analyze_dll_test.py` pins the result).
+- libstdc++'s verbose terminate handler drags in the ~48KB symbol demangler to
+  print a name nothing can display; `mingw_export.cpp` overrides it.
+
+`.eh_frame` (~60KB) is the one remaining structural gap: GCC emits DWARF unwind
+tables where 32-bit MSVC uses stack-based SEH. Not worth chasing.
 
 ## How it works
 
@@ -48,7 +63,6 @@ set of MSVC→GCC adjustments (never touching `../src`), then compiles that copy
 |------|-----|--------|
 | `__try` / `__except` → plain scope | GCC has no SEH keywords | 5 sites (`SplashTextRenderer.h`, `GameDllHooks.cpp`). Handlers become dead code — **a fault inside those blocks now crashes instead of being swallowed.** They guard reverse-engineered heap-free reimplementations and splash-text callbacks. |
 | `getFn<RET(__thiscall)(ARGS)>` → `getFn<mscc::thiscall_<RET(ARGS)>::type>` | MSVC's bare calling-convention token in an abstract declarator doesn't parse in GCC | 169 call sites; `mscc::` aliases in `msvc_compat.h` carry the convention as a trailing `__attribute__`. Pointer forms `RET(__thiscall* f)(ARGS)` already parse and are left alone. |
-| `std::ifstream(std::wstring)` → `.c_str()` | MinGW libstdc++ has the `const wchar_t*` ctor, not the `wstring` one | `DllVersionDetector.cpp` |
 | `#include "UiFilter.h"` → `"UIFilter.h"` | case-sensitive FS | `GameDllHooks.cpp`, `UIFilter.cpp` |
 
 ### Other pieces

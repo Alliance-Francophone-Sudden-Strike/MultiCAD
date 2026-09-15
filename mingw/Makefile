@@ -18,7 +18,10 @@ HERE    := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 SRCDIR  := $(HERE)../src
 GEN     := obj/gen
 
-CXXFLAGS := -std=gnu++2b -m32 -O2 -pipe -fno-strict-aliasing -fpermissive -w \
+# -Os not -O2: GCC -O2 inlining costs ~28% .text here for no measured gain.
+# Never add -fdata-sections: g_rendererState is a 48MB .bss and ld would
+# emit it as 48MB of zeros on disk.
+CXXFLAGS := -std=gnu++2b -m32 -Os -pipe -fno-strict-aliasing -fpermissive -w \
            -include $(HERE)msvc_compat.h \
            -I $(HERE)shim \
            -I $(GEN)/core -I $(GEN)/ui -I $(GEN)/patcher -I $(GEN)/profiles -I $(GEN) \
@@ -44,7 +47,7 @@ GCC_LIBDIR := $(dir $(shell $(CXX) -print-libgcc-file-name))
 
 SRC_FILES := $(shell find $(SRCDIR) -type f 2>/dev/null)
 
-.PHONY: all mt clean test zoom-test group-panel-test zoom-render-test prep
+.PHONY: all mt clean test zoom-test group-panel-test zoom-render-test analyze-dll-test prep
 all: bin/cadMulti_mt.dll bin/cadMulti.dll
 mt:  bin/cadMulti_mt.dll
 
@@ -77,18 +80,33 @@ bin/cadMulti.dll: $(OBJS) $(RES)
 	    f=$$($(CXX) -print-file-name=$$d); \
 	    [ -f "$$f" ] || f=$(GCC_LIBDIR)$$d; \
 	    [ -f "$$f" ] || f=$$(find /usr -name $$d -path '*i686*' 2>/dev/null | head -1); \
-	    cp "$$f" bin/ && echo "  -> bin/$$d"; \
+	    cp "$$f" bin/ && $(STRIP) --strip-unneeded bin/$$d && echo "  -> bin/$$d"; \
 	done
 	@echo "  -> $@ (needs the 3 runtime DLLs above beside it)"
 
 # LoadLibrary smoke test under Wine. Runs from bin/ so cadMulti.dll finds its
 # sidecar runtime DLLs (mirrors dropping everything into the game folder).
-test: zoom-test group-panel-test all
+test: zoom-test group-panel-test all analyze-dll-test
 	@i686-w64-mingw32-gcc -m32 -O2 $(HERE)loadtest.c -o bin/loadtest.exe
 	@cd bin && for d in cadMulti_mt.dll cadMulti.dll; do \
 	    echo "== $$d =="; WINEDEBUG=-all wine loadtest.exe "$$d" || exit 1; \
 	 done
 	@rm -f bin/loadtest.exe
+
+# AnalyzeDll fingerprints game DLLs by hashing their .text section; the Python
+# side re-derives the same hash independently. Feeds it real PEs plus a
+# truncated and a non-PE file to cover the reject paths.
+bin/analyze_dll_test.exe: ../tests/analyze_dll_test.cpp obj/patcher/DllVersionDetector.o obj/core/util.o
+	@mkdir -p bin
+	$(CXX) $(CXXFLAGS) -fno-access-control $< $(GEN)/patcher/DllVersionDetector.cpp \
+	    $(GEN)/core/util.cpp -o $@ -static -static-libgcc -static-libstdc++ \
+	    -Wl,-Bstatic -lstdc++ -lpthread $(LDLIBS) -lcrypt32
+
+analyze-dll-test: bin/analyze_dll_test.exe bin/cadMulti.dll
+	@head -c 300 bin/cadMulti.dll > obj/truncated.bin; echo "not a pe" > obj/garbage.bin
+	@python3 ../tests/analyze_dll_test.py bin/analyze_dll_test.exe \
+	    bin/cadMulti.dll bin/cadMulti_mt.dll bin/libstdc++-6.dll \
+	    obj/truncated.bin obj/garbage.bin
 
 zoom-test:
 	@mkdir -p obj

@@ -40,12 +40,6 @@ def fix_uifilter_case(src: str) -> str:
     return src.replace('#include "UiFilter.h"', '#include "UIFilter.h"')
 
 
-def fix_wide_ifstream(src: str) -> str:
-    # MinGW libstdc++ has the wchar_t* fstream ctor but not the wstring one.
-    return src.replace('std::ifstream file(path, std::ios::binary);',
-                       'std::ifstream file(path.c_str(), std::ios::binary);')
-
-
 _CONV_RE = re.compile(
     r'\bget(Fn|Ptr)<\s*'
     r'([A-Za-z_][\w:\s]*(?:\s*\*)*)\s*'                 # return type
@@ -69,7 +63,6 @@ PATCHES = {
     "patcher/GameDllHooks.h":         [fix_calling_conv],
     "patcher/MenuDllHooks.cpp":       [fix_calling_conv],
     "ui/UIFilter.cpp":               [fix_uifilter_case],
-    "patcher/DllVersionDetector.cpp": [fix_wide_ifstream],
 }
 
 EXPORT_WRAPPER = os.path.join(HERE, "mingw_export.cpp")

@@ -1,7 +1,6 @@
 #include "pch.h"
 #include "DllVersionDetector.h"
 
-#include <fstream>
 #include <wincrypt.h>
 #include <cwctype>
 #include <queue>
@@ -110,33 +109,74 @@ ModuleInfo DllVersionDetector::GetModuleInfo(const DllType type) const
     return it != states_.end() ? it->second.info : ModuleInfo{};
 }
 
+namespace {
+
+// Win32 instead of std::ifstream: the three reads below otherwise instantiate
+// the whole libstdc++ locale/iostream tree, ~730KB in the statically linked DLL.
+class BinaryFile
+{
+public:
+    explicit BinaryFile(const std::wstring& path)
+        : handle_(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr))
+    {
+    }
+
+    ~BinaryFile() { if (*this) CloseHandle(handle_); }
+
+    BinaryFile(const BinaryFile&) = delete;
+    BinaryFile& operator=(const BinaryFile&) = delete;
+
+    explicit operator bool() const { return handle_ != INVALID_HANDLE_VALUE; }
+
+    // Short reads are failures here: every caller wants a fixed-size struct.
+    bool read(void* dst, size_t bytes) const
+    {
+        DWORD got = 0;
+        return ReadFile(handle_, dst, static_cast<DWORD>(bytes), &got, nullptr)
+            && got == bytes;
+    }
+
+    bool seek(uint32_t offset) const
+    {
+        LARGE_INTEGER pos{};
+        pos.QuadPart = offset;
+        return SetFilePointerEx(handle_, pos, nullptr, FILE_BEGIN) != FALSE;
+    }
+
+private:
+    HANDLE handle_;
+};
+
+} // namespace
+
 bool DllVersionDetector::AnalyzeDll(const std::wstring& path, std::array<uint8_t, 32>& outHash, ModuleInfo& info)
 {
-    std::ifstream file(path, std::ios::binary);
+    BinaryFile file(path);
     if (!file)
         return false;
 
     // Read DOS header
     IMAGE_DOS_HEADER dos{};
-    if (!file.read(reinterpret_cast<char*>(&dos), sizeof(dos)))
+    if (!file.read(&dos, sizeof(dos)))
         return false;
     if (dos.e_magic != IMAGE_DOS_SIGNATURE) // "MZ"
         return false;
 
     // Go to NT headers
-    if (!file.seekg(dos.e_lfanew, std::ios::beg))
+    if (!file.seek(dos.e_lfanew))
         return false;
 
     // Read PE signature
     DWORD peSig = 0;
-    if (!file.read(reinterpret_cast<char*>(&peSig), sizeof(peSig)))
+    if (!file.read(&peSig, sizeof(peSig)))
         return false;
     if (peSig != IMAGE_NT_SIGNATURE)
         return false;
 
     // Read IMAGE_FILE_HEADER
     IMAGE_FILE_HEADER fh = {};
-    if (!file.read(reinterpret_cast<char*>(&fh), sizeof(fh)))
+    if (!file.read(&fh, sizeof(fh)))
         return false;
 
     // Read Optional Header
@@ -158,8 +198,8 @@ bool DllVersionDetector::AnalyzeDll(const std::wstring& path, std::array<uint8_t
         return false;
 
     std::vector<IMAGE_SECTION_HEADER> sections(fh.NumberOfSections);
-    const std::streamsize secTableBytes = static_cast<std::streamsize>(fh.NumberOfSections) * static_cast<std::streamsize>(sizeof(IMAGE_SECTION_HEADER));
-    if (!file.read(reinterpret_cast<char*>(sections.data()), secTableBytes))
+    const size_t secTableBytes = static_cast<size_t>(fh.NumberOfSections) * sizeof(IMAGE_SECTION_HEADER);
+    if (!file.read(sections.data(), secTableBytes))
         return false;
 
     for (const auto& sec : sections)
@@ -172,11 +212,11 @@ bool DllVersionDetector::AnalyzeDll(const std::wstring& path, std::array<uint8_t
         if (sec.SizeOfRawData == 0)
             return false;
 
-        if (!file.seekg(sec.PointerToRawData, std::ios::beg))
+        if (!file.seek(sec.PointerToRawData))
             return false;
 
         std::vector<uint8_t> rawData(sec.SizeOfRawData);
-        if (!file.read(reinterpret_cast<char*>(rawData.data()), rawData.size()))
+        if (!file.read(rawData.data(), rawData.size()))
             return false;
 
         HCRYPTPROV hProv = 0;
