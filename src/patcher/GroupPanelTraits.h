@@ -112,6 +112,41 @@ struct GroupPanelTraits<GameVersion::SS_RW_V2_4>
 };
 
 template<>
+struct GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_INT>
+{
+    static constexpr GroupPanelAddresses addresses
+    {
+        0xC050C,
+        0xA,
+        0x74,
+        0xC,
+
+        0x803E0,
+        0x3840C8,
+
+        std::array<GroupPanelSignature, 4>
+        {{
+            { 0x803E0, "83ec10538b5c241c555633edf6c30157894c241cbefffe00007529a1????????3bc574208b4c2424" },
+            { 0x807A0, "8b410485c05674418b35????????85f67437538b5c240c8b068bceff1085c074098acbfec1884e40" },
+            { 0x7EDCC, "33c9b8????????8b3881c7000000013bd7746083c014413d????????7ce9" },
+            { 0, "" },
+        }},
+    };
+
+    static constexpr uintptr_t fnGroupAssign = 0x807A0;
+    static constexpr uintptr_t unitGroupOffset = 0x40;
+};
+
+template<>
+struct GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_RU> : GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_INT> {};
+
+template<>
+struct GroupPanelTraits<GameVersion::SS_GOLD_EN> : GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_INT> {};
+
+template<>
+struct GroupPanelTraits<GameVersion::SS_RW_V2_3> : GroupPanelTraits<GameVersion::SS_RW_V2_4> {};
+
+template<>
 struct GroupPanelTraits<GameVersion::SS_EUROPE_2015> : GroupPanelTraits<GameVersion::SS_RW_V2_4> {};
 
 template<>
@@ -127,9 +162,17 @@ inline const GroupPanelAddresses* TryGetGroupPanelAddresses(GameVersion version)
         return &GroupPanelTraits<GameVersion::HS_2>::addresses;
     if (version == GameVersion::SS_RW_V2_4)
         return &GroupPanelTraits<GameVersion::SS_RW_V2_4>::addresses;
+    if (version == GameVersion::SS_RW_V2_3)
+        return &GroupPanelTraits<GameVersion::SS_RW_V2_3>::addresses;
     if (version == GameVersion::SS_EUROPE_2015)
         return &GroupPanelTraits<GameVersion::SS_EUROPE_2015>::addresses;
     if (version == GameVersion::SS_BLACK_SEA)
         return &GroupPanelTraits<GameVersion::SS_BLACK_SEA>::addresses;
+    if (version == GameVersion::SS_GOLD_HD_1_2_INT)
+        return &GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_INT>::addresses;
+    if (version == GameVersion::SS_GOLD_HD_1_2_RU)
+        return &GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_RU>::addresses;
+    if (version == GameVersion::SS_GOLD_EN)
+        return &GroupPanelTraits<GameVersion::SS_GOLD_EN>::addresses;
     return nullptr;
 }

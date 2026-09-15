@@ -7,11 +7,19 @@ It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) â
 > This fork main goal is to produce the same multi resolution `.dll` as the parent project but without the menu version check. It should allow community to use the custom resolution `.dll` next to a custom menu `.dll` without conflicts.
 >
 > This fork also allow the user to force a profile override for the game and menu modules, allowing potential custom builds of `game*.dll` and `menu*.dll`. This feature targets advanced users who need to run modified or repacked versions of the game and menu DLLs. **Use with caution.**
+
+> Missing zeppelins in strategic map (opened with the `M` key) bug is fixed in this build. Crash on strategic map opening for ultra wide resolutions should also be addressed.
 >
 > An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.
 
 > [!WARNING]
-> This fork also provides 2 new features: the ability to zoom and the control-group panel. They are available on **Sudden Strike 2**, **Hidden Stroke 2**, **Sudden Strike: Resource War 2.4**, **Europe 2015** and **Black Sea**. Other games fall back to resolution support only.
+> This fork also provides 2 new features: the ability to zoom and the control-group panel.
+>
+> **Verified in game:** Sudden Strike 2, Hidden Stroke 2, Sudden Strike: Resource War 2.4, Europe 2015, Sudden Strike Gold HD v1.2 (de, en, fr, ru).
+>
+> **Supported but not yet played through:** Sudden Strike: Resource War 2.3, Black Sea, Black Gold, Sudden Strike Gold (en).
+>
+> **Not supported:** Sudden Strike 1.0 and 1.2, Sudden Strike Gold de/fr/ru, Sudden Strike HD v1.1. They run with resolution support only.
 
 ## Supported Games
 
@@ -141,8 +149,6 @@ To enable it, set `GroupPanel=on` in the game's ini:
 > ```
 
 Use `GroupPanel=off` to disable it; it defaults to `off`.
-
-> ðŸ’¡ Note: The panel is available for **Sudden Strike 2**, **Hidden Stroke 2**, **Sudden Strike: Resource War 2.4**, **Europe 2015** and **Black Sea**, and only when the version is auto-detected: it stays off under a forced `GameProfile`. On any other version it stays off.
 
 ### Replacement Menu or Game Modules
 

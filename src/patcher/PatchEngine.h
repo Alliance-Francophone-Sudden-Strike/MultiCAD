@@ -110,6 +110,8 @@ public:
 
     void Shutdown() { }
 
+    bool skippedUnverified() const { return injector_ && injector_->skippedUnverified(); }
+
 private:
     std::unique_ptr<MemoryRelocator> relocator_;
     std::unique_ptr<CodePatcher> injector_;

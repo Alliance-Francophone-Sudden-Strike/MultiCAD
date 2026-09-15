@@ -19,6 +19,10 @@ struct HookSpec
     uintptr_t detour;
     uint8_t opcode{ 0xE9 }; // jmp rel32
     size_t overwriteSize{ 5 };
+    uintptr_t expectedCallee{ 0 };
+    uintptr_t expectedOperandRva{ 0 };
+
+    bool verified() const { return expectedCallee != 0 || expectedOperandRva != 0; }
 };
 
 struct PatchSpec

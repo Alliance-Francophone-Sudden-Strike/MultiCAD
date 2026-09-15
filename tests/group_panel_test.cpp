@@ -216,7 +216,13 @@ int main()
         assert(TryGetGroupPanelAddresses(GameVersion::SS_2) != nullptr);
         assert(TryGetGroupPanelAddresses(GameVersion::HS_2) != nullptr);
         assert(TryGetGroupPanelAddresses(GameVersion::SS_V1_0) == nullptr);
-        assert(TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_3) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_EN) ==
+               TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT));
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_3) ==
+               TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_4));
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_4)->unitAliveVtableOffset == 0x38);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT)->unitAliveVtableOffset == 0x74);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT)->unitGroupVtableOffset == 0xC);
 
         const GroupPanelAddresses& bound = *TryGetGroupPanelAddresses(GameVersion::SS_2);
         assert(TryGetGroupPanelAddresses(GameVersion::HS_2) == &bound);

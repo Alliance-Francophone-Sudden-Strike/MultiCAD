@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <cstring>
 
 class CodePatcher final
 {
@@ -10,10 +11,45 @@ public:
         return applyCodeHooks(mod, hooks) && applyMemoryPatches(mod, patches);
     }
 
+    bool skippedUnverified() const { return skippedUnverified_; }
+
 private:
     static constexpr size_t jumpSize{ 5 };
+    bool skippedUnverified_{ false };
+
+    static bool siteMatches(const uint8_t* target, const HookSpec& h, uintptr_t base)
+    {
+        if (h.expectedCallee != 0)
+        {
+            if (target[0] != h.opcode)
+                return false;
+            int32_t rel{};
+            std::memcpy(&rel, target + 1, sizeof(rel));
+            if (reinterpret_cast<uintptr_t>(target) + jumpSize + rel != base + h.expectedCallee)
+                return false;
+        }
+        if (h.expectedOperandRva != 0)
+        {
+            uint32_t operand{};
+            std::memcpy(&operand, target + 2, sizeof(operand));
+            if (operand != base + h.expectedOperandRva)
+                return false;
+        }
+        return true;
+    }
     bool applyCodeHooks(const ModuleInfo& mod, const std::span<const HookSpec>& hooks)
     {
+        for (const auto& h : hooks)
+        {
+            if (h.targetRva == 0 || h.detour == 0 || !h.verified())
+                continue;
+            if (!siteMatches(reinterpret_cast<const uint8_t*>(mod.base + h.targetRva), h, mod.base))
+            {
+                skippedUnverified_ = true;
+                break;
+            }
+        }
+
         for (const auto& h : hooks)
         {
             if (h.targetRva == 0 || h.detour == 0)
@@ -24,6 +60,9 @@ private:
 
             uint8_t* target = reinterpret_cast<uint8_t*>(mod.base + h.targetRva);
             uint8_t* detour = reinterpret_cast<uint8_t*>(h.detour);
+
+            if (skippedUnverified_ && h.verified())
+                continue;
 
             DWORD oldProtect{};
             if (!VirtualProtect(target, h.overwriteSize, PAGE_EXECUTE_READWRITE, &oldProtect))

@@ -265,7 +265,23 @@ struct UiTraits<GameVersion::SS_GOLD_EN>
         0x384474,
         0x6AEA0,
         0x564F0,
-        0x56530
+        0x56530,
+
+        0x37E924,
+        0x37E920,
+        0x382FF8,
+        0x382FE8,
+        0x382FEC,
+        0x382FF0,
+        0x382FF4,
+        0x380FE8,
+        0x6D7C0,
+        0x6F740,
+        0x0,
+        0x383078,
+        0x383074,
+        0x6A780,
+        0x6AB10
     };
 };
 
@@ -345,7 +361,23 @@ struct UiTraits<GameVersion::SS_GOLD_HD_1_2_INT>
         0x384474,
         0x6AEA0,
         0x564F0,
-        0x56530
+        0x56530,
+
+        0x37E924,
+        0x37E920,
+        0x382FF8,
+        0x382FE8,
+        0x382FEC,
+        0x382FF0,
+        0x382FF4,
+        0x380FE8,
+        0x6D7C0,
+        0x6F740,
+        0x0,
+        0x383078,
+        0x383074,
+        0x6A780,
+        0x6AB10
     };
 };
 
@@ -441,7 +473,23 @@ struct UiTraits<GameVersion::SS_RW_V2_3>
         0x10AEABC,
         0x95490,
         0x790A0,
-        0x790F0
+        0x790F0,
+
+        0x10A950C,
+        0x10A9508,
+        0x10ADC38,
+        0x10ADC28,
+        0x10ADC2C,
+        0x10ADC30,
+        0x10ADC34,
+        0x10ABC20,
+        0x98290,
+        0x9A4A0,
+        0x55FF0,
+        0x10ADCD8,
+        0x10ADCD4,
+        0x94D90,
+        0x95150
     };
 };
 
@@ -537,7 +585,23 @@ struct UiTraits<GameVersion::SS_BLACK_GOLD>
         0x109EC6C,
         0x95460,
         0x79080,
-        0x790D0
+        0x790D0,
+
+        0x10996BC,
+        0x10996B8,
+        0x109DDE8,
+        0x109DDD8,
+        0x109DDDC,
+        0x109DDE0,
+        0x109DDE4,
+        0x109BDD0,
+        0x98260,
+        0x9A470,
+        0x0,
+        0x109DE88,
+        0x109DE84,
+        0x94D60,
+        0x95120
     };
 };
 
@@ -579,7 +643,6 @@ constexpr bool ValidateZoomTraits()
         A.cursorSavedPixels &&
         A.fnRenderWorld &&
         A.fnMoveCamera &&
-        A.fnUpdateEntitiesUnderMouse &&
         A.hoverMouseX &&
         A.hoverMouseY &&
         A.fnUpdateBattlefieldHover &&
@@ -1309,6 +1372,8 @@ public:
     static void __declspec(noinline) __cdecl updateEntitiesUnderMouse_ver()
     {
         static_assert(ValidateZoomTraits<V>(), "One or more zoom UiTraits addresses are zero");
+        static_assert(UiTraits<V>::addresses.fnUpdateEntitiesUnderMouse != 0,
+            "UiTraits::fnUpdateEntitiesUnderMouse is zero for this version");
         auto* const g = globals_;
         constexpr auto& A = UiTraits<V>::addresses;
         withBattlefieldMouseCoordinates(

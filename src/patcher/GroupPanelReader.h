@@ -62,6 +62,8 @@ public:
 
         for (const GroupPanelSignature& signature : addresses->signatures)
         {
+            if (signature.rva == 0)
+                continue;
             const auto* code = globals.getPtr<const uint8_t>(signature.rva);
             const int length = GroupPanel::SignatureLength(signature.pattern);
             if (!isReadable(code, static_cast<size_t>(length)))

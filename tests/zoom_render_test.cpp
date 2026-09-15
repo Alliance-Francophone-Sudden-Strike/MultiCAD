@@ -5,6 +5,7 @@
 #include "renderer.h"
 #include "Zoom.h"
 #include "UIFilter.h"
+#include "GroupPanelTraits.h"
 #include <array>
 #include <cassert>
 #include <cstdio>
@@ -233,6 +234,17 @@ int main(int argc, char** argv)
         [](const HookSpec& hook) { return hook.targetRva == 0x952EE; });
     assert(rwLoopHook != hooks_game_ss_rw_v2_4<GameVersion::SS_RW_V2_4>.end());
     assert(rwLoopHook->overwriteSize == 24);
+
+    static_assert(ValidateZoomTraits<GameVersion::SS_GOLD_HD_1_2_INT>());
+    const auto ss1LoopHook = std::find_if(
+        hooks_game_ss_gold_hd_v1_2<GameVersion::SS_GOLD_HD_1_2_INT>.begin(),
+        hooks_game_ss_gold_hd_v1_2<GameVersion::SS_GOLD_HD_1_2_INT>.end(),
+        [](const HookSpec& hook) { return hook.targetRva == 0x6AC80; });
+    assert(ss1LoopHook != hooks_game_ss_gold_hd_v1_2<GameVersion::SS_GOLD_HD_1_2_INT>.end());
+    assert(ss1LoopHook->overwriteSize == 30);
+    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT) != nullptr);
+    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_EN) != nullptr);
+    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_DE) == nullptr);
 
     Hooks::UiEventArea battlefield{};
     battlefield.tag = 'FILD';

@@ -13,8 +13,6 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     DllVersionDetector& detector = DllVersionDetector::GetInstance();
     GameVersion version = detector.GetOrDetectGameVersion(DllType::Game, path, base, size);
     DetectionStatus status = detector.GetDetectionStatus(DllType::Game);
-    const GameVersion detectedVersion = version;
-    const DetectionStatus detectedStatus = status;
     GameVersion forced = GameVersion::UNKNOWN;
 
     // "[Game] GameProfile=" forces a profile onto a dll we couldn't identify. Only once the
@@ -90,18 +88,15 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
         return false;
     }
 
-    Zoom::GetState().setMode(Screen::GetZoom());
+    Zoom::GetState().setMode(
+        state.patchEngine->skippedUnverified() ? Zoom::Mode::Off : Screen::GetZoom());
     Zoom::GetState().setIndicatorAnchor(Screen::GetZoomIndicator());
     Zoom::GetState().setIndicatorShape(Screen::GetZoomIndicatorShape());
     Zoom::GetState().setPersistentIndicator(Screen::GetPersistentZoomIndicator());
     Zoom::GetState().setInvertZoom(Screen::GetInvertZoom());
     Zoom::GetState().setZoomOnCursor(Screen::GetZoomOnCursor());
     GameDllHooks::configureGroupPanel(
-        Screen::GetGroupPanel() &&
-        detectedStatus == DetectionStatus::Supported &&
-        forced == GameVersion::UNKNOWN
-            ? detectedVersion
-            : GameVersion::UNKNOWN);
+        Screen::GetGroupPanel() ? version : GameVersion::UNKNOWN);
     return true;
 }
 
