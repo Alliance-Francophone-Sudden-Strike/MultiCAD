@@ -18,11 +18,35 @@ namespace
     const int* g_groupPanelCursorWidth = nullptr;
     const int* g_groupPanelCursorHeight = nullptr;
     Pixel* g_groupPanelCursorPixels = nullptr;
+    bool g_groupPanelShowCount = false;
 
     Zoom::Rect GroupPanelRect()
     {
         const Zoom::Rect first = GroupPanel::CellRect(0, g_groupPanelSurfaceWidth);
         return { first.x, first.y, GroupPanel::Width(), GroupPanel::Height() };
+    }
+
+    bool groupPanelClick(int eventTag, int x, int y)
+    {
+        constexpr int kLeftButtonDown = 8;
+        constexpr int kRightButtonDown = 32;
+
+        if (eventTag != kLeftButtonDown && eventTag != kRightButtonDown)
+            return false;
+
+        if (g_groupPanelOpacity <= 0 || !g_groupPanel.bound() || !GetUIFilter().isEnabled())
+            return false;
+
+        const int slot = GroupPanel::HitTest(x, y, g_groupPanelSurfaceWidth);
+        if (slot < 0)
+            return false;
+
+        if (eventTag == kRightButtonDown)
+            g_groupPanel.assign(slot);
+        else if (g_groupPanelFade.slots()[static_cast<size_t>(slot)])
+            g_groupPanel.select(slot);
+
+        return true;
     }
 
     void DrawGroupPanelOverlay()
@@ -41,7 +65,8 @@ namespace
             g_groupPanelFade.slots(),
             g_groupPanelFade.houses(),
             g_groupPanelFade.wheels(),
-            g_groupPanelOpacity);
+            g_groupPanelOpacity,
+            g_groupPanelShowCount ? &g_groupPanelFade.counts() : nullptr);
 
         Zoom::GetState().refreshCursorSaveRect(
             destination,
@@ -57,7 +82,7 @@ namespace
     }
 }
 
-void GameDllHooks::configureGroupPanel(GameVersion version)
+void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts)
 {
     if (globals_)
         g_groupPanel.bind(*globals_, version);
@@ -65,6 +90,7 @@ void GameDllHooks::configureGroupPanel(GameVersion version)
         g_groupPanel = {};
     g_groupPanelFade = {};
     g_groupPanelOpacity = 0;
+    g_groupPanelShowCount = showCounts;
 }
 
 int __declspec(noinline) __fastcall GameDllHooks::sub_1001D240(GameData5* self, void* /*dummy*/, int** a2)
@@ -1575,7 +1601,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     {
         const auto& active = g_groupPanel.groups(tick);
         g_groupPanelOpacity = g_groupPanelFade.update(
-            active, g_groupPanel.house(), g_groupPanel.wheel(), tick);
+            active, g_groupPanel.house(), g_groupPanel.wheel(), tick, &g_groupPanel.counts());
     }
 
     const bool panelPainted = !panelCovered && (g_groupPanelOpacity > 0 || lastPanelOpacity > 0);
@@ -4167,6 +4193,9 @@ void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& 
 {
     const int mouseX = data.mouseX;
     const int mouseY = data.mouseY;
+
+    if (groupPanelClick(data.eventTag, mouseX, mouseY))
+        return;
     UiEventArea* const uiEventAreas = data.uiEventAreas;
     auto const writeEventToRingBuffer = data.writeEventToRingBuffer;
 

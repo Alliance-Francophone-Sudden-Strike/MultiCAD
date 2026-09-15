@@ -141,6 +141,13 @@ Other available settings settings:
 
 MultiCAD can also show a row of ten indicator cells for your control groups, labelled `1`–`9` and `0`, in the screen's top-right corner. Groups that currently hold units light up; empty groups stay dim.
 
+A cell shows a small house badge in its top-right corner when at least one member is inside a building, and a wheel badge in its top-left when at least one is inside a vehicle.
+
+The cells are clickable:
+
+- **Left-click** a lit cell to select that group — exactly what pressing its number-row key does.
+- **Right-click** a cell to assign the current selection to that group, as `Ctrl` + the number key does.
+
 To enable it, set `GroupPanel=on` in the game's ini:
 
 > ```ini
@@ -149,6 +156,16 @@ To enable it, set `GroupPanel=on` in the game's ini:
 > ```
 
 Use `GroupPanel=off` to disable it; it defaults to `off`.
+
+Each lit cell also shows how many units the group holds, centred just below the cell. To hide the counts and keep the plain indicators, set:
+
+> ```ini
+> [Game]
+> GroupPanel=on
+> GroupPanelCount=off
+> ```
+
+`GroupPanelCount` defaults to `on`, so the counts appear unless you turn them off.
 
 ### Replacement Menu or Game Modules
 

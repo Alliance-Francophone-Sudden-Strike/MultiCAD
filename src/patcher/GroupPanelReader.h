@@ -58,6 +58,7 @@ public:
         active_.fill(false);
         house_.fill(false);
         wheel_.fill(false);
+        counts_.fill(0);
         primed_ = false;
 
         const GroupPanelAddresses* addresses = TryGetGroupPanelAddresses(version);
@@ -101,6 +102,7 @@ public:
 
     const std::array<bool, GroupPanel::kCount>& house() const { return house_; }
     const std::array<bool, GroupPanel::kCount>& wheel() const { return wheel_; }
+    const GroupPanel::Counts& counts() const { return counts_; }
 
     // Runs the game's own group-select, exactly as the number-row key does.
     bool select(int slot) const
@@ -120,12 +122,30 @@ public:
         return true;
     }
 
+    bool assign(int slot) const
+    {
+        if (!bound() || slot < 0 || slot >= GroupPanel::kCount || !addresses_->fnGroupAssign)
+            return false;
+
+        void* self = globals_->getPtr<void>(addresses_->groupCommandThis);
+        if (!isReadable(self, sizeof(void*)))
+            return false;
+
+        auto* fn = globals_->getFn<SelectFn>(addresses_->fnGroupAssign);
+        if (!fn)
+            return false;
+
+        fn(self, GroupPanel::KeyIndexForSlot(slot), 0);
+        return true;
+    }
+
 private:
     void refresh()
     {
         active_.fill(false);
         house_.fill(false);
         wheel_.fill(false);
+        counts_.fill(0);
         units_ = {};
         vtables_ = {};
         code_ = {};
@@ -151,13 +171,16 @@ private:
             {
                 const int ownSlot = GroupPanel::SlotForStoredValue(unit[addresses_->unitGroupOffset]);
                 if (ownSlot >= 0)
+                {
                     active_[static_cast<size_t>(ownSlot)] = true;
+                    ++counts_[static_cast<size_t>(ownSlot)];
+                }
 
                 for (int slot = 0; slot < GroupPanel::kCount; ++slot)
                 {
                     const auto index = static_cast<size_t>(slot);
 
-                    if (slot == ownSlot || (active_[index] && house_[index] && wheel_[index]))
+                    if (slot == ownSlot)
                         continue;
 
                     const uint8_t stored = GroupPanel::StoredValueForSlot(slot);
@@ -165,6 +188,7 @@ private:
                         continue;
 
                     active_[index] = true;
+                    ++counts_[index];
                     if (inGroup(unit, stored, 0))
                         house_[index] = true;
                     else
@@ -243,6 +267,7 @@ private:
     std::array<bool, GroupPanel::kCount> active_{};
     std::array<bool, GroupPanel::kCount> house_{};
     std::array<bool, GroupPanel::kCount> wheel_{};
+    GroupPanel::Counts counts_{};
     Region units_{};
     Region vtables_{};
     Region code_{};

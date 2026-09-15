@@ -343,5 +343,177 @@ int main()
         }
     }
 
+    // --- unit counts ---------------------------------------------------------
+    static_assert(CountDigits(1) == 1);
+    static_assert(CountDigits(9) == 1);
+    static_assert(CountDigits(10) == 2);
+    static_assert(CountDigits(99) == 2);
+    static_assert(CountDigits(100) == 3);
+    static_assert(CountDigits(999) == 3);
+    static_assert(CountDigits(1000) == 4);
+    static_assert(CountDigits(kCountMax) == kCountMaxDigits);
+    static_assert(CountWidth(1) == kCountDigitWidth * kCountScale);
+    static_assert(CountWidth(2) == 2 * kCountDigitWidth * kCountScale + kCountDigitGap);
+    static_assert(CountLeft(9) > CountLeft(99));
+    static_assert(CountLeft(99) > CountLeft(999));
+    static_assert(CountLeft(999) > CountLeft(1000));
+    static_assert(kCountTop > kCell);
+    static_assert(Height() == kCell + CountStripHeight());
+
+    for (int value : { 1, 9, 10, 99, 100, 999, 1000, kCountMax })
+    {
+        const int digits = CountDigits(value);
+        assert(CountLeft(value) - kCountOutline >= 0);
+        assert(CountLeft(value) + CountWidth(digits) + kCountOutline <= kCell);
+        assert(CountWidth(digits) <= kCell - 2 * kCountOutline);
+    }
+
+    {
+        constexpr int width = 360;
+        constexpr int height = 80;
+        constexpr int pitch = width + 4;
+        constexpr uint16_t untouched = 0xABCD;
+        std::array<uint16_t, pitch * height> pixels{};
+        Slots active{};
+        Slots house{};
+        Slots wheel{};
+        Counts counts{};
+
+        active[0] = true;
+        counts[0] = 3;
+
+        pixels.fill(untouched);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, nullptr);
+
+        const Zoom::Rect one = CellRect(0, width);
+        assert(pixels[(one.y + glyphY) * pitch + one.x + glyphX + glyphScale] == kActiveText);
+        for (int y = 0; y < CountStripHeight(); ++y)
+            for (int x = 0; x < kCell; ++x)
+                assert(pixels[(one.y + kCell + y) * pitch + one.x + x] == untouched);
+
+        pixels.fill(untouched);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, &counts);
+
+        assert(pixels[(one.y + glyphY) * pitch + one.x + glyphX + glyphScale] == kActiveText);
+        const int topRow = one.y + kCountTop;
+        for (int x = 0; x < kCountDigitWidth * kCountScale; ++x)
+            assert(pixels[topRow * pitch + one.x + CountLeft(3) + x] == kCountText);
+
+        for (int x = -kCountOutline; x < kCountDigitWidth * kCountScale + kCountOutline; ++x)
+            assert(pixels[(topRow - kCountOutline) * pitch + one.x + CountLeft(3) + x] == kCountPlate);
+
+        assert(pixels[(one.y + kCell) * pitch + one.x + kCell / 2] == untouched);
+
+        counts[0] = 12;
+        pixels.fill(untouched);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, &counts);
+        const int secondDigitX =
+            one.x + CountLeft(12) + kCountDigitWidth * kCountScale + kCountDigitGap;
+        for (int x = 0; x < kCountDigitWidth * kCountScale; ++x)
+            assert(pixels[topRow * pitch + secondDigitX + x] == kCountText);
+        assert(CountLeft(12) + CountWidth(2) + kCountOutline <= kCell);
+
+        counts[0] = 1000;
+        pixels.fill(untouched);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, &counts);
+        const int fourthDigitX =
+            one.x + CountLeft(1000) + 3 * (kCountDigitWidth * kCountScale + kCountDigitGap);
+        for (int x = 0; x < kCountDigitWidth * kCountScale; ++x)
+            assert(pixels[topRow * pitch + fourthDigitX + x] == kCountText);
+
+        counts[0] = 50000;
+        pixels.fill(untouched);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, &counts);
+        for (int x = 0; x < kCountDigitWidth * kCountScale; ++x)
+            assert(pixels[topRow * pitch + one.x + CountLeft(kCountMax) + x] == kCountText);
+
+        counts[1] = 7;
+        pixels.fill(untouched);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, &counts);
+        const Zoom::Rect two = CellRect(1, width);
+        assert(!active[1]);
+        for (int y = 0; y < CountStripHeight(); ++y)
+            for (int x = 0; x < kCell; ++x)
+                assert(pixels[(two.y + kCell + y) * pitch + two.x + x] == untouched);
+
+        Slots all{};
+        Counts big{};
+        for (int slot = 0; slot < kCount; ++slot)
+        {
+            all[slot] = true;
+            big[slot] = 99;
+        }
+        pixels.fill(untouched);
+        Draw16(pixels.data(), pitch, width, height, all, house, wheel, 16, &big);
+        for (int slot = 0; slot + 1 < kCount; ++slot)
+        {
+            const Zoom::Rect cell = CellRect(slot, width);
+            for (int gap = 0; gap < kGap; ++gap)
+                for (int y = 0; y < kCell + CountStripHeight(); ++y)
+                    assert(pixels[(cell.y + y) * pitch + cell.x + kCell + gap] == untouched);
+        }
+
+        const Zoom::Rect last = CellRect(kCount - 1, width);
+        for (int y = 0; y < kCell + CountStripHeight(); ++y)
+            assert(pixels[(last.y + y) * pitch + last.x + kCell] == untouched);
+        for (int x = 0; x < kCell; ++x)
+            assert(pixels[(one.y + Height()) * pitch + one.x + x] == untouched);
+    }
+
+    // --- the fade carries counts through the fade-out ------------------------
+    {
+        Fade fade;
+        Slots active{};
+        Slots none{};
+        Counts counts{};
+        active[2] = true;
+        counts[2] = 4;
+
+        fade.update(active, none, none, 1000, &counts);
+        assert(fade.counts()[2] == 4);
+
+        Counts empty{};
+        fade.update(none, none, none, 1000, &empty);
+        assert(fade.counts()[2] == 4);
+
+        fade.update(active, none, none, 1000);
+        assert(fade.counts()[2] == 4);
+    }
+
+    // --- assign is reachable through the runtime lookup ----------------------
+    {
+        const GameVersion bound[]
+        {
+            GameVersion::SS_2,
+            GameVersion::SS_RW_V2_4,
+            GameVersion::SS_GOLD_HD_1_2_INT,
+        };
+
+        for (GameVersion version : bound)
+        {
+            const GroupPanelAddresses* addresses = TryGetGroupPanelAddresses(version);
+            assert(addresses != nullptr);
+            assert(addresses->fnGroupAssign != 0);
+            assert(addresses->fnGroupAssign != addresses->fnGroupSelect);
+
+            bool pinned = false;
+            for (const GroupPanelSignature& signature : addresses->signatures)
+                if (signature.rva == addresses->fnGroupAssign)
+                    pinned = true;
+            assert(pinned);
+        }
+    }
+
+    // --- profiles the panel is deliberately not bound against ---------------
+    {
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_BLACK_GOLD) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_DE) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_FR) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_V1_0) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_V1_2) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_RU) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_HD_V1_1_RU) == nullptr);
+    }
+
     return 0;
 }

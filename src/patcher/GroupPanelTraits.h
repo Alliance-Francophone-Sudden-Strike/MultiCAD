@@ -36,6 +36,7 @@ struct GroupPanelAddresses
 
     uintptr_t fnGroupSelect;    // RVA, __thiscall (groupKeyIndex, modifiers)
     uintptr_t groupCommandThis; // RVA used as `this` for fnGroupSelect
+    uintptr_t fnGroupAssign;
 
     std::array<GroupPanelSignature, 4> signatures;
 };
@@ -56,6 +57,7 @@ struct GroupPanelTraits<GameVersion::SS_2>
 
         0xB3FC0,
         0x106F470,
+        0xB40F0,
 
         std::array<GroupPanelSignature, 4>
         {{
@@ -72,11 +74,6 @@ struct GroupPanelTraits<GameVersion::SS_2>
             { 0xB1F4B, "33d2b8????????8b3081c6000000013bce746d83c014423d????????7ce9a1" },
         }},
     };
-
-    // Documented but unused: assign is the game's own Ctrl+number path, and it
-    // only acts while *(int*)groupCommandThis == 2. Kept so the offset is
-    // recorded next to the one the panel does use.
-    static constexpr uintptr_t fnGroupAssign = 0xB40F0;
 };
 
 template<>
@@ -95,6 +92,7 @@ struct GroupPanelTraits<GameVersion::SS_RW_V2_4>
 
         0xB0250,
         0x10AE848,
+        0xB0380,
 
         std::array<GroupPanelSignature, 4>
         {{
@@ -104,8 +102,6 @@ struct GroupPanelTraits<GameVersion::SS_RW_V2_4>
             { 0xAE213, "33d2b9????????8b3181c6000000013bc6747083c1144281f9????????7ce8" },
         }},
     };
-
-    static constexpr uintptr_t fnGroupAssign = 0xB0380;
 };
 
 template<>
@@ -121,6 +117,7 @@ struct GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_INT>
 
         0x803E0,
         0x3840C8,
+        0x807A0,
 
         std::array<GroupPanelSignature, 4>
         {{
@@ -130,8 +127,6 @@ struct GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_INT>
             { 0, "" },
         }},
     };
-
-    static constexpr uintptr_t fnGroupAssign = 0x807A0;
 };
 
 template<>

@@ -20,6 +20,7 @@ namespace GroupPanel
     constexpr int kRows = 1;
 
     using Slots = std::array<bool, kCount>;
+    using Counts = std::array<uint16_t, kCount>;
 
     // The game's own key table is ordered '0','1',..,'9', and a unit's group
     // byte holds that table index + 1. The panel reads 1..9,0, so the last
@@ -63,12 +64,44 @@ namespace GroupPanel
     constexpr int kGap = 3;
     constexpr int kMargin = 12;
 
+    constexpr int kCountScale = 1;
+    constexpr int kCountDigitWidth = 3;
+    constexpr int kCountDigitHeight = 5;
+    constexpr int kCountDigitGap = 1;
+    constexpr int kCountMaxDigits = 4;
+    constexpr int kCountMax = 9999;
+    constexpr int kCountGapY = 2;
+    constexpr int kCountOutline = 1;
+    constexpr int kCountTop = kCell + kCountGapY + kCountOutline;
+    constexpr uint16_t kCountText = 0xFFFF;
+    constexpr uint16_t kCountPlate = 0x1082;
+
+    constexpr int CountWidth(int digits)
+    {
+        return digits * kCountDigitWidth * kCountScale + (digits - 1) * kCountDigitGap;
+    }
+
+    constexpr int CountDigits(int value)
+    {
+        return value >= 1000 ? 4 : value >= 100 ? 3 : value >= 10 ? 2 : 1;
+    }
+
+    constexpr int CountLeft(int value)
+    {
+        return (kCell - CountWidth(CountDigits(value))) / 2;
+    }
+
+    constexpr int CountStripHeight()
+    {
+        return kCountGapY + kCountDigitHeight * kCountScale + 2 * kCountOutline;
+    }
+
     constexpr int glyphScale = 2;
     constexpr int glyphX = (kCell - 3 * glyphScale) / 2;
     constexpr int glyphY = (kCell - 5 * glyphScale) / 2;
 
     constexpr int Width() { return kColumns * kCell + (kColumns - 1) * kGap; }
-    constexpr int Height() { return kRows * kCell + (kRows - 1) * kGap; }
+    constexpr int Height() { return kRows * kCell + (kRows - 1) * kGap + CountStripHeight(); }
 
     // Anchored to the top-right corner, in screen coordinates.
     constexpr Zoom::Rect CellRect(int slot, int screenWidth)
@@ -118,6 +151,13 @@ namespace GroupPanel
     static_assert(kHouseX >= glyphX + 3 * glyphScale && kHouseX + kIconSize <= kCell - 2);
     static_assert(kIconY >= 2 && kIconY + kIconSize <= kCell - 2);
 
+    static_assert(CountDigits(kCountMax) == kCountMaxDigits);
+    static_assert(CountLeft(kCountMax) - kCountOutline >= 0);
+    static_assert(CountLeft(kCountMax) + CountWidth(kCountMaxDigits) + kCountOutline <= kCell);
+    static_assert(kCountTop - kCountOutline > kCell - 1);
+    static_assert(kCountTop + kCountDigitHeight * kCountScale + kCountOutline == kCell + CountStripHeight());
+    static_assert(kCountGapY >= 1);
+
     inline constexpr uint8_t kHouse[kIconSize]
     {
         0b00100,
@@ -160,7 +200,8 @@ namespace GroupPanel
         const Slots& active,
         const Slots& house,
         const Slots& wheel,
-        int opacity = 16)
+        int opacity = 16,
+        const Counts* counts = nullptr)
     {
         if (!destination || pitch < width || !Fits(width, height) || opacity <= 0 ||
             std::none_of(active.begin(), active.end(), [](bool value) { return value; }))
@@ -185,6 +226,13 @@ namespace GroupPanel
                                 plot(left + x * scale + dx, top + y * scale + dy, color);
         };
 
+        const auto fillRect = [&](int left, int top, int cols, int rows, uint16_t color)
+        {
+            for (int y = 0; y < rows; ++y)
+                for (int x = 0; x < cols; ++x)
+                    plot(left + x, top + y, color);
+        };
+
         for (int slot = 0; slot < kCount; ++slot)
         {
             const Zoom::Rect cell = CellRect(slot, width);
@@ -199,6 +247,30 @@ namespace GroupPanel
 
             blit(kDigits[LabelForSlot(slot) - '0'], 3, 5,
                  cell.x + glyphX, cell.y + glyphY, glyphScale, text);
+
+            if (counts && active[slot] && (*counts)[slot] > 0)
+            {
+                const int value = std::min<int>((*counts)[slot], kCountMax);
+                const int digits = CountDigits(value);
+                int x = cell.x + CountLeft(value);
+
+                fillRect(x - kCountOutline,
+                         cell.y + kCountTop - kCountOutline,
+                         CountWidth(digits) + 2 * kCountOutline,
+                         kCountDigitHeight * kCountScale + 2 * kCountOutline,
+                         kCountPlate);
+
+                for (int digit = digits - 1; digit >= 0; --digit)
+                {
+                    int place = 1;
+                    for (int i = 0; i < digit; ++i)
+                        place *= 10;
+
+                    blit(kDigits[value / place % 10], kCountDigitWidth, kCountDigitHeight,
+                         x, cell.y + kCountTop, kCountScale, kCountText);
+                    x += kCountDigitWidth * kCountScale + kCountDigitGap;
+                }
+            }
 
             if (house[slot])
                 blit(kHouse, kIconSize, kIconSize, cell.x + kHouseX, cell.y + kIconY, 1, kContainedIcon);
@@ -219,7 +291,8 @@ namespace GroupPanel
         // opacity (0-16) to draw at. While fading out, active is already all
         // false, so slots() keeps returning the last pattern that had
         // anything active instead of blanking before the fade finishes.
-        int update(const Slots& active, const Slots& house, const Slots& wheel, uint32_t tick)
+        int update(const Slots& active, const Slots& house, const Slots& wheel, uint32_t tick,
+                   const Counts* counts = nullptr)
         {
             const bool needed = std::any_of(active.begin(), active.end(), [](bool value) { return value; });
             if (needed)
@@ -227,6 +300,8 @@ namespace GroupPanel
                 lastActive_ = active;
                 lastHouse_ = house;
                 lastWheel_ = wheel;
+                if (counts)
+                    lastCounts_ = *counts;
             }
 
             if (needed != wasNeeded_)
@@ -244,11 +319,13 @@ namespace GroupPanel
         const Slots& slots() const { return lastActive_; }
         const Slots& houses() const { return lastHouse_; }
         const Slots& wheels() const { return lastWheel_; }
+        const Counts& counts() const { return lastCounts_; }
 
     private:
         Slots lastActive_{};
         Slots lastHouse_{};
         Slots lastWheel_{};
+        Counts lastCounts_{};
         bool wasNeeded_ = false;
         uint32_t changeTick_ = 0;
     };

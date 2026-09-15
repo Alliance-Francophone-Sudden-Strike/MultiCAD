@@ -208,6 +208,17 @@ public:
         return Zoom::ParseMode(buffer) == Zoom::Mode::On;
     }
 
+    static bool GetGroupPanelCount()
+    {
+        const std::string iniPath = GetIniPath();
+        if (iniPath.empty())
+            return true;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "GroupPanelCount", "on", buffer, sizeof(buffer), iniPath.c_str());
+        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
+    }
+
 private:
 
     static bool targetResolved_;
