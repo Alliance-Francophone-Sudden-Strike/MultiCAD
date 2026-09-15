@@ -3715,6 +3715,12 @@ void GameDllHooks::drawFogOnWorld_v2(const FogDrawData& data)
     }
 }
 
+static int s_strategicMapDrawWidth = 0;
+
+static inline int strategicMapDrawWidth(int screenSurfaceWidth)
+{
+    return s_strategicMapDrawWidth > 0 ? s_strategicMapDrawWidth : screenSurfaceWidth;
+}
 
 void GameDllHooks::readStrategicMapFromFile(UiStrategicMapElement* mapData, const ReadStrategicMapData& data)
 {
@@ -3748,17 +3754,24 @@ void GameDllHooks::readStrategicMapFromFile(UiStrategicMapElement* mapData, cons
         double scaleX = static_cast<double>(mapWidth) / screenWidth;
 
         // Calculate real strategic map height
+        int miniMapScreenWidth = screenWidth;
         int miniMapScreenHeight = static_cast<int>(mapHeight / scaleX);
         if (miniMapScreenHeight > screenHeight)
         {
-            // If height is too big, calculate it via Y
+            // If height is too big, calculate it via Y. The picture is then narrower than the
+            // screen (ultra-wide displays), so it needs a horizontal margin as well
             scaleX = static_cast<double>(mapHeight) / screenHeight;
             miniMapScreenHeight = screenHeight;
+            miniMapScreenWidth = static_cast<int>(mapWidth / scaleX);
         }
         double scaleY = static_cast<double>(mapHeight) / miniMapScreenHeight;
 
-        // Vertical offset from border
+        // Offsets from border
         mapData->verticalCenterMargin = (screenHeight - miniMapScreenHeight) / 2;
+        const int horizontalCenterMargin = (screenWidth - miniMapScreenWidth) / 2;
+
+        // The draw hooks derive their projection from it, so it must match the picture
+        s_strategicMapDrawWidth = miniMapScreenWidth;
 
         // Buffer for future usage
         mapData->srcBuf = (uint8_t*)data.fnNew(3 * screenWidth * screenHeight);
@@ -3798,7 +3811,7 @@ void GameDllHooks::readStrategicMapFromFile(UiStrategicMapElement* mapData, cons
         for (int screenY = 0; screenY < miniMapScreenHeight; ++screenY)
         {
             int targetY = screenY + mapData->verticalCenterMargin;
-            for (int screenX = 0; screenX < screenWidth; ++screenX)
+            for (int screenX = 0; screenX < miniMapScreenWidth; ++screenX)
             {
                 double mapXScaled = screenX * scaleX;
                 double mapYScaled = screenY * scaleY;
@@ -3806,7 +3819,7 @@ void GameDllHooks::readStrategicMapFromFile(UiStrategicMapElement* mapData, cons
                 uint8_t r, g, b;
                 bilinearInterpolate(mapXScaled, mapYScaled, r, g, b);
 
-                int screenIndex = screenX + targetY * screenWidth;
+                int screenIndex = screenX + horizontalCenterMargin + targetY * screenWidth;
                 mapData->srcBuf[3 * screenIndex + 0] = r;
                 mapData->srcBuf[3 * screenIndex + 1] = g;
                 mapData->srcBuf[3 * screenIndex + 2] = b;
@@ -3835,11 +3848,15 @@ void GameDllHooks::drawFogOnStrategicMap(UiStrategicMapElement* mapData, const F
     int clip[4];
     data.fnWriteClipRect(clip, mapData->clipLeft, mapData->clipTop, mapData->clipRight, mapData->clipBottom);
 
-    clip[2] += 16;
-    clip[3] += 8;
+    // clipRight/clipBottom are inclusive and the +16/+8 rounds up to the fog cell grid, so both
+    // must be clamped: srcBuf and dstBuf only hold screenSurfaceWidth * screenSurfaceHeight pixels
+    clip[0] = std::max(clip[0], 0);
+    clip[1] = std::max(clip[1], 0);
+    clip[2] = std::min(clip[2] + 16, mapData->screenSurfaceWidth);
+    clip[3] = std::min(clip[3] + 8, mapData->screenSurfaceHeight);
 
     // Calculate fog
-    const double scale = 64.0 * data.mapHeight / mapData->screenSurfaceWidth;
+    const double scale = 64.0 * data.mapHeight / strategicMapDrawWidth(mapData->screenSurfaceWidth);
     const double scale2 = scale / 32.0;
 
     const auto getFogCount = [&](int index) -> int {
@@ -3956,7 +3973,7 @@ void GameDllHooks::drawScreenRectOnStrategicMap(UiStrategicMapElement* mapData, 
     data.fn1(mapData, offsetX, offsetY);
 
     const int width = mapData->screenSurfaceWidth;
-    const double scale = 64.0 * data.mapHeight / width;
+    const double scale = 64.0 * data.mapHeight / strategicMapDrawWidth(width);
     const int nativeRectWidth = static_cast<int>(width / scale);
     const int nativeRectHeight = static_cast<int>(mapData->screenSurfaceHeight / scale);
     Zoom::State& zoom = Zoom::GetState();
