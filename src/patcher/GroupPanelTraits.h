@@ -21,12 +21,16 @@ struct GroupPanelSignature
 
 struct GroupPanelAddresses
 {
-    // Group membership is a byte on each unit, not a slot table. Walk the unit
-    // list and read the byte: the game clears it itself when a unit dies, and
-    // never replicates it into another player's process.
-    uintptr_t unitListHead;     // RVA of the pointer to the first unit
-    uintptr_t unitNextOffset;   // offset of the next-unit pointer inside a unit
-    uintptr_t unitGroupOffset;  // offset of the group byte inside a unit
+    // Membership is answered by each unit's own virtual predicate, not by
+    // reading its group byte: a garrisoned squad is absorbed into its
+    // building's occupant records, and only the building's override of that
+    // predicate can still see it. Walking the list and calling the same two
+    // virtuals fnGroupSelect calls is what keeps the panel and the number-row
+    // key in agreement.
+    uintptr_t unitListHead;          // RVA of the pointer to the first unit
+    uintptr_t unitNextOffset;        // offset of the next-unit pointer inside a unit
+    uintptr_t unitAliveVtableOffset; // vtable offset of the owner+liveness predicate
+    uintptr_t unitGroupVtableOffset; // vtable offset of the "is in group N" predicate
 
     uintptr_t fnGroupSelect;    // RVA, __thiscall (groupKeyIndex, modifiers)
     uintptr_t groupCommandThis; // RVA used as `this` for fnGroupSelect
@@ -44,15 +48,18 @@ struct GroupPanelTraits<GameVersion::SS_2>
     {
         0x10F258,
         0xA,
-        0x44,
+        0x34,
+        0x1C,
 
         0xB3FC0,
         0x106F470,
 
         std::array<GroupPanelSignature, 4>
         {{
-            // group select - the function a number-row key ends up calling
-            { 0xB3FC0, "83ec088b4424105355565750894c2418e82bf1ffff8b35????????33db33ed3bf3895c241074678b168bceff523485c0" },
+            // group select - the function a number-row key ends up calling.
+            // Covers both virtual calls the reader mirrors: [vtable+0x34] then
+            // [vtable+0x1c](groupValue, modifiers & 2).
+            { 0xB3FC0, "83ec088b4424105355565750894c2418e82bf1ffff8b35????????33db33ed3bf3895c241074678b168bceff523485c074558b4c24208b54241c8b0683e1024251528bceff501c" },
             // group assign - also proves unitListHead, loaded at its +0x8
             { 0xB40F0, "8b015683f80275428b35????????85f67438538b5c????????8bceff501085c074098acbfec1884e44eb17f644241001" },
             // owner + liveness predicate reached through [unit_vtable+0x34]
@@ -68,12 +75,11 @@ struct GroupPanelTraits<GameVersion::SS_2>
     // recorded next to the one the panel does use.
     static constexpr uintptr_t fnGroupAssign = 0xB40F0;
 
-    // Offset in a unit's vtable of the owner+liveness predicate. The reader
-    // does NOT call it: group bytes are cleared on death and never replicated,
-    // so membership alone is already correct, and calling a game function from
-    // the render path would add risk for no gain. Recorded because the panel's
-    // safety argument rests on it.
-    static constexpr uintptr_t unitAliveVtableOffset = 0x34;
+    // Offset of the group byte a unit carries for itself. The reader no longer
+    // reads it - it is the building's occupant records, not this byte, that
+    // keep a garrisoned group recallable - but it is what fnGroupAssign writes
+    // and what [vtable+0x1c] tests first.
+    static constexpr uintptr_t unitGroupOffset = 0x44;
 };
 
 template<>

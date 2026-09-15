@@ -6,6 +6,13 @@
 // signature matches, the reader stays inert and reports no groups. The walk is
 // structurally safe rather than SEH-guarded, because the MinGW build strips
 // __try/__except (see mingw/prep.py) and would otherwise be unprotected.
+//
+// Membership is decided by the game's own per-unit virtuals, in the same order
+// fnGroupSelect uses them, so whatever a class does to answer "am I in group
+// N" - a building answering for the squad garrisoned inside it, a vehicle for
+// its crew - the panel inherits for free. Reading the unit's group byte
+// directly cannot see any of that. Both virtuals are pure reads, and both
+// pointers are validated before the call.
 
 #include "GameGlobals.h"
 #include "GroupPanel.h"
@@ -18,6 +25,20 @@
 
 class GroupPanelReader
 {
+    // GCC parses `RET(__thiscall)(ARGS)` but silently drops the convention,
+    // which would push `this` on the stack and then over-pop by the callee's
+    // own `ret 8`. prep.py only rewrites the form spelled inside getFn<>, so
+    // spell these out per compiler instead.
+#if defined(__GNUC__)
+    typedef void SelectFn(void*, int, int) __attribute__((__thiscall__));
+    typedef int AliveFn(void*) __attribute__((__thiscall__));
+    typedef int InGroupFn(void*, int, int) __attribute__((__thiscall__));
+#else
+    using SelectFn = void(__thiscall)(void*, int, int);
+    using AliveFn = int(__thiscall)(void*);
+    using InGroupFn = int(__thiscall)(void*, int, int);
+#endif
+
 public:
     // Refresh cadence. The panel is a coarse indicator, so re-walking the unit
     // list ten times a second is plenty and keeps the per-unit probe cheap
@@ -82,7 +103,6 @@ public:
         if (!isReadable(self, sizeof(void*)))
             return false;
 
-        using SelectFn = void(__thiscall)(void*, int, int);
         auto* fn = globals_->getFn<SelectFn>(addresses_->fnGroupSelect);
         if (!fn)
             return false;
@@ -95,45 +115,74 @@ private:
     void refresh()
     {
         active_.fill(false);
-        regionStart_ = 0;
-        regionEnd_ = 0;
+        units_ = {};
+        vtables_ = {};
+        code_ = {};
 
         auto* headSlot = globals_->getPtr<uint8_t*>(addresses_->unitListHead);
         if (!isReadable(headSlot, sizeof(uint8_t*)))
             return;
 
-        // Enough of a unit to cover both fields we touch.
-        const size_t probe = static_cast<size_t>(
-            (addresses_->unitGroupOffset > addresses_->unitNextOffset
-                 ? addresses_->unitGroupOffset
-                 : addresses_->unitNextOffset) + sizeof(void*));
+        // Enough of a unit to cover its vtable pointer and its next pointer.
+        const size_t probe = static_cast<size_t>(addresses_->unitNextOffset) + sizeof(void*);
 
         int missing = GroupPanel::kCount;
         uint8_t* unit = *headSlot;
         for (int guard = 0; unit && guard < kMaxUnits; ++guard)
         {
-            if (!isReadableCached(unit, probe))
+            if (!isReadableCached(units_, unit, probe))
                 return;                       // corrupt list: keep what we have
 
-            const int slot = GroupPanel::SlotForStoredValue(unit[addresses_->unitGroupOffset]);
-            if (slot >= 0 && !active_[static_cast<size_t>(slot)])
+            auto* const alive = vtableFn<AliveFn>(unit, addresses_->unitAliveVtableOffset);
+            auto* const inGroup = vtableFn<InGroupFn>(unit, addresses_->unitGroupVtableOffset);
+
+            if (alive && inGroup && alive(unit))
             {
-                active_[static_cast<size_t>(slot)] = true;
-                if (--missing == 0)
-                    return;
+                for (int slot = 0; slot < GroupPanel::kCount; ++slot)
+                {
+                    if (active_[static_cast<size_t>(slot)] ||
+                        !inGroup(unit, GroupPanel::StoredValueForSlot(slot), 0))
+                        continue;
+
+                    active_[static_cast<size_t>(slot)] = true;
+                    if (--missing == 0)
+                        return;
+                }
             }
 
             unit = *reinterpret_cast<uint8_t**>(unit + addresses_->unitNextOffset);
         }
     }
 
-    bool isReadableCached(const void* p, size_t bytes)
+    template<typename Fn>
+    Fn* vtableFn(uint8_t* unit, uintptr_t offset)
+    {
+        auto* const vtable = *reinterpret_cast<uint8_t**>(unit);
+        if (!isReadableCached(vtables_, vtable, static_cast<size_t>(offset) + sizeof(void*)))
+            return nullptr;
+
+        auto* const fn = *reinterpret_cast<Fn**>(vtable + offset);
+        if (!isReadableCached(code_, reinterpret_cast<const void*>(fn), 1))
+            return nullptr;
+
+        return fn;
+    }
+
+    // One cached region per pointer kind the walk follows, so a unit, a vtable
+    // and a game function never evict each other's region.
+    struct Region
+    {
+        uintptr_t start{ 0 };
+        uintptr_t end{ 0 };
+    };
+
+    static bool isReadableCached(Region& region, const void* p, size_t bytes)
     {
         const auto first = reinterpret_cast<uintptr_t>(p);
-        if (regionEnd_ && first >= regionStart_ && first + bytes <= regionEnd_)
+        if (region.end && first >= region.start && first + bytes <= region.end)
             return true;
 
-        return isReadable(p, bytes, &regionStart_, &regionEnd_);
+        return isReadable(p, bytes, &region.start, &region.end);
     }
 
     // Same shape as GameDllHooks::is_valid_ptr, which is private to that class.
@@ -170,8 +219,9 @@ private:
     GameGlobals* globals_{ nullptr };
     const GroupPanelAddresses* addresses_{ nullptr };
     std::array<bool, GroupPanel::kCount> active_{};
-    uintptr_t regionStart_{ 0 };
-    uintptr_t regionEnd_{ 0 };
+    Region units_{};
+    Region vtables_{};
+    Region code_{};
     uint32_t lastTick_{ 0 };
     bool primed_{ false };
 };

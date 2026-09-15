@@ -4,6 +4,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <string_view>
 
 int main()
 {
@@ -219,8 +220,17 @@ int main()
 
         const GroupPanelAddresses& bound = *TryGetGroupPanelAddresses(GameVersion::SS_2);
         assert(TryGetGroupPanelAddresses(GameVersion::HS_2) == &bound);
-        assert(bound.unitGroupOffset == 0x44);
+        assert(bound.unitAliveVtableOffset == 0x34);
+        assert(bound.unitGroupVtableOffset == 0x1C);
         assert(bound.unitNextOffset == 0xA);
+
+        // The reader mirrors fnGroupSelect's two virtual calls, so its
+        // signature has to pin the offsets the reader uses: call [edx+0x34]
+        // then call [eax+0x1c]. Changing one without the other would silently
+        // call the wrong slot on every unit in the game.
+        const std::string_view select = bound.signatures[0].pattern;
+        assert(select.find("ff5234") != std::string_view::npos);
+        assert(select.find("ff501c") != std::string_view::npos);
 
         for (const GroupPanelSignature& signature : bound.signatures)
         {
