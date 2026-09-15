@@ -57,6 +57,9 @@ HRESULT WINAPI ResolutionVerifier::EnumModesCallback(LPDDSURFACEDESC lpDDSurface
     if ((lpDDSurfaceDesc->dwHeight & 7) != 0)
         return DDENUMRET_OK;
 
+    if ((lpDDSurfaceDesc->dwWidth & 15) != 0)
+        return DDENUMRET_OK;
+
     Resolution res{
         static_cast<int>(lpDDSurfaceDesc->dwWidth),
         static_cast<int>(lpDDSurfaceDesc->dwHeight),
@@ -74,19 +77,6 @@ HRESULT WINAPI ResolutionVerifier::EnumModesCallback(LPDDSURFACEDESC lpDDSurface
     verifier->supportedResolutions_.push_back(res);
 
     return DDENUMRET_OK;
-}
-
-bool ResolutionVerifier::IsSupported(int width, int height, int bits) const
-{
-    for (const auto& res : supportedResolutions_)
-    {
-        if (res.width == width && res.height == height && res.bits == bits)
-        {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 bool ResolutionVerifier::FindNearest(int& width, int& height, int bits) const

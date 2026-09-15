@@ -98,6 +98,8 @@ public:
         {
             GetNativeResolution(targetWidth_, targetHeight_);
             resolutionFromIni_ = ApplyIniResolution(targetWidth_, targetHeight_);
+            targetWidth_ &= ~15;
+            targetHeight_ &= ~7;
             targetResolved_ = true;
         }
 

@@ -260,8 +260,7 @@ bool initWindowDxSurface(S32 width, S32 height)
 
     if (g_moduleState->isFullScreen)
     {
-        const bool isSupported = ResolutionVerifier::GetInstance().IsSupported(width, height, Graphics::kBitsPerPixel16);
-        if (!isSupported)
+        if (FAILED(g_moduleState->directX.instance->SetDisplayMode(width, height, Graphics::kBitsPerPixel16)))
         {
             if (Screen::resolutionFromIni_)
             {
@@ -279,14 +278,14 @@ bool initWindowDxSurface(S32 width, S32 height)
                 if (ResolutionVerifier::GetInstance().FindNearest(width, height, Graphics::kBitsPerPixel16))
                     Screen::UpdateSize(width, height);
             }
-        }
 
-        if (FAILED(g_moduleState->directX.instance->SetDisplayMode(width, height, Graphics::kBitsPerPixel16)))
-        {
-            char buf[100];
-            std::snprintf(buf, sizeof(buf), "Display mode %dx%dx%d is not supported by system. Terminating.", width, height, Graphics::kBitsPerPixel16);
-            ShowErrorNow(buf);
-            return false;
+            if (FAILED(g_moduleState->directX.instance->SetDisplayMode(width, height, Graphics::kBitsPerPixel16)))
+            {
+                char buf[100];
+                std::snprintf(buf, sizeof(buf), "Display mode %dx%dx%d is not supported by system. Terminating.", width, height, Graphics::kBitsPerPixel16);
+                ShowErrorNow(buf);
+                return false;
+            }
         }
 
         SetWindowPos(g_moduleState->hwnd, NULL, 0, 0, width, height, SWP_NOZORDER | SWP_NOMOVE);

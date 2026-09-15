@@ -97,7 +97,7 @@ To set a specific resolution, add a `Resolution` line **anywhere after** the `[G
 > Restart the game to apply the change.
 
 > 💡 Note: `Resolution` must be between 640x480 and 3840x2160, with a height divisible by 8 — a renderer requirement. Out-of-range values are ignored with a message.
-> A height that isn't divisible by 8, or any mode your display doesn't report, brings up a picker listing the supported modes and saves your choice back to the ini. With no `Resolution` line set, the game uses your desktop resolution with the height rounded down to a multiple of 8.
+> Heights are rounded down to a multiple of 8 and widths to a multiple of 16 — the renderer and the fog-of-war blitter work in blocks of that size — so `1366x768` runs as `1360x768`. A mode your display then refuses brings up a picker listing the modes it does report, and saves your choice back to the ini. With no `Resolution` line set, the game uses your desktop resolution, rounded the same way.
 
 Battlefield zoom is now possible but disabled by default for all game DLLs.
 

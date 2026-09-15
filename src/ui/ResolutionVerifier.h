@@ -14,7 +14,6 @@ public:
     ResolutionVerifier& operator=(const ResolutionVerifier&) = delete;
     ~ResolutionVerifier() = default;
 
-    bool IsSupported(int width, int height, int bits) const;
     bool ChooseResolution(int& width, int& height) const;
 
     bool FindNearest(int& width, int& height, int bits) const;
