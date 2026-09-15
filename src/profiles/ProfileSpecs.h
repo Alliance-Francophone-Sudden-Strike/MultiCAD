@@ -713,7 +713,7 @@ const std::array hooks_game_ss_2_v2_2
     HookSpec{0x980D1, reinterpret_cast<uintptr_t>(&GameDllHooks::renderWorldAtZoom_ver<V>), 0xE8},
     // Edge and keyboard scrolling share this relative-camera call. Scale only
     // this input path so minimap jumps and scripted camera movement stay exact.
-    HookSpec{0x97E8A, reinterpret_cast<uintptr_t>(&GameDllHooks::moveCameraAtZoom), 0xE8},
+    HookSpec{0x97E8A, reinterpret_cast<uintptr_t>(&GameDllHooks::moveCameraAtZoom_ver<V>), 0xE8},
     // Verified Fusion boundary: replace the complete pre-UI loop with an
     // equivalent call so overlays cannot touch the world used by zoom.
     HookSpec{0x980EE, reinterpret_cast<uintptr_t>(&GameDllHooks::prepareUiElements_ver<V>), 0xE8, 24},
@@ -871,7 +871,15 @@ const std::array hooks_game_ss_rw_v2_4
     HookSpec{0x78BE0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_10056030)},
     HookSpec{0x78D20, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_10056170)},
     HookSpec{0x78F70, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_100563B0)},
+    HookSpec{0x952D1, reinterpret_cast<uintptr_t>(&GameDllHooks::renderWorldAtZoom_ver<V>), 0xE8},
+    HookSpec{0x9510A, reinterpret_cast<uintptr_t>(&GameDllHooks::moveCameraAtZoom_ver<V>), 0xE8},
+    HookSpec{0x952EE, reinterpret_cast<uintptr_t>(&GameDllHooks::prepareUiElements_ver<V>), 0xE8, 24},
     HookSpec{0x95390, reinterpret_cast<uintptr_t>(&GameDllHooks::drawDecorUiElements_ver<V>)},
+    HookSpec{0xC4488, reinterpret_cast<uintptr_t>(&GameDllHooks::updateEntitiesUnderMouse_ver<V>), 0xE8},
+    HookSpec{0xC442C, reinterpret_cast<uintptr_t>(&GameDllHooks::updateBattlefieldHover_ver<V>), 0xE8},
+    HookSpec{0xC449E, reinterpret_cast<uintptr_t>(&GameDllHooks::updateBattlefieldHover_ver<V>), 0xE8},
+    HookSpec{0xC44C7, reinterpret_cast<uintptr_t>(&GameDllHooks::updateBattlefieldHover_ver<V>), 0xE8},
+    HookSpec{0x9BE5A, reinterpret_cast<uintptr_t>(&GameDllHooks::calculateCursorTypeAtZoom_ver<V>), 0xE8},
     //HookSpec{0x6AEA0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006AEA0)},
     //HookSpec{0x6B1C0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006B1C0)},
     //HookSpec{0x6B2C0, reinterpret_cast<uintptr_t>(&GameDllHooks::sub_1006B2C0)},

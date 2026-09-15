@@ -217,7 +217,23 @@ int main(int argc, char** argv)
         hooks_game_ss_2_v2_2<GameVersion::SS_2>.end(),
         [](const HookSpec& hook) { return hook.targetRva == 0x97E8A; });
     assert(cameraHook != hooks_game_ss_2_v2_2<GameVersion::SS_2>.end());
-    assert(cameraHook->detour == reinterpret_cast<uintptr_t>(&Hooks::moveCameraAtZoom));
+    assert(cameraHook->detour == reinterpret_cast<uintptr_t>(&Hooks::moveCameraAtZoom_ver<GameVersion::SS_2>));
+    static_assert(ValidateZoomTraits<GameVersion::SS_RW_V2_4>());
+    const auto rwWorldHook = std::find_if(
+        hooks_game_ss_rw_v2_4<GameVersion::SS_RW_V2_4>.begin(),
+        hooks_game_ss_rw_v2_4<GameVersion::SS_RW_V2_4>.end(),
+        [](const HookSpec& hook) { return hook.targetRva == 0x952D1; });
+    assert(rwWorldHook != hooks_game_ss_rw_v2_4<GameVersion::SS_RW_V2_4>.end());
+    assert(rwWorldHook->detour == reinterpret_cast<uintptr_t>(
+        &Hooks::renderWorldAtZoom_ver<GameVersion::SS_RW_V2_4>));
+    assert(rwWorldHook->opcode == 0xE8);
+    const auto rwLoopHook = std::find_if(
+        hooks_game_ss_rw_v2_4<GameVersion::SS_RW_V2_4>.begin(),
+        hooks_game_ss_rw_v2_4<GameVersion::SS_RW_V2_4>.end(),
+        [](const HookSpec& hook) { return hook.targetRva == 0x952EE; });
+    assert(rwLoopHook != hooks_game_ss_rw_v2_4<GameVersion::SS_RW_V2_4>.end());
+    assert(rwLoopHook->overwriteSize == 24);
+
     Hooks::UiEventArea battlefield{};
     battlefield.tag = 'FILD';
     battlefield.width = width;

@@ -99,7 +99,6 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     GameDllHooks::configureGroupPanel(
         Screen::GetGroupPanel() &&
         detectedStatus == DetectionStatus::Supported &&
-        (detectedVersion == GameVersion::SS_2 || detectedVersion == GameVersion::HS_2) &&
         forced == GameVersion::UNKNOWN
             ? detectedVersion
             : GameVersion::UNKNOWN);

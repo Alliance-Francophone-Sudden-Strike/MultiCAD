@@ -85,6 +85,38 @@ struct GroupPanelTraits<GameVersion::SS_2>
 template<>
 struct GroupPanelTraits<GameVersion::HS_2> : GroupPanelTraits<GameVersion::SS_2> {};
 
+template<>
+struct GroupPanelTraits<GameVersion::SS_RW_V2_4>
+{
+    static constexpr GroupPanelAddresses addresses
+    {
+        0xFCC90,
+        0xA,
+        0x38,
+        0x1C,
+
+        0xB0250,
+        0x10AE848,
+
+        std::array<GroupPanelSignature, 4>
+        {{
+            { 0xB0250, "83ec08????????5355565750894c2418e8????????8b35????????33db33ed3bf3????????74678b" },
+            { 0xB0380, "8b015683f802753d8b35????????85f67433538b5c240c8b068b????????85c074098acbfec1884e" },
+            { 0x48EC0, "8a511ab80100000084d075158b15????????538a59238a92????????84d35b750233c0c390909090" },
+            { 0xAE213, "33d2b9????????8b3181c6000000013bc6747083c1144281f9????????7ce8" },
+        }},
+    };
+
+    static constexpr uintptr_t fnGroupAssign = 0xB0380;
+    static constexpr uintptr_t unitGroupOffset = 0x44;
+};
+
+template<>
+struct GroupPanelTraits<GameVersion::SS_EUROPE_2015> : GroupPanelTraits<GameVersion::SS_RW_V2_4> {};
+
+template<>
+struct GroupPanelTraits<GameVersion::SS_BLACK_SEA> : GroupPanelTraits<GameVersion::SS_RW_V2_4> {};
+
 // Runtime lookup: nullptr for every version the panel is not proved against,
 // so an unsupported hash or a forced profile simply has no panel.
 inline const GroupPanelAddresses* TryGetGroupPanelAddresses(GameVersion version)
@@ -93,5 +125,11 @@ inline const GroupPanelAddresses* TryGetGroupPanelAddresses(GameVersion version)
         return &GroupPanelTraits<GameVersion::SS_2>::addresses;
     if (version == GameVersion::HS_2)
         return &GroupPanelTraits<GameVersion::HS_2>::addresses;
+    if (version == GameVersion::SS_RW_V2_4)
+        return &GroupPanelTraits<GameVersion::SS_RW_V2_4>::addresses;
+    if (version == GameVersion::SS_EUROPE_2015)
+        return &GroupPanelTraits<GameVersion::SS_EUROPE_2015>::addresses;
+    if (version == GameVersion::SS_BLACK_SEA)
+        return &GroupPanelTraits<GameVersion::SS_BLACK_SEA>::addresses;
     return nullptr;
 }

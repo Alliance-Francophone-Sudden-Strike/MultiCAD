@@ -2,6 +2,7 @@
 
 #include "types.h"
 #include "cad.h"
+#include "Zoom.h"
 #include "DllHooksBase.h"
 
 #include <vector>
@@ -49,6 +50,23 @@ struct UiAddresses
     uintptr_t fnBlendMainWithWarFog;
     uintptr_t fnGetFirstDecorUi;
     uintptr_t fnGetNextDecorUi;
+
+    // zoom
+    uintptr_t cameraX;
+    uintptr_t cameraY;
+    uintptr_t cursorRedrawFlag;
+    uintptr_t cursorSavedX;
+    uintptr_t cursorSavedY;
+    uintptr_t cursorSavedWidth;
+    uintptr_t cursorSavedHeight;
+    uintptr_t cursorSavedPixels;
+    uintptr_t fnRenderWorld;
+    uintptr_t fnMoveCamera;
+    uintptr_t fnUpdateEntitiesUnderMouse;
+    uintptr_t hoverMouseX;
+    uintptr_t hoverMouseY;
+    uintptr_t fnUpdateBattlefieldHover;
+    uintptr_t fnCalculateCursorType;
 };
 
 template<>
@@ -367,7 +385,23 @@ struct UiTraits<GameVersion::SS_2>
         0x106F6E4,
         0x982B0,
         0x79B10,
-        0x79B60
+        0x79B60,
+
+        0x106A134,
+        0x106A130,
+        0x106E860,
+        0x106E850,
+        0x106E854,
+        0x106E858,
+        0x106E85C,
+        0x106C848,
+        0x9B120,
+        0x9D3D0,
+        0x55FF0,
+        0x106E900,
+        0x106E8FC,
+        0x97AA0,
+        0x97ED0
     };
 };
 
@@ -447,7 +481,23 @@ struct UiTraits<GameVersion::SS_RW_V2_4>
         0x10AEABC,
         0x95490,
         0x790A0,
-        0x790F0
+        0x790F0,
+
+        0x10A950C,
+        0x10A9508,
+        0x10ADC38,
+        0x10ADC28,
+        0x10ADC2C,
+        0x10ADC30,
+        0x10ADC34,
+        0x10ABC20,
+        0x98290,
+        0x9A4A0,
+        0x55FF0,
+        0x10ADCD8,
+        0x10ADCD4,
+        0x94D90,
+        0x95150
     };
 };
 
@@ -510,6 +560,30 @@ constexpr bool ValidateUiTraits()
         A.updateUiFlag &&
         A.screenHeight &&
         A.screenWidth;
+}
+
+template<GameVersion V>
+constexpr bool ValidateZoomTraits()
+{
+    constexpr auto& A = UiTraits<V>::addresses;
+
+    return
+        ValidateUiTraits<V>() &&
+        A.cameraX &&
+        A.cameraY &&
+        A.cursorRedrawFlag &&
+        A.cursorSavedX &&
+        A.cursorSavedY &&
+        A.cursorSavedWidth &&
+        A.cursorSavedHeight &&
+        A.cursorSavedPixels &&
+        A.fnRenderWorld &&
+        A.fnMoveCamera &&
+        A.fnUpdateEntitiesUnderMouse &&
+        A.hoverMouseX &&
+        A.hoverMouseY &&
+        A.fnUpdateBattlefieldHover &&
+        A.fnCalculateCursorType;
 }
 
 
@@ -1171,7 +1245,13 @@ public:
     static void __declspec(noinline) __stdcall  sub_1005C170();
     static void __declspec(noinline) __stdcall  sub_1005C170_de();
     static void __declspec(noinline) __stdcall  sub_1005C170_fr();
-    static void __declspec(noinline) __cdecl    moveCameraAtZoom(int dx, int dy);
+    template<GameVersion V>
+    static void __declspec(noinline) __cdecl    moveCameraAtZoom_ver(int dx, int dy)
+    {
+        static_assert(ValidateZoomTraits<V>(), "One or more zoom UiTraits addresses are zero");
+        Zoom::GetState().scaleCameraMovement(dx, dy);
+        globals_->getFn<void(__cdecl)(int, int)>(UiTraits<V>::addresses.fnMoveCamera)(dx, dy);
+    }
     template<GameVersion V>
     static void __declspec(noinline) __stdcall  drawDecorUiElements_ver()
     {
@@ -1190,18 +1270,18 @@ public:
 
             g->getValue<int>(A.pointedUiElem + 0x14),
             g->getValue<int>(A.pointedUiElem + 0x18),
-            V == GameVersion::SS_2 ? g->getValue<int>(0x106A134) : 0,
-            V == GameVersion::SS_2 ? g->getValue<int>(0x106A130) : 0,
+            A.cameraX ? g->getValue<int>(A.cameraX) : 0,
+            A.cameraY ? g->getValue<int>(A.cameraY) : 0,
 
             g->getFn<void(__stdcall)()>(A.fnBlendMainWithWarFog),
             g->getFn<int(__thiscall)(int*, GameData2*)>(A.fnGetFirstDecorUi),
             g->getFn<int(__thiscall)(int*, GameData2*)>(A.fnGetNextDecorUi),
-            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E860) : nullptr,
-            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E850) : nullptr,
-            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E854) : nullptr,
-            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E858) : nullptr,
-            V == GameVersion::SS_2 ? g->getPtr<int>(0x106E85C) : nullptr,
-            V == GameVersion::SS_2 ? g->getPtr<Pixel>(0x106C848) : nullptr,
+            A.cursorRedrawFlag ? g->getPtr<int>(A.cursorRedrawFlag) : nullptr,
+            A.cursorSavedX ? g->getPtr<int>(A.cursorSavedX) : nullptr,
+            A.cursorSavedY ? g->getPtr<int>(A.cursorSavedY) : nullptr,
+            A.cursorSavedWidth ? g->getPtr<int>(A.cursorSavedWidth) : nullptr,
+            A.cursorSavedHeight ? g->getPtr<int>(A.cursorSavedHeight) : nullptr,
+            A.cursorSavedPixels ? g->getPtr<Pixel>(A.cursorSavedPixels) : nullptr,
         };
 
         drawDecorUiElements(data);
@@ -1209,57 +1289,59 @@ public:
     template<GameVersion V>
     static void __declspec(noinline) __cdecl renderWorldAtZoom_ver()
     {
-        static_assert(V == GameVersion::SS_2, "World render boundary is only verified for the SS2-compatible renderer");
+        static_assert(ValidateZoomTraits<V>(), "One or more zoom UiTraits addresses are zero");
         auto* const g = globals_;
         constexpr auto& A = UiTraits<V>::addresses;
         withBattlefieldMouseCoordinates(
             g->getPtr<int>(A.mouseX),
             g->getPtr<int>(A.mouseY),
             g->getValue<UiEventArea*>(A.uiEventAreas),
-            g->getFn<void(__cdecl)()>(0x9B120));
+            g->getFn<void(__cdecl)()>(A.fnRenderWorld));
     }
     template<GameVersion V>
     static void __declspec(noinline) __stdcall prepareUiElements_ver()
     {
-        static_assert(V == GameVersion::SS_2, "Pre-UI boundary is only verified for the SS2-compatible renderer");
+        static_assert(ValidateZoomTraits<V>(), "One or more zoom UiTraits addresses are zero");
         auto* const g = globals_;
         prepareUiElements(g->getValue<UiElementBase*>(UiTraits<V>::addresses.pointedUiElem + 0x8));
     }
     template<GameVersion V>
     static void __declspec(noinline) __cdecl updateEntitiesUnderMouse_ver()
     {
-        static_assert(V == GameVersion::SS_2, "Entity hover boundary is only verified for the SS2-compatible renderer");
+        static_assert(ValidateZoomTraits<V>(), "One or more zoom UiTraits addresses are zero");
         auto* const g = globals_;
         constexpr auto& A = UiTraits<V>::addresses;
         withBattlefieldMouseCoordinates(
             g->getPtr<int>(A.mouseX),
             g->getPtr<int>(A.mouseY),
             g->getValue<UiEventArea*>(A.uiEventAreas),
-            g->getFn<void(__cdecl)()>(0x55FF0));
+            g->getFn<void(__cdecl)()>(A.fnUpdateEntitiesUnderMouse));
     }
     template<GameVersion V>
     static void __declspec(noinline) __cdecl updateBattlefieldHover_ver(int active)
     {
-        static_assert(V == GameVersion::SS_2, "Hover boundary is only verified for the SS2-compatible renderer");
+        static_assert(ValidateZoomTraits<V>(), "One or more zoom UiTraits addresses are zero");
         auto* const g = globals_;
+        constexpr auto& A = UiTraits<V>::addresses;
         updateBattlefieldHover(
-            g->getPtr<int>(0x106E900),
-            g->getPtr<int>(0x106E8FC),
-            g->getValue<UiEventArea*>(UiTraits<V>::addresses.uiEventAreas),
+            g->getPtr<int>(A.hoverMouseX),
+            g->getPtr<int>(A.hoverMouseY),
+            g->getValue<UiEventArea*>(A.uiEventAreas),
             active,
-            g->getFn<void(__cdecl)(int)>(0x97AA0));
+            g->getFn<void(__cdecl)(int)>(A.fnUpdateBattlefieldHover));
     }
     template<GameVersion V>
     static void __declspec(noinline) __cdecl calculateCursorTypeAtZoom_ver(int x, int y, int* result)
     {
-        static_assert(V == GameVersion::SS_2, "Cursor-type boundary is only verified for the SS2-compatible renderer");
+        static_assert(ValidateZoomTraits<V>(), "One or more zoom UiTraits addresses are zero");
         auto* const g = globals_;
+        constexpr auto& A = UiTraits<V>::addresses;
         calculateCursorTypeAtZoom(
             x,
             y,
             result,
-            g->getValue<UiEventArea*>(UiTraits<V>::addresses.uiEventAreas),
-            g->getFn<void(__cdecl)(int, int, int*)>(0x97ED0));
+            g->getValue<UiEventArea*>(A.uiEventAreas),
+            g->getFn<void(__cdecl)(int, int, int*)>(A.fnCalculateCursorType));
     }
     static void __declspec(noinline) __stdcall  sub_1006AEA0();
     static void __declspec(noinline) __stdcall  sub_1006AEA0_hd();

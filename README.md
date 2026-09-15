@@ -11,7 +11,7 @@ It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) �
 > An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.
 
 > [!WARNING]
-> This fork also provides 2 new features only for SS2 and HS2 at the moment: the ability to zoom and the control-group panel.
+> This fork also provides 2 new features: the ability to zoom and the control-group panel. They are available on **Sudden Strike 2**, **Hidden Stroke 2**, **Sudden Strike: Resource War 2.4**, **Europe 2015** and **Black Sea**. Other games fall back to resolution support only.
 
 ## Supported Games
 
@@ -142,7 +142,7 @@ To enable it, set `GroupPanel=on` in the game's ini:
 
 Use `GroupPanel=off` to disable it; it defaults to `off`.
 
-> 💡 Note: The panel is currently only available for **Sudden Strike 2** and **Hidden Stroke 2**, and only when the version is auto-detected: it stays off under a forced `GameProfile`.
+> 💡 Note: The panel is available for **Sudden Strike 2**, **Hidden Stroke 2**, **Sudden Strike: Resource War 2.4**, **Europe 2015** and **Black Sea**, and only when the version is auto-detected: it stays off under a forced `GameProfile`. On any other version it stays off.
 
 ### Replacement Menu or Game Modules
 
