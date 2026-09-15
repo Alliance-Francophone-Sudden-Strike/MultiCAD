@@ -49,11 +49,15 @@ public:
     // stop a corrupt or cyclic list from spinning forever.
     static constexpr int kMaxUnits = 8192;
 
+    static constexpr int kAltModifier = 0x2;
+
     bool bind(GameGlobals& globals, GameVersion version)
     {
         globals_ = nullptr;
         addresses_ = nullptr;
         active_.fill(false);
+        house_.fill(false);
+        wheel_.fill(false);
         primed_ = false;
 
         const GroupPanelAddresses* addresses = TryGetGroupPanelAddresses(version);
@@ -95,6 +99,9 @@ public:
         return active_;
     }
 
+    const std::array<bool, GroupPanel::kCount>& house() const { return house_; }
+    const std::array<bool, GroupPanel::kCount>& wheel() const { return wheel_; }
+
     // Runs the game's own group-select, exactly as the number-row key does.
     bool select(int slot) const
     {
@@ -109,7 +116,7 @@ public:
         if (!fn)
             return false;
 
-        fn(self, GroupPanel::KeyIndexForSlot(slot), 0);
+        fn(self, GroupPanel::KeyIndexForSlot(slot), wheel_[static_cast<size_t>(slot)] ? kAltModifier : 0);
         return true;
     }
 
@@ -117,6 +124,8 @@ private:
     void refresh()
     {
         active_.fill(false);
+        house_.fill(false);
+        wheel_.fill(false);
         units_ = {};
         vtables_ = {};
         code_ = {};
@@ -125,10 +134,10 @@ private:
         if (!isReadable(headSlot, sizeof(uint8_t*)))
             return;
 
-        // Enough of a unit to cover its vtable pointer and its next pointer.
-        const size_t probe = static_cast<size_t>(addresses_->unitNextOffset) + sizeof(void*);
+        const size_t next = static_cast<size_t>(addresses_->unitNextOffset) + sizeof(void*);
+        const size_t group = static_cast<size_t>(addresses_->unitGroupOffset) + 1;
+        const size_t probe = next > group ? next : group;
 
-        int missing = GroupPanel::kCount;
         uint8_t* unit = *headSlot;
         for (int guard = 0; unit && guard < kMaxUnits; ++guard)
         {
@@ -140,15 +149,26 @@ private:
 
             if (alive && inGroup && alive(unit))
             {
+                const int ownSlot = GroupPanel::SlotForStoredValue(unit[addresses_->unitGroupOffset]);
+                if (ownSlot >= 0)
+                    active_[static_cast<size_t>(ownSlot)] = true;
+
                 for (int slot = 0; slot < GroupPanel::kCount; ++slot)
                 {
-                    if (active_[static_cast<size_t>(slot)] ||
-                        !inGroup(unit, GroupPanel::StoredValueForSlot(slot), 0))
+                    const auto index = static_cast<size_t>(slot);
+
+                    if (slot == ownSlot || (active_[index] && house_[index] && wheel_[index]))
                         continue;
 
-                    active_[static_cast<size_t>(slot)] = true;
-                    if (--missing == 0)
-                        return;
+                    const uint8_t stored = GroupPanel::StoredValueForSlot(slot);
+                    if (!inGroup(unit, stored, kAltModifier))
+                        continue;
+
+                    active_[index] = true;
+                    if (inGroup(unit, stored, 0))
+                        house_[index] = true;
+                    else
+                        wheel_[index] = true;
                 }
             }
 
@@ -221,6 +241,8 @@ private:
     GameGlobals* globals_{ nullptr };
     const GroupPanelAddresses* addresses_{ nullptr };
     std::array<bool, GroupPanel::kCount> active_{};
+    std::array<bool, GroupPanel::kCount> house_{};
+    std::array<bool, GroupPanel::kCount> wheel_{};
     Region units_{};
     Region vtables_{};
     Region code_{};

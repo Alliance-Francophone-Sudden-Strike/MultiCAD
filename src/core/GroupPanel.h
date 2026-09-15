@@ -19,6 +19,8 @@ namespace GroupPanel
     constexpr int kColumns = kCount;
     constexpr int kRows = 1;
 
+    using Slots = std::array<bool, kCount>;
+
     // The game's own key table is ordered '0','1',..,'9', and a unit's group
     // byte holds that table index + 1. The panel reads 1..9,0, so the last
     // slot is key '0' -> table index 0 -> stored value 1, while slot 0 is key
@@ -56,10 +58,14 @@ namespace GroupPanel
         return 0x30 + KeyIndexForSlot(slot);
     }
 
-    // 33% smaller than the original 27px cell / 4px gap.
-    constexpr int kCell = 18;
+    // 19% smaller than the original 27px cell / 4px gap.
+    constexpr int kCell = 22;
     constexpr int kGap = 3;
     constexpr int kMargin = 12;
+
+    constexpr int glyphScale = 2;
+    constexpr int glyphX = (kCell - 3 * glyphScale) / 2;
+    constexpr int glyphY = (kCell - 5 * glyphScale) / 2;
 
     constexpr int Width() { return kColumns * kCell + (kColumns - 1) * kGap; }
     constexpr int Height() { return kRows * kCell + (kRows - 1) * kGap; }
@@ -101,6 +107,35 @@ namespace GroupPanel
     constexpr uint16_t kInactiveFill = 0x1082;
     constexpr uint16_t kInactiveText = 0x8410;
 
+    constexpr int kIconSize = 5;
+    constexpr int kIconInset = 2;
+    constexpr int kWheelX = kIconInset;
+    constexpr int kHouseX = kCell - kIconInset - kIconSize;
+    constexpr int kIconY = kIconInset;
+    constexpr uint16_t kContainedIcon = 0xFFE0;
+
+    static_assert(kWheelX >= 2 && kWheelX + kIconSize <= glyphX);
+    static_assert(kHouseX >= glyphX + 3 * glyphScale && kHouseX + kIconSize <= kCell - 2);
+    static_assert(kIconY >= 2 && kIconY + kIconSize <= kCell - 2);
+
+    inline constexpr uint8_t kHouse[kIconSize]
+    {
+        0b00100,
+        0b01110,
+        0b11111,
+        0b10101,
+        0b10101,
+    };
+
+    inline constexpr uint8_t kWheel[kIconSize]
+    {
+        0b01110,
+        0b10001,
+        0b10101,
+        0b10001,
+        0b01110,
+    };
+
     // Tiny 3x5 digits, enlarged to 9x15 inside each cell. Keeping the glyphs
     // here avoids depending on game font assets whose lifetime varies by UI.
     inline constexpr uint8_t kDigits[10][5]
@@ -122,7 +157,9 @@ namespace GroupPanel
         int pitch,
         int width,
         int height,
-        const std::array<bool, kCount>& active,
+        const Slots& active,
+        const Slots& house,
+        const Slots& wheel,
         int opacity = 16)
     {
         if (!destination || pitch < width || !Fits(width, height) || opacity <= 0 ||
@@ -131,9 +168,22 @@ namespace GroupPanel
 
         opacity = std::clamp(opacity, 0, 16);
 
-        constexpr int glyphScale = 2;
-        constexpr int glyphX = (kCell - 3 * glyphScale) / 2;
-        constexpr int glyphY = (kCell - 5 * glyphScale) / 2;
+        const auto plot = [&](int x, int y, uint16_t color)
+        {
+            uint16_t& pixel = destination[y * pitch + x];
+            pixel = opacity == 16 ? color : Zoom::Blend565(pixel, color, opacity);
+        };
+
+        const auto blit = [&](const uint8_t* bits, int cols, int rows,
+                              int left, int top, int scale, uint16_t color)
+        {
+            for (int y = 0; y < rows; ++y)
+                for (int x = 0; x < cols; ++x)
+                    if (bits[y] & (1 << (cols - 1 - x)))
+                        for (int dy = 0; dy < scale; ++dy)
+                            for (int dx = 0; dx < scale; ++dx)
+                                plot(left + x * scale + dx, top + y * scale + dy, color);
+        };
 
         for (int slot = 0; slot < kCount; ++slot)
         {
@@ -144,23 +194,16 @@ namespace GroupPanel
 
             for (int y = 0; y < kCell; ++y)
                 for (int x = 0; x < kCell; ++x)
-                {
-                    uint16_t& pixel = destination[(cell.y + y) * pitch + cell.x + x];
-                    const uint16_t color = x == 0 || y == 0 || x == kCell - 1 || y == kCell - 1 ? border : fill;
-                    pixel = opacity == 16 ? color : Zoom::Blend565(pixel, color, opacity);
-                }
+                    plot(cell.x + x, cell.y + y,
+                         x == 0 || y == 0 || x == kCell - 1 || y == kCell - 1 ? border : fill);
 
-            const int digit = LabelForSlot(slot) - '0';
-            for (int y = 0; y < 5; ++y)
-                for (int x = 0; x < 3; ++x)
-                    if (kDigits[digit][y] & (1 << (2 - x)))
-                        for (int dy = 0; dy < glyphScale; ++dy)
-                            for (int dx = 0; dx < glyphScale; ++dx)
-                            {
-                                uint16_t& pixel = destination[(cell.y + glyphY + y * glyphScale + dy) * pitch +
-                                            cell.x + glyphX + x * glyphScale + dx];
-                                pixel = opacity == 16 ? text : Zoom::Blend565(pixel, text, opacity);
-                            }
+            blit(kDigits[LabelForSlot(slot) - '0'], 3, 5,
+                 cell.x + glyphX, cell.y + glyphY, glyphScale, text);
+
+            if (house[slot])
+                blit(kHouse, kIconSize, kIconSize, cell.x + kHouseX, cell.y + kIconY, 1, kContainedIcon);
+            if (wheel[slot])
+                blit(kWheel, kIconSize, kIconSize, cell.x + kWheelX, cell.y + kIconY, 1, kContainedIcon);
         }
     }
 
@@ -176,11 +219,15 @@ namespace GroupPanel
         // opacity (0-16) to draw at. While fading out, active is already all
         // false, so slots() keeps returning the last pattern that had
         // anything active instead of blanking before the fade finishes.
-        int update(const std::array<bool, kCount>& active, uint32_t tick)
+        int update(const Slots& active, const Slots& house, const Slots& wheel, uint32_t tick)
         {
             const bool needed = std::any_of(active.begin(), active.end(), [](bool value) { return value; });
             if (needed)
+            {
                 lastActive_ = active;
+                lastHouse_ = house;
+                lastWheel_ = wheel;
+            }
 
             if (needed != wasNeeded_)
             {
@@ -194,10 +241,14 @@ namespace GroupPanel
             return needed ? ramp : 16 - ramp;
         }
 
-        const std::array<bool, kCount>& slots() const { return lastActive_; }
+        const Slots& slots() const { return lastActive_; }
+        const Slots& houses() const { return lastHouse_; }
+        const Slots& wheels() const { return lastWheel_; }
 
     private:
-        std::array<bool, kCount> lastActive_{};
+        Slots lastActive_{};
+        Slots lastHouse_{};
+        Slots lastWheel_{};
         bool wasNeeded_ = false;
         uint32_t changeTick_ = 0;
     };

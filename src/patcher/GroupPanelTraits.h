@@ -32,6 +32,8 @@ struct GroupPanelAddresses
     uintptr_t unitAliveVtableOffset; // vtable offset of the owner+liveness predicate
     uintptr_t unitGroupVtableOffset; // vtable offset of the "is in group N" predicate
 
+    uintptr_t unitGroupOffset;
+
     uintptr_t fnGroupSelect;    // RVA, __thiscall (groupKeyIndex, modifiers)
     uintptr_t groupCommandThis; // RVA used as `this` for fnGroupSelect
 
@@ -50,6 +52,7 @@ struct GroupPanelTraits<GameVersion::SS_2>
         0xA,
         0x34,
         0x1C,
+        0x44,
 
         0xB3FC0,
         0x106F470,
@@ -74,12 +77,6 @@ struct GroupPanelTraits<GameVersion::SS_2>
     // only acts while *(int*)groupCommandThis == 2. Kept so the offset is
     // recorded next to the one the panel does use.
     static constexpr uintptr_t fnGroupAssign = 0xB40F0;
-
-    // Offset of the group byte a unit carries for itself. The reader no longer
-    // reads it - it is the building's occupant records, not this byte, that
-    // keep a garrisoned group recallable - but it is what fnGroupAssign writes
-    // and what [vtable+0x1c] tests first.
-    static constexpr uintptr_t unitGroupOffset = 0x44;
 };
 
 template<>
@@ -94,6 +91,7 @@ struct GroupPanelTraits<GameVersion::SS_RW_V2_4>
         0xA,
         0x38,
         0x1C,
+        0x44,
 
         0xB0250,
         0x10AE848,
@@ -101,14 +99,13 @@ struct GroupPanelTraits<GameVersion::SS_RW_V2_4>
         std::array<GroupPanelSignature, 4>
         {{
             { 0xB0250, "83ec08????????5355565750894c2418e8????????8b35????????33db33ed3bf3????????74678b" },
-            { 0xB0380, "8b015683f802753d8b35????????85f67433538b5c240c8b068b????????85c074098acbfec1884e" },
+            { 0xB0380, "8b015683f802753d8b35????????85f67433538b5c240c8b068b????????85c074098acbfec1884e44" },
             { 0x48EC0, "8a511ab80100000084d075158b15????????538a59238a92????????84d35b750233c0c390909090" },
             { 0xAE213, "33d2b9????????8b3181c6000000013bc6747083c1144281f9????????7ce8" },
         }},
     };
 
     static constexpr uintptr_t fnGroupAssign = 0xB0380;
-    static constexpr uintptr_t unitGroupOffset = 0x44;
 };
 
 template<>
@@ -120,6 +117,7 @@ struct GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_INT>
         0xA,
         0x74,
         0xC,
+        0x40,
 
         0x803E0,
         0x3840C8,
@@ -134,7 +132,6 @@ struct GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_INT>
     };
 
     static constexpr uintptr_t fnGroupAssign = 0x807A0;
-    static constexpr uintptr_t unitGroupOffset = 0x40;
 };
 
 template<>

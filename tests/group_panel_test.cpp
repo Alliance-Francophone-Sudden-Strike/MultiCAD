@@ -4,6 +4,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <cstdio>
 #include <string_view>
 
 int main()
@@ -123,33 +124,56 @@ int main()
         constexpr uint16_t untouched = 0xABCD;
         std::array<uint16_t, pitch * height> pixels{};
         pixels.fill(untouched);
-        std::array<bool, kCount> active{};
+        Slots active{};
+        Slots house{};
+        Slots wheel{};
 
-        Draw16(pixels.data(), pitch, width, height, active);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel);
         for (uint16_t pixel : pixels)
             assert(pixel == untouched); // no groups: no panel
 
         active[0] = true;
         active[9] = true;
 
-        Draw16(pixels.data(), pitch, width, height, active);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel);
 
         const Zoom::Rect one = CellRect(0, width);
         const Zoom::Rect two = CellRect(1, width);
         const Zoom::Rect zero = CellRect(9, width);
         assert(pixels[one.y * pitch + one.x] == kActiveBorder);
         assert(pixels[(one.y + 1) * pitch + one.x + 1] == kActiveFill);
-        assert(pixels[(one.y + 4) * pitch + one.x + 8] == kActiveText); // top of "1"
+        assert(pixels[(one.y + glyphY) * pitch + one.x + glyphX + glyphScale] == kActiveText); // top of "1"
         assert(pixels[two.y * pitch + two.x] == kInactiveBorder);
         assert(pixels[(two.y + 1) * pitch + two.x + 1] == kInactiveFill);
-        assert(pixels[(two.y + 4) * pitch + two.x + 6] == kInactiveText); // top of "2"
+        assert(pixels[(two.y + glyphY) * pitch + two.x + glyphX] == kInactiveText); // top of "2"
         assert(pixels[zero.y * pitch + zero.x] == kActiveBorder);
         assert(pixels[0] == untouched);
         assert(pixels[(height - 1) * pitch + width] == untouched); // row padding
 
+        // --- container badges ------------------------------------------------
+        const int badgeY = one.y + kIconY;
+        const int roofX = one.x + kHouseX + 2;
+        const int rimX = one.x + kWheelX + 2;
+        assert(pixels[badgeY * pitch + roofX] == kActiveFill);
+        assert(pixels[badgeY * pitch + rimX] == kActiveFill);
+
+        house[0] = true;
+        wheel[0] = true;
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel);
+
+        assert(pixels[badgeY * pitch + roofX] == kContainedIcon);
+        assert(pixels[badgeY * pitch + rimX] == kContainedIcon);
+        assert(pixels[one.y * pitch + one.x] == kActiveBorder);
+        assert(pixels[(one.y + glyphY) * pitch + one.x + glyphX + glyphScale] == kActiveText);
+        assert(pixels[(zero.y + kIconY) * pitch + zero.x + kHouseX + 2] == kActiveFill);
+        assert(pixels[(zero.y + kIconY) * pitch + zero.x + kWheelX + 2] == kActiveFill);
+
+        house[0] = false;
+        wheel[0] = false;
+
         std::array<uint16_t, 16> tooSmall{};
         tooSmall.fill(untouched);
-        Draw16(tooSmall.data(), 4, 4, 4, active);
+        Draw16(tooSmall.data(), 4, 4, 4, active, house, wheel);
         for (uint16_t pixel : tooSmall)
             assert(pixel == untouched);
     }
@@ -162,36 +186,43 @@ int main()
         constexpr uint16_t untouched = 0xABCD;
         std::array<uint16_t, pitch * height> pixels{};
         pixels.fill(untouched);
-        std::array<bool, kCount> active{};
+        Slots active{};
+        Slots house{};
+        Slots wheel{};
         active[0] = true;
+        house[0] = true;
 
-        Draw16(pixels.data(), pitch, width, height, active, 0);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 0);
         for (uint16_t pixel : pixels)
             assert(pixel == untouched); // zero opacity: nothing drawn
 
-        Draw16(pixels.data(), pitch, width, height, active, 8);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 8);
         const Zoom::Rect one = CellRect(0, width);
         const uint16_t halfBlended = pixels[one.y * pitch + one.x];
         assert(halfBlended != untouched && halfBlended != kActiveBorder); // blended, not snapped
+        const uint16_t halfRoof = pixels[(one.y + kIconY) * pitch + one.x + kHouseX + 2];
+        assert(halfRoof != untouched && halfRoof != kContainedIcon);
 
         Fade fade;
-        std::array<bool, kCount> none{};
+        Slots none{};
         constexpr uint32_t fadeMs = Zoom::kIndicatorFadeMs;
         constexpr uint32_t base = 2000;
 
-        assert(fade.update(none, 1000) == 0); // never needed: stays hidden
+        assert(fade.update(none, none, none, 1000) == 0); // never needed: stays hidden
 
-        assert(fade.update(active, base) == 0); // just became needed: fades in from 0
-        const int fadingIn = fade.update(active, base + fadeMs / 2);
+        assert(fade.update(active, house, none, base) == 0); // just became needed: fades in from 0
+        const int fadingIn = fade.update(active, house, none, base + fadeMs / 2);
         assert(fadingIn > 0 && fadingIn < 16);
-        assert(fade.update(active, base + fadeMs) == 16); // fully faded in
+        assert(fade.update(active, house, none, base + fadeMs) == 16); // fully faded in
         assert(fade.slots()[0]);
 
-        assert(fade.update(none, base + fadeMs) == 16); // just stopped being needed: still full
-        const int fadingOut = fade.update(none, base + fadeMs + fadeMs / 2);
+        assert(fade.update(none, none, none, base + fadeMs) == 16); // just stopped being needed: still full
+        const int fadingOut = fade.update(none, none, none, base + fadeMs + fadeMs / 2);
         assert(fadingOut > 0 && fadingOut < 16);
-        assert(fade.update(none, base + 2 * fadeMs) == 0); // fully faded out
+        assert(fade.update(none, none, none, base + 2 * fadeMs) == 0); // fully faded out
         assert(fade.slots()[0]); // keeps the last active pattern while fading
+        assert(fade.houses()[0]);
+        assert(!fade.wheels()[0]);
     }
 
     // --- signature matching --------------------------------------------------
@@ -282,6 +313,33 @@ int main()
                 bytes[static_cast<size_t>(i)] = original;
                 break;
             }
+        }
+    }
+
+    // --- the group byte offset must be pinned by a signature -----------------
+    {
+        const GameVersion families[]
+        {
+            GameVersion::SS_2,
+            GameVersion::SS_RW_V2_4,
+            GameVersion::SS_GOLD_HD_1_2_INT,
+        };
+
+        for (GameVersion version : families)
+        {
+            const GroupPanelAddresses* addresses = TryGetGroupPanelAddresses(version);
+            assert(addresses != nullptr);
+            assert(addresses->unitGroupOffset < 0x80);   // has to encode as a disp8
+
+            char writes[8]{};
+            std::snprintf(writes, sizeof(writes), "884e%02x",
+                          static_cast<unsigned>(addresses->unitGroupOffset));
+
+            bool pinned = false;
+            for (const GroupPanelSignature& signature : addresses->signatures)
+                if (signature.pattern.find(writes) != std::string_view::npos)
+                    pinned = true;
+            assert(pinned);
         }
     }
 
