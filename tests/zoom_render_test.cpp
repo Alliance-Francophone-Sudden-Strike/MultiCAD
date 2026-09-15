@@ -180,15 +180,27 @@ int main(int argc, char** argv)
         }
     };
 
+    int cursorRedraw = 0;
+    data.cursorRedrawFlag = &cursorRedraw;
+
     frame(); // Native 1x text must be visible, but absent from the world cache.
     assert(nativeDraws == 2 && blends == 1 && copies == 1);
+    // Nothing of ours overwrote the frame here, so leave the game's own cursor
+    // redraw schedule alone.
+    assert(cursorRedraw == 0);
     for (int scale = 5; scale <= 8; ++scale)
     {
         assert(zoom.addWheelDelta(120));
         frame();
+        // Composition replaced every pixel, the ones the cursor sits on
+        // included. The game redraws the cursor only when this flag says so, so
+        // a frame that leaves it clear is presented with no cursor at all.
+        assert(cursorRedraw == 1);
+        cursorRedraw = 0;
         frame(); // Paused presentation tick, no world update.
         assert(zoom.presentedScale() == scale);
     }
+    cursorRedraw = 0;
     assert(nativeDraws == 2 && blends == 1 && copies == 1);
     if (argc == 1)
         assert(uiDraws == 16); // Pause and chat redraw at physical coordinates.

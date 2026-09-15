@@ -1582,12 +1582,13 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 
     const bool panelPainted = !panelCovered && (g_groupPanelOpacity > 0 || lastPanelOpacity > 0);
 
+    if ((zoomed || panelPainted) && data.cursorRedrawFlag)
+        *data.cursorRedrawFlag = 1;
+
     if (zoomed)
     {
         Zoom::GetState().markPresented();
         Zoom::GetState().finishIndicatorFrame(GetTickCount());
-        if (data.cursorRedrawFlag)
-            *data.cursorRedrawFlag = 1;
 
         sub_10055E00(
             data.closedAreaGameDataArray,
