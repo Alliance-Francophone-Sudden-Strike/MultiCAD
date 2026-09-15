@@ -20,6 +20,8 @@ It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) â
 > **Supported but not yet played through:** Sudden Strike: Resource War 2.3, Black Sea, Black Gold, Sudden Strike Gold (en).
 >
 > **Not supported:** Sudden Strike 1.0 and 1.2, Sudden Strike Gold de/fr/ru, Sudden Strike HD v1.1. They run with resolution support only.
+>
+> **Note regarding performance:** Be aware that the zoom feature may impact performance, especially at higher resolutions.
 
 ## Supported Games
 
