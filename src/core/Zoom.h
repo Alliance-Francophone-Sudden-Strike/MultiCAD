@@ -213,6 +213,13 @@ namespace Zoom
         Mode mode() const { return mode_; }
         int scale() const { return scale_; }
         int presentedScale() const { return presentedScale_; }
+        bool presenting() const
+        {
+            return mode_ != Mode::Off &&
+                (indicatorActive_ || scale_ != kMinScale || presentedScale_ != kMinScale);
+        }
+        bool worldClean() const { return worldClean_; }
+        void setWorldClean(bool clean) { worldClean_ = clean; }
         bool dragging() const { return dragButtons_ != 0; }
         bool battlefieldDragging() const { return battlefieldDragButtons_ != 0; }
         IndicatorAnchor indicatorAnchor() const { return indicatorAnchor_; }
@@ -461,6 +468,7 @@ namespace Zoom
             presentationValid_ = false;
             routed_ = false;
             worldIsolated_ = false;
+            worldClean_ = false;
             indicatorActive_ = false;
             cameraMovementScale_ = kMinScale;
             cameraRemainderX_ = 0;
@@ -583,7 +591,7 @@ namespace Zoom
         void beginWorldIsolation(uint16_t* main, uint16_t* back, size_t pixels)
         {
             finishWorldIsolation(main, back);
-            if (mode_ == Mode::Off || !main || !back)
+            if (!presenting() || !main || !back)
                 return;
 
             try
@@ -654,6 +662,7 @@ namespace Zoom
         bool presentationValid_{};
         bool routed_{};
         bool worldIsolated_{};
+        bool worldClean_{};
         IndicatorAnchor indicatorAnchor_{ IndicatorAnchor::Left };
         IndicatorShape indicatorShape_{ IndicatorShape::Squares };
         bool persistentIndicator_{};
