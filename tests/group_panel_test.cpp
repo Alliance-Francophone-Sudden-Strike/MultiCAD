@@ -133,6 +133,11 @@ int main()
         for (uint16_t pixel : pixels)
             assert(pixel == untouched); // no groups: no panel
 
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, nullptr, nullptr, true);
+        const Zoom::Rect emptyCell = CellRect(0, width);
+        assert(pixels[emptyCell.y * pitch + emptyCell.x] == kInactiveBorder); // persistent: dim panel with no groups
+        pixels.fill(untouched);
+
         active[0] = true;
         active[9] = true;
 
@@ -233,6 +238,12 @@ int main()
         assert(fade.houses()[0]);
         assert(!fade.wheels()[0]);
         assert(fade.transports()[0]);
+
+        Fade persistentFade;
+        persistentFade.setPersistent(true);
+        assert(persistentFade.persistent());
+        assert(persistentFade.update(none, none, none, base) == 0); // still ramps in from 0
+        assert(persistentFade.update(none, none, none, base + fadeMs) == 16); // stays lit with no groups
     }
 
     // --- signature matching --------------------------------------------------

@@ -165,9 +165,12 @@ Each lit cell also shows how many units the group holds, centred just below the 
 > [Game]
 > GroupPanel=on
 > GroupPanelCount=off
+> PersistentGroupPanel=on
 > ```
 
 `GroupPanelCount` defaults to `on`, so the counts appear unless you turn them off.
+
+By default, the panel is only drawn while at least one group holds units. To keep it on screen at all times, even with no groups, set `PersistentGroupPanel=on` in the game's ini.
 
 ### Replacement Menu or Game Modules
 

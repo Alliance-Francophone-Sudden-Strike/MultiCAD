@@ -207,10 +207,11 @@ namespace GroupPanel
         const Slots& wheel,
         int opacity = 16,
         const Counts* counts = nullptr,
-        const Slots* transport = nullptr)
+        const Slots* transport = nullptr,
+        bool persistent = false)
     {
         if (!destination || pitch < width || !Fits(width, height) || opacity <= 0 ||
-            std::none_of(active.begin(), active.end(), [](bool value) { return value; }))
+            (!persistent && std::none_of(active.begin(), active.end(), [](bool value) { return value; })))
             return;
 
         opacity = std::clamp(opacity, 0, 16);
@@ -306,7 +307,8 @@ namespace GroupPanel
         int update(const Slots& active, const Slots& house, const Slots& wheel, uint32_t tick,
                    const Counts* counts = nullptr, const Slots* transport = nullptr)
         {
-            const bool needed = std::any_of(active.begin(), active.end(), [](bool value) { return value; });
+            const bool needed = persistent_ ||
+                std::any_of(active.begin(), active.end(), [](bool value) { return value; });
             if (needed)
             {
                 lastActive_ = active;
@@ -342,6 +344,8 @@ namespace GroupPanel
         const Slots& wheels() const { return lastWheel_; }
         const Slots& transports() const { return lastTransport_; }
         const Counts& counts() const { return lastCounts_; }
+        void setPersistent(bool persistent) { persistent_ = persistent; }
+        bool persistent() const { return persistent_; }
 
     private:
         Slots lastActive_{};
@@ -350,6 +354,7 @@ namespace GroupPanel
         Slots lastTransport_{};
         Counts lastCounts_{};
         bool wasNeeded_ = false;
+        bool persistent_ = false;
         uint32_t changeTick_ = 0;
     };
 

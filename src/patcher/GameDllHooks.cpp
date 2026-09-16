@@ -147,7 +147,8 @@ namespace
             g_groupPanelFade.wheels(),
             g_groupPanelOpacity,
             g_groupPanelShowCount ? &g_groupPanelFade.counts() : nullptr,
-            &g_groupPanelFade.transports());
+            &g_groupPanelFade.transports(),
+            g_groupPanelFade.persistent());
 
         Zoom::GetState().refreshCursorSaveRect(
             destination,
@@ -163,7 +164,7 @@ namespace
     }
 }
 
-void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, bool debug)
+void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, bool debug, bool persistent)
 {
     g_groupPanelDebug = debug;
     g_surfaceRegionRepair = &RepairGroupPanelRegion;
@@ -173,6 +174,7 @@ void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, boo
     else
         g_groupPanel = {};
     g_groupPanelFade = {};
+    g_groupPanelFade.setPersistent(persistent);
     g_groupPanelOpacity = 0;
     g_groupPanelShowCount = showCounts;
 }

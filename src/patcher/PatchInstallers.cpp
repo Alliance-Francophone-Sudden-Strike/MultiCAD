@@ -98,7 +98,8 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     GameDllHooks::configureGroupPanel(
         Screen::GetGroupPanel() ? version : GameVersion::UNKNOWN,
         Screen::GetGroupPanelCount(),
-        Screen::GetGroupPanelDebug());
+        Screen::GetGroupPanelDebug(),
+        Screen::GetPersistentGroupPanel());
     return true;
 }
 

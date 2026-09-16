@@ -1285,7 +1285,8 @@ private:
 #pragma endregion Common_Function_Structs
 
 public:
-    static void configureGroupPanel(GameVersion version, bool showCounts = false, bool debug = false);
+    static void configureGroupPanel(GameVersion version, bool showCounts = false, bool debug = false,
+                                     bool persistent = false);
     static void shutdown()
     {
         configureGroupPanel(GameVersion::UNKNOWN);
