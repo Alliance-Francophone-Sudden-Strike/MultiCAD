@@ -1287,9 +1287,11 @@ private:
 public:
     static void configureGroupPanel(GameVersion version, bool showCounts = false, bool debug = false,
                                      bool persistent = false);
+    static void configureZeppelinPanel(GameVersion version);
     static void shutdown()
     {
         configureGroupPanel(GameVersion::UNKNOWN);
+        configureZeppelinPanel(GameVersion::UNKNOWN);
         DllHooksBase<GameTag>::shutdown();
     }
 

@@ -172,6 +172,24 @@ Each lit cell also shows how many units the group holds, centred just below the 
 
 By default, the panel is only drawn while at least one group holds units. To keep it on screen at all times, even with no groups, set `PersistentGroupPanel=on` in the game's ini.
 
+### Zeppelin Capture Panel
+
+On multiplayer maps built around capturing zeppelins, MultiCAD can list the zeppelin groups you have not captured yet in the bottom-right corner of the screen: one colour swatch per group, with its state to the left of it: `2/3` while you hold only some of the group's zeppelins, then the capture countdown once you hold them all. A group drops off the list as soon as you own it.
+
+Toggle it with **`Alt` + `z`**.
+
+To enable it, set `ZeppelinPanel=on` in the game's ini:
+
+> ```ini
+> [Game]
+> ZeppelinPanel=on
+> ```
+
+It defaults to `off`. The panel only appears on maps that actually define zeppelin groups, so it stays out of the way in single-player and on ordinary multiplayer maps.
+
+> [!NOTE]
+> This panel is currently enabled for **Hidden Stroke 2** only. On every other version it stays inactive, even with `ZeppelinPanel=on`.
+
 ### Replacement Menu or Game Modules
 
 The game binds its two modules by name, from the ini it boots with:

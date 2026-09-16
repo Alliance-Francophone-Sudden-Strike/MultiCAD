@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "GameDllHooks.h"
 #include "GroupPanelReader.h"
+#include "ZeppelinReader.h"
 #include "renderer.h"
 #include "UiFilter.h"
 #include "types.h"
@@ -20,6 +21,11 @@ namespace
     Pixel* g_groupPanelCursorPixels = nullptr;
     bool g_groupPanelShowCount = false;
     bool g_groupPanelDebug = false;
+
+    ZeppelinReader g_zeppelin;
+    bool g_zeppelinOpen = false;
+    bool g_zeppelinVisible = false;
+    Zoom::Rect g_zeppelinLastRect{};
 
     Zoom::Rect GroupPanelRect()
     {
@@ -91,7 +97,46 @@ namespace
         return -1;
     }
 
+    int zeppelinVisibleRows()
+    {
+        return g_zeppelinOpen && g_zeppelinVisible ? g_zeppelin.rowCount() : 0;
+    }
+
+    Zoom::Rect ZeppelinPanelRect()
+    {
+        return ZeppelinPanel::PanelRect(
+            g_groupPanelSurfaceWidth, g_groupPanelSurfaceHeight, zeppelinVisibleRows());
+    }
+
+    bool zeppelinPanelVisible()
+    {
+        return g_zeppelinVisible;
+    }
+
+    bool zeppelinPanelAltToggle(int key)
+    {
+        return key == 'Z' && zeppelinPanelVisible() &&
+            (GetKeyState(VK_MENU) & 0x8000) != 0 &&
+            (GetKeyState(VK_CONTROL) & 0x8000) == 0 &&
+            (GetKeyState(VK_SHIFT) & 0x8000) == 0;
+    }
+
+    Zoom::Rect UnionRect(const Zoom::Rect& a, const Zoom::Rect& b)
+    {
+        if (a.width <= 0 || a.height <= 0)
+            return b;
+        if (b.width <= 0 || b.height <= 0)
+            return a;
+
+        const int left = std::min(a.x, b.x);
+        const int top = std::min(a.y, b.y);
+        const int right = std::max(a.x + a.width, b.x + b.width);
+        const int bottom = std::max(a.y + a.height, b.y + b.height);
+        return { left, top, right - left, bottom - top };
+    }
+
     void DrawGroupPanelOverlay(const Zoom::Rect* clip = nullptr);
+    void DrawZeppelinPanelOverlay(const Zoom::Rect* clip = nullptr);
 
     void RepairGroupPanelRegion(int left, int top, int right, int bottom)
     {
@@ -189,6 +234,37 @@ namespace
             g_groupPanelCursorHeight,
             g_groupPanelCursorPixels);
     }
+
+    void DrawZeppelinPanelOverlay(const Zoom::Rect* clip)
+    {
+        if (zeppelinVisibleRows() <= 0 || !g_moduleState || !g_moduleState->surface.renderer)
+            return;
+
+        auto* const destination = static_cast<Pixel*>(g_moduleState->surface.renderer);
+        const int pitch = static_cast<int>(g_moduleState->pitch / sizeof(Pixel));
+
+        ZeppelinPanel::Draw16(
+            destination,
+            pitch,
+            g_groupPanelSurfaceWidth,
+            g_groupPanelSurfaceHeight,
+            g_zeppelin.rows(),
+            zeppelinVisibleRows(),
+            clip);
+
+        const Zoom::Rect panel = ZeppelinPanelRect();
+        Zoom::GetState().refreshCursorSaveRect(
+            destination,
+            pitch,
+            clip ? IntersectRect(panel, *clip) : panel,
+            g_groupPanelSurfaceWidth,
+            g_groupPanelSurfaceHeight,
+            g_groupPanelCursorX,
+            g_groupPanelCursorY,
+            g_groupPanelCursorWidth,
+            g_groupPanelCursorHeight,
+            g_groupPanelCursorPixels);
+    }
 }
 
 void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, bool debug, bool persistent)
@@ -204,6 +280,18 @@ void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, boo
     g_groupPanelFade.setPersistent(persistent);
     g_groupPanelOpacity = 0;
     g_groupPanelShowCount = showCounts;
+}
+
+void GameDllHooks::configureZeppelinPanel(GameVersion version)
+{
+    if (globals_)
+        g_zeppelin.bind(*globals_, version);
+    else
+        g_zeppelin = {};
+
+    g_zeppelinOpen = false;
+    g_zeppelinVisible = false;
+    g_zeppelinLastRect = {};
 }
 
 int __declspec(noinline) __fastcall GameDllHooks::sub_1001D240(GameData5* self, void* /*dummy*/, int** a2)
@@ -1732,7 +1820,22 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 
     const bool panelPainted = !panelCovered && (g_groupPanelOpacity > 0 || lastPanelOpacity > 0);
 
-    if ((zoomed || panelPainted) && data.cursorRedrawFlag)
+    const bool zeppelinWasShown = zeppelinVisibleRows() > 0;
+    const Zoom::Rect zeppelinPrevRect = g_zeppelinLastRect;
+    g_zeppelinVisible = false;
+
+    if (g_zeppelin.bound() && GetUIFilter().isEnabled() && !panelCovered)
+    {
+        g_zeppelin.groups(tick);
+        g_zeppelinVisible = g_zeppelin.rowCount() > 0 && ZeppelinPanel::Fits(
+            data.surfaceWidth, data.surfaceHeight, g_zeppelin.rowCount());
+    }
+
+    const bool zeppelinShown = zeppelinVisibleRows() > 0;
+    g_zeppelinLastRect = zeppelinShown ? ZeppelinPanelRect() : Zoom::Rect{};
+    const bool zeppelinPainted = zeppelinShown || zeppelinWasShown;
+
+    if ((zoomed || panelPainted || zeppelinPainted) && data.cursorRedrawFlag)
         *data.cursorRedrawFlag = 1;
 
     if (zoomed)
@@ -1749,19 +1852,36 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             data.surfaceWidth - 1,
             data.surfaceHeight - 1);
     }
-    else if (panelPainted)
+    else if (panelPainted || zeppelinPainted)
     {
         // The native 1x surface is incremental. Reopen the panel's tiles so
         // its previous pixels are repainted even when the last group vanishes.
-        const Zoom::Rect panel = GroupPanelRect();
-        sub_10055E00(
-            data.closedAreaGameDataArray,
-            nullptr,
-            16,
-            panel.x,
-            panel.y,
-            panel.x + panel.width - 1,
-            panel.y + panel.height - 1);
+        if (panelPainted)
+        {
+            const Zoom::Rect panel = GroupPanelRect();
+            sub_10055E00(
+                data.closedAreaGameDataArray,
+                nullptr,
+                16,
+                panel.x,
+                panel.y,
+                panel.x + panel.width - 1,
+                panel.y + panel.height - 1);
+        }
+
+        if (zeppelinPainted)
+        {
+            const Zoom::Rect panel = UnionRect(zeppelinPrevRect, g_zeppelinLastRect);
+            if (panel.width > 0 && panel.height > 0)
+                sub_10055E00(
+                    data.closedAreaGameDataArray,
+                    nullptr,
+                    16,
+                    panel.x,
+                    panel.y,
+                    panel.x + panel.width - 1,
+                    panel.y + panel.height - 1);
+        }
     }
 
     // Snapshot decorations only, after terrain/camera/world updates. At 1x
@@ -1875,6 +1995,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     // Last write to the presented frame: the cursor is drawn on top of it right
     // after this, and erased from it by native code at a moment we do not see.
     DrawGroupPanelOverlay();
+    DrawZeppelinPanelOverlay();
     DrawGroupPanelDebugMarkers();
 
     if (zoomed)
@@ -4265,6 +4386,19 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
             DrawGroupPanelOverlay(&damaged);
         }
     }
+
+    if (zeppelinVisibleRows() > 0)
+    {
+        const Zoom::Rect panel = ZeppelinPanelRect();
+        if (self->rightX >= panel.x && self->leftX < panel.x + panel.width &&
+            self->bottomY >= panel.y && self->topY < panel.y + panel.height)
+        {
+            const Zoom::Rect damaged{ self->leftX, self->topY,
+                                      self->rightX - self->leftX + 1,
+                                      self->bottomY - self->topY + 1 };
+            DrawZeppelinPanelOverlay(&damaged);
+        }
+    }
 }
 
 void GameDllHooks::calculateClosedArea(UiElementBase* self, const CalculateClosedAreaData& data)
@@ -4733,6 +4867,12 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
             if (altSlot >= 0 && g_groupPanel.select(altSlot))
                 break;
 
+            if (zeppelinPanelAltToggle(a3))
+            {
+                g_zeppelinOpen = !g_zeppelinOpen;
+                break;
+            }
+
             writeEventToRingBuffer('/KBD', a3 + 256, *mouseX, *mouseY);
             if (data.multiByteToWideCharOr)
                 writeEventToRingBuffer('/UTF', a3 + 0x1000000, *mouseX, *mouseY);
@@ -4806,7 +4946,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         {
             setPanKey(false);
 
-            if (groupPanelAltSlot(a3) >= 0)
+            if (groupPanelAltSlot(a3) >= 0 || zeppelinPanelAltToggle(a3))
                 break;
 
             writeEventToRingBuffer('/KBD', a3 + 512, *mouseX, *mouseY);
