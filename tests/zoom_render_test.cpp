@@ -153,7 +153,6 @@ int main(int argc, char** argv)
     zoom.setBattlefield({0, 0, width, height});
     const auto frame = [&]
     {
-        const bool presented = zoom.presenting() && zoom.worldClean();
         const auto mainBefore = g_rendererState.surfaces.main[0];
         std::array<Pixel, width * (height + 1)> main{}, back{};
         std::copy_n(g_rendererState.surfaces.main, main.size(), main.data());
@@ -165,20 +164,14 @@ int main(int argc, char** argv)
         assert(module.surface.renderer == renderer.data());
         assert(module.pitch == pitch * sizeof(Pixel));
         assert(module.surface.y == 7);
-        if (presented)
-        {
-            assert(g_rendererState.surfaces.main[0] == mainBefore);
-            assert(std::equal(main.begin(), main.end(), g_rendererState.surfaces.main));
-            assert(std::equal(back.begin(), back.end(), g_rendererState.surfaces.back));
-        }
-        const Zoom::Transform shown = presented
-            ? zoom.transform()
-            : Zoom::MakeTransform({0, 0, width, height});
+        assert(g_rendererState.surfaces.main[0] == mainBefore);
+        assert(std::equal(main.begin(), main.end(), g_rendererState.surfaces.main));
+        assert(std::equal(back.begin(), back.end(), g_rendererState.surfaces.back));
         for (int y = 0; y < height; ++y)
         {
             for (int x = 0; x < width; ++x)
             {
-                Pixel expected = world[shown.sourceY(y) * width + shown.sourceX(x)];
+                Pixel expected = world[zoom.transform().sourceY(y) * width + zoom.transform().sourceX(x)];
                 if (data.uiRenderElem && ((y == 1 && x < 2) || (y == height - 1 && x == width - 1)))
                     expected = textColor;
                 assert(renderer[y * pitch + x] == expected);
@@ -196,19 +189,9 @@ int main(int argc, char** argv)
     // Nothing of ours overwrote the frame here, so leave the game's own cursor
     // redraw schedule alone.
     assert(cursorRedraw == 0);
-
-    std::fill(coverage.begin() + 2, coverage.end(), 0);
-    assert(zoom.addWheelDelta(120));
-    frame();
-    assert(nativeDraws == 4 && blends == 2 && copies == 2);
-    assert(reinterpret_cast<const uint8_t*>(&coverage[2])[0] & 8);
-    assert(cursorRedraw == 0);
-    updateWorld(0);
-
     for (int scale = 5; scale <= 8; ++scale)
     {
-        if (scale > 5)
-            assert(zoom.addWheelDelta(120));
+        assert(zoom.addWheelDelta(120));
         frame();
         // Composition replaced every pixel, the ones the cursor sits on
         // included. The game redraws the cursor only when this flag says so, so
@@ -219,7 +202,7 @@ int main(int argc, char** argv)
         assert(zoom.presentedScale() == scale);
     }
     cursorRedraw = 0;
-    assert(nativeDraws == 4 && blends == 2 && copies == 2);
+    assert(nativeDraws == 2 && blends == 1 && copies == 1);
     if (argc == 1)
         assert(uiDraws == 16); // Pause and chat redraw at physical coordinates.
 
@@ -294,12 +277,10 @@ int main(int argc, char** argv)
     zoom.resetScale();
     frame(); // Returning to 1x also clears the last zoomed presentation.
     frame(); // Native path resumes with the same complete world.
-    assert(blends == 3 && copies == 3);
+    assert(blends == 2 && copies == 2);
     // A panel pixel drawn after the cursor save-under was captured must survive
     // the cursor erase. The save-under is a frame behind; the sprites are not.
     assert(zoom.addWheelDelta(120));
-    frame();
-    updateWorld(1);
     Hooks::UiEventArea panelArea{};
     panelArea.tag = 'PANL';
     Hooks::UiElementBase panel{};

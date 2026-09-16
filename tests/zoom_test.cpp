@@ -353,34 +353,14 @@ int main()
 
     State isolation;
     isolation.setMode(Mode::On);
+    isolation.addWheelDelta(120);
     std::array<uint16_t, 8> mainSurface{};
     std::array<uint16_t, 8> backSurface{};
-
-    assert(!isolation.presenting());
-    isolation.beginWorldIsolation(mainSurface.data(), backSurface.data(), mainSurface.size());
-    mainSurface[0] = 99;
-    backSurface[0] = 98;
-    isolation.finishWorldIsolation(mainSurface.data(), backSurface.data());
-    assert(mainSurface[0] == 99);
-    assert(backSurface[0] == 98);
-
-    mainSurface[0] = 0;
-    backSurface[0] = 0;
-    isolation.addWheelDelta(120);
-    assert(isolation.presenting());
     isolation.beginWorldIsolation(mainSurface.data(), backSurface.data(), mainSurface.size());
     mainSurface[0] = 99;
     backSurface[0] = 98;
     isolation.finishWorldIsolation(mainSurface.data(), backSurface.data());
     assert(mainSurface[0] == 0);
     assert(backSurface[0] == 0);
-
-    State engage;
-    engage.setMode(Mode::On);
-    assert(!engage.worldClean());
-    engage.noteZoomInput(0);
-    assert(engage.presenting());
-    engage.setMode(Mode::Off);
-    assert(!engage.presenting() && !engage.worldClean());
 
 }

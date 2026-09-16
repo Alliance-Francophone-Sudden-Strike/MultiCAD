@@ -1589,7 +1589,9 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     const int width = data.surfaceWidth;
     const int height = data.surfaceHeight;
 
-    if (!zoom.presenting() || !zoom.worldClean() ||
+    if (zoom.mode() == Zoom::Mode::Off ||
+        (!zoom.indicatorPending() && zoom.scale() == Zoom::kMinScale &&
+            zoom.presentedScale() == Zoom::kMinScale) ||
         !g_moduleState || !g_moduleState->surface.renderer ||
         width != Screen::width_ || height != Screen::height_ ||
         (width & 15) != 0 || (height & 7) != 0 ||
@@ -1733,17 +1735,11 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     if ((zoomed || panelPainted) && data.cursorRedrawFlag)
         *data.cursorRedrawFlag = 1;
 
-    const bool rebuildWorld = !zoomed && Zoom::GetState().presenting() &&
-        !Zoom::GetState().worldClean();
-
     if (zoomed)
     {
         Zoom::GetState().markPresented();
         Zoom::GetState().finishIndicatorFrame(GetTickCount());
-    }
 
-    if (zoomed || rebuildWorld)
-    {
         sub_10055E00(
             data.closedAreaGameDataArray,
             nullptr,
@@ -1770,7 +1766,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 
     // Snapshot decorations only, after terrain/camera/world updates. At 1x
     // keep their pixels until the native copy, then restore the clean source.
-    const bool preserveWorld = !zoomed && Zoom::GetState().presenting();
+    const bool preserveWorld = !zoomed && Zoom::GetState().mode() != Zoom::Mode::Off;
     if (preserveWorld)
     {
         Zoom::GetState().beginWorldIsolation(
@@ -1892,8 +1888,6 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             data.cursorSavedHeight,
             data.cursorSavedPixels);
     }
-
-    Zoom::GetState().setWorldClean(Zoom::GetState().presenting());
 }
 
 
