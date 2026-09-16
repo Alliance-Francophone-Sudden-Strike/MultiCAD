@@ -14,6 +14,8 @@
 
 namespace GroupPanel
 {
+    using Zoom::Rect;
+
     // Ten groups drawn on one row: "1".."9","0".
     constexpr int kCount = 10;
     constexpr int kColumns = kCount;
@@ -208,7 +210,8 @@ namespace GroupPanel
         int opacity = 16,
         const Counts* counts = nullptr,
         const Slots* transport = nullptr,
-        bool persistent = false)
+        bool persistent = false,
+        const Rect* clip = nullptr)
     {
         if (!destination || pitch < width || !Fits(width, height) || opacity <= 0 ||
             (!persistent && std::none_of(active.begin(), active.end(), [](bool value) { return value; })))
@@ -243,6 +246,12 @@ namespace GroupPanel
         for (int slot = 0; slot < kCount; ++slot)
         {
             const Zoom::Rect cell = CellRect(slot, width);
+            if (clip && (clip->x >= cell.x + kCell ||
+                         clip->x + clip->width <= cell.x ||
+                         clip->y >= cell.y + kCell + CountStripHeight() ||
+                         clip->y + clip->height <= cell.y))
+                continue;
+
             const uint16_t border = active[slot] ? kActiveBorder : kInactiveBorder;
             const uint16_t fill = active[slot] ? kActiveFill : kInactiveFill;
             const uint16_t text = active[slot] ? kActiveText : kInactiveText;

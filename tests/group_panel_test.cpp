@@ -188,6 +188,32 @@ int main()
         Draw16(tooSmall.data(), 4, 4, 4, active, house, wheel);
         for (uint16_t pixel : tooSmall)
             assert(pixel == untouched);
+
+        // --- clipped repaint -------------------------------------------------
+        // Repairs only touch the cells the damaged region overlaps, and paint
+        // those exactly as an unclipped pass would.
+        pixels.fill(untouched);
+        const Rect damaged{ two.x, two.y, kCell, kCell };
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel,
+               16, nullptr, &transport, false, &damaged);
+        assert(pixels[two.y * pitch + two.x] == kInactiveBorder);
+        assert(pixels[one.y * pitch + one.x] == untouched);
+        assert(pixels[zero.y * pitch + zero.x] == untouched);
+
+        std::array<uint16_t, pitch * height> whole{};
+        whole.fill(untouched);
+        Draw16(whole.data(), pitch, width, height, active, house, wheel,
+               16, nullptr, &transport);
+        for (int y = two.y; y < two.y + kCell + CountStripHeight(); ++y)
+            for (int x = two.x; x < two.x + kCell; ++x)
+                assert(pixels[y * pitch + x] == whole[y * pitch + x]);
+
+        const Rect miss{ 0, 0, one.x - 1, height };
+        pixels.fill(untouched);
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel,
+               16, nullptr, &transport, false, &miss);
+        for (uint16_t pixel : pixels)
+            assert(pixel == untouched); // damage left of the panel: nothing repainted
     }
 
     // --- fade in/out, same ramp as the zoom indicator -------------------------

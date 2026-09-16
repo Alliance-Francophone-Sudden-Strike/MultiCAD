@@ -411,7 +411,7 @@ private:
         uint8_t vehicleContainer;
     };
 
-    static constexpr int kVtableCacheSize = 8;
+    static constexpr int kVtableCacheSize = 64;
     std::array<VtableEntry, kVtableCacheSize> vtableCache_{};
     int vtableCount_{ 0 };
 

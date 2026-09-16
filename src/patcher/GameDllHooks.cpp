@@ -27,6 +27,15 @@ namespace
         return { first.x, first.y, GroupPanel::Width(), GroupPanel::Height() };
     }
 
+    Zoom::Rect IntersectRect(const Zoom::Rect& a, const Zoom::Rect& b)
+    {
+        const int left = std::max(a.x, b.x);
+        const int top = std::max(a.y, b.y);
+        const int right = std::min(a.x + a.width, b.x + b.width);
+        const int bottom = std::min(a.y + a.height, b.y + b.height);
+        return { left, top, std::max(0, right - left), std::max(0, bottom - top) };
+    }
+
     constexpr int kGroupPanelTag = 'GRPP';
 
     bool groupPanelVisible()
@@ -68,7 +77,7 @@ namespace
         return true;
     }
 
-    void DrawGroupPanelOverlay();
+    void DrawGroupPanelOverlay(const Zoom::Rect* clip = nullptr);
 
     void RepairGroupPanelRegion(int left, int top, int right, int bottom)
     {
@@ -80,7 +89,8 @@ namespace
             bottom < panel.y || top >= panel.y + panel.height)
             return;
 
-        DrawGroupPanelOverlay();
+        const Zoom::Rect damaged{ left, top, right - left + 1, bottom - top + 1 };
+        DrawGroupPanelOverlay(&damaged);
     }
 
     void DrawGroupPanelDebugMarkers()
@@ -129,7 +139,7 @@ namespace
         DrawGroupPanelOverlay();
     }
 
-    void DrawGroupPanelOverlay()
+    void DrawGroupPanelOverlay(const Zoom::Rect* clip)
     {
         if (g_groupPanelOpacity <= 0 || !g_moduleState || !g_moduleState->surface.renderer)
             return;
@@ -148,12 +158,14 @@ namespace
             g_groupPanelOpacity,
             g_groupPanelShowCount ? &g_groupPanelFade.counts() : nullptr,
             &g_groupPanelFade.transports(),
-            g_groupPanelFade.persistent());
+            g_groupPanelFade.persistent(),
+            clip);
 
+        const Zoom::Rect panel = GroupPanelRect();
         Zoom::GetState().refreshCursorSaveRect(
             destination,
             pitch,
-            GroupPanelRect(),
+            clip ? IntersectRect(panel, *clip) : panel,
             g_groupPanelSurfaceWidth,
             g_groupPanelSurfaceHeight,
             g_groupPanelCursorX,
@@ -4232,7 +4244,10 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
         if (self->rightX >= panel.x && self->leftX < panel.x + panel.width &&
             self->bottomY >= panel.y && self->topY < panel.y + panel.height)
         {
-            DrawGroupPanelOverlay();
+            const Zoom::Rect damaged{ self->leftX, self->topY,
+                                      self->rightX - self->leftX + 1,
+                                      self->bottomY - self->topY + 1 };
+            DrawGroupPanelOverlay(&damaged);
         }
     }
 }
