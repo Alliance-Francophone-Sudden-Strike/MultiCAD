@@ -1439,24 +1439,6 @@ void __declspec(noinline) __stdcall  GameDllHooks::sub_1005C170_fr()
 }
 
 
-namespace
-{
-    Zoom::SurfaceView WorldSurfaceView()
-    {
-        if (!g_moduleState)
-            return {};
-
-        return {
-            g_rendererState.surfaces.main,
-            g_rendererState.surfaces.back,
-            Screen::width_,
-            Screen::height_,
-            static_cast<int>(g_moduleState->surface.offset / sizeof(Pixel)),
-            g_moduleState->surface.y
-        };
-    }
-}
-
 void GameDllHooks::prepareUiElements(UiElementBase* ui)
 {
     // Zooming and edge panning resize the minimap/strategic-map viewport rectangles
@@ -1472,25 +1454,30 @@ void GameDllHooks::prepareUiElements(UiElementBase* ui)
             element->vtable->calculateClosedArea(element);
         }
 
-    const Zoom::SurfaceView view = WorldSurfaceView();
-    const auto tileRect = [](const UiElementBase* element)
-    {
-        const int left = element->leftX & ~15;
-        const int top = element->topY & ~7;
-        return Zoom::Rect{ left, top,
-            ((element->rightX | 15) + 1) - left,
-            ((element->bottomY | 7) + 1) - top };
-    };
-
+    bool isolated = false;
     for (; ui; ui = ui->prev)
     {
         const bool isolate = !ui->uiEventArea || ui->uiEventArea->tag != 'FILD';
-        if (isolate)
-            Zoom::GetState().beginRegionIsolation(view, tileRect(ui));
+        if (isolate && !isolated)
+        {
+            Zoom::GetState().beginWorldIsolation(
+                g_rendererState.surfaces.main,
+                g_rendererState.surfaces.back,
+                static_cast<size_t>(Screen::width_) * (Screen::height_ + 1));
+        }
+        else if (!isolate && isolated)
+        {
+            Zoom::GetState().finishWorldIsolation(
+                g_rendererState.surfaces.main,
+                g_rendererState.surfaces.back);
+        }
+        isolated = isolate;
         ui->vtable->fn_A1000(ui);
-        if (isolate)
-            Zoom::GetState().finishRegionIsolation();
     }
+    if (isolated)
+        Zoom::GetState().finishWorldIsolation(
+            g_rendererState.surfaces.main,
+            g_rendererState.surfaces.back);
 }
 
 namespace

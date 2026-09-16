@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <cstddef>
 #include <cstring>
 #include <cstdint>
 #include <string_view>
@@ -132,23 +131,6 @@ namespace Zoom
         }
     };
 
-    struct SurfaceView
-    {
-        uint16_t* main{};
-        uint16_t* back{};
-        int pitch{};
-        int rows{};
-        int origin{};
-        int split{};
-
-        std::ptrdiff_t offset(int y) const
-        {
-            return static_cast<std::ptrdiff_t>(origin) +
-                static_cast<std::ptrdiff_t>(y) * pitch -
-                (y >= split ? static_cast<std::ptrdiff_t>(rows) * pitch : 0);
-        }
-    };
-
     constexpr int kMinScale = 4; // quarter units: 4 == 1x
     constexpr int kMaxScale = 8; // 8 == 2x
     constexpr uint32_t kIndicatorHoldMs = 1500;
@@ -225,8 +207,6 @@ namespace Zoom
                 presentation_.clear();
                 isolatedWorld_.clear();
                 isolatedBack_.clear();
-                isolatedRegionWorld_.clear();
-                isolatedRegionBack_.clear();
             }
         }
 
@@ -488,7 +468,6 @@ namespace Zoom
             presentationValid_ = false;
             routed_ = false;
             worldIsolated_ = false;
-            regionIsolated_ = false;
             worldClean_ = false;
             indicatorActive_ = false;
             cameraMovementScale_ = kMinScale;
@@ -640,61 +619,6 @@ namespace Zoom
             worldIsolated_ = false;
         }
 
-        void beginRegionIsolation(const SurfaceView& view, const Rect& region)
-        {
-            finishRegionIsolation();
-            if (!presenting() || !view.main || !view.back || view.pitch <= 0 || view.rows <= 0)
-                return;
-
-            const int left = std::max(0, region.x);
-            const int top = std::max(0, region.y);
-            const int right = std::min(view.pitch, region.x + region.width);
-            const int bottom = std::min(view.rows, region.y + region.height);
-            if (right <= left || bottom <= top)
-                return;
-
-            const size_t span = static_cast<size_t>(right - left);
-            try
-            {
-                isolatedRegionWorld_.resize(span * static_cast<size_t>(bottom - top));
-                isolatedRegionBack_.resize(span * static_cast<size_t>(bottom - top));
-            }
-            catch (...)
-            {
-                setMode(Mode::Off);
-                return;
-            }
-
-            for (int y = top; y < bottom; ++y)
-            {
-                const std::ptrdiff_t source = view.offset(y) + left;
-                const size_t destination = static_cast<size_t>(y - top) * span;
-                std::copy_n(view.main + source, span, isolatedRegionWorld_.data() + destination);
-                std::copy_n(view.back + source, span, isolatedRegionBack_.data() + destination);
-            }
-
-            isolatedView_ = view;
-            isolatedRegion_ = { left, top, right - left, bottom - top };
-            regionIsolated_ = true;
-        }
-
-        void finishRegionIsolation()
-        {
-            if (!regionIsolated_)
-                return;
-
-            const size_t span = static_cast<size_t>(isolatedRegion_.width);
-            const int bottom = isolatedRegion_.y + isolatedRegion_.height;
-            for (int y = isolatedRegion_.y; y < bottom; ++y)
-            {
-                const std::ptrdiff_t destination = isolatedView_.offset(y) + isolatedRegion_.x;
-                const size_t source = static_cast<size_t>(y - isolatedRegion_.y) * span;
-                std::copy_n(isolatedRegionWorld_.data() + source, span, isolatedView_.main + destination);
-                std::copy_n(isolatedRegionBack_.data() + source, span, isolatedView_.back + destination);
-            }
-            regionIsolated_ = false;
-        }
-
         void beginPresentation(void*& renderer, uint32_t& pitch, int width, int height)
         {
             const auto* source = static_cast<const uint8_t*>(renderer);
@@ -738,7 +662,6 @@ namespace Zoom
         bool presentationValid_{};
         bool routed_{};
         bool worldIsolated_{};
-        bool regionIsolated_{};
         bool worldClean_{};
         IndicatorAnchor indicatorAnchor_{ IndicatorAnchor::Left };
         IndicatorShape indicatorShape_{ IndicatorShape::Squares };
@@ -772,10 +695,6 @@ namespace Zoom
         std::vector<uint16_t> presentation_;
         std::vector<uint16_t> isolatedWorld_;
         std::vector<uint16_t> isolatedBack_;
-        std::vector<uint16_t> isolatedRegionWorld_;
-        std::vector<uint16_t> isolatedRegionBack_;
-        SurfaceView isolatedView_{};
-        Rect isolatedRegion_{};
 
         void advanceIndicatorAnimation(uint32_t tick)
         {
