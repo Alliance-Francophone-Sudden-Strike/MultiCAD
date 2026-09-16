@@ -77,6 +77,20 @@ namespace
         return true;
     }
 
+    int groupPanelAltSlot(int key)
+    {
+        if (!g_groupPanel.bound() ||
+            (GetKeyState(VK_MENU) & 0x8000) == 0 ||
+            (GetKeyState(VK_CONTROL) & 0x8000) != 0 ||
+            (GetKeyState(VK_SHIFT) & 0x8000) != 0)
+            return -1;
+
+        for (int slot = 0; slot < GroupPanel::kCount; ++slot)
+            if (GroupPanel::VirtualKeyForSlot(slot) == key)
+                return slot;
+        return -1;
+    }
+
     void DrawGroupPanelOverlay(const Zoom::Rect* clip = nullptr);
 
     void RepairGroupPanelRegion(int left, int top, int right, int bottom)
@@ -159,7 +173,8 @@ namespace
             g_groupPanelShowCount ? &g_groupPanelFade.counts() : nullptr,
             &g_groupPanelFade.transports(),
             g_groupPanelFade.persistent(),
-            clip);
+            clip,
+            &g_groupPanelFade.guns());
 
         const Zoom::Rect panel = GroupPanelRect();
         Zoom::GetState().refreshCursorSaveRect(
@@ -1723,7 +1738,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         const auto& active = g_groupPanel.groups(tick);
         g_groupPanelOpacity = g_groupPanelFade.update(
             active, g_groupPanel.house(), g_groupPanel.wheel(), tick,
-            &g_groupPanel.counts(), &g_groupPanel.transport());
+            &g_groupPanel.counts(), &g_groupPanel.transport(), &g_groupPanel.gun());
     }
 
     const bool panelPainted = !panelCovered && (g_groupPanelOpacity > 0 || lastPanelOpacity > 0);
@@ -4732,6 +4747,11 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         case WM_SYSKEYDOWN:
         {
             setPanKey(true);
+
+            const int altSlot = groupPanelAltSlot(a3);
+            if (altSlot >= 0 && g_groupPanel.select(altSlot))
+                break;
+
             writeEventToRingBuffer('/KBD', a3 + 256, *mouseX, *mouseY);
             if (data.multiByteToWideCharOr)
                 writeEventToRingBuffer('/UTF', a3 + 0x1000000, *mouseX, *mouseY);
@@ -4804,6 +4824,10 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         case WM_SYSKEYUP:
         {
             setPanKey(false);
+
+            if (groupPanelAltSlot(a3) >= 0)
+                break;
+
             writeEventToRingBuffer('/KBD', a3 + 512, *mouseX, *mouseY);
             if (data.multiByteToWideCharOr)
                 writeEventToRingBuffer('/UTF', a3 + 0x2000000, *mouseX, *mouseY);

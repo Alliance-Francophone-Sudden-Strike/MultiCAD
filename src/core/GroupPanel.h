@@ -147,16 +147,21 @@ namespace GroupPanel
     constexpr int kWheelX = kIconInset;
     constexpr int kTransportX = kIconInset;
     constexpr int kHouseX = kCell - kIconInset - kIconSize;
+    constexpr int kGunX = kCell - kIconInset - kIconSize;
     constexpr int kIconY = kIconInset;
     constexpr int kWheelY = kCell - kIconInset - kIconSize;
+    constexpr int kGunY = kCell - kIconInset - kIconSize;
     constexpr uint16_t kContainedIcon = 0xC618;
     constexpr uint16_t kTransportFill = 0x0300;
 
     static_assert(kWheelX >= 2 && kWheelX + kIconSize <= glyphX);
     static_assert(kTransportX >= 2 && kTransportX + kIconSize <= glyphX);
     static_assert(kHouseX >= glyphX + 3 * glyphScale && kHouseX + kIconSize <= kCell - 2);
+    static_assert(kGunX >= glyphX + 3 * glyphScale && kGunX + kIconSize <= kCell - 2);
     static_assert(kIconY >= 2 && kIconY + kIconSize <= kCell - 2);
     static_assert(kWheelY >= 2 && kWheelY + kIconSize <= kCell - 2);
+    static_assert(kGunY >= 2 && kGunY + kIconSize <= kCell - 2);
+    static_assert(kGunX >= kWheelX + kIconSize && kGunY >= kIconY + kIconSize);
 
     static_assert(CountDigits(kCountMax) == kCountMaxDigits);
     static_assert(CountLeft(kCountMax) - kCountOutline >= 0);
@@ -181,6 +186,15 @@ namespace GroupPanel
         0b10101,
         0b10001,
         0b01110,
+    };
+
+    inline constexpr uint8_t kGun[kIconSize]
+    {
+        0b00001,
+        0b00010,
+        0b00100,
+        0b01110,
+        0b10001,
     };
 
     // Tiny 3x5 digits, enlarged to 9x15 inside each cell. Keeping the glyphs
@@ -211,7 +225,8 @@ namespace GroupPanel
         const Counts* counts = nullptr,
         const Slots* transport = nullptr,
         bool persistent = false,
-        const Rect* clip = nullptr)
+        const Rect* clip = nullptr,
+        const Slots* gun = nullptr)
     {
         if (!destination || pitch < width || !Fits(width, height) || opacity <= 0 ||
             (!persistent && std::none_of(active.begin(), active.end(), [](bool value) { return value; })))
@@ -298,6 +313,8 @@ namespace GroupPanel
             }
             if (wheel[slot])
                 blit(kWheel, kIconSize, kIconSize, cell.x + kWheelX, cell.y + kWheelY, 1, kContainedIcon);
+            if (gun && (*gun)[slot])
+                blit(kGun, kIconSize, kIconSize, cell.x + kGunX, cell.y + kGunY, 1, kContainedIcon);
         }
     }
 
@@ -314,7 +331,8 @@ namespace GroupPanel
         // false, so slots() keeps returning the last pattern that had
         // anything active instead of blanking before the fade finishes.
         int update(const Slots& active, const Slots& house, const Slots& wheel, uint32_t tick,
-                   const Counts* counts = nullptr, const Slots* transport = nullptr)
+                   const Counts* counts = nullptr, const Slots* transport = nullptr,
+                   const Slots* gun = nullptr)
         {
             const bool needed = persistent_ ||
                 std::any_of(active.begin(), active.end(), [](bool value) { return value; });
@@ -327,6 +345,8 @@ namespace GroupPanel
                     lastCounts_ = *counts;
                 if (transport)
                     lastTransport_ = *transport;
+                if (gun)
+                    lastGun_ = *gun;
             }
 
             if (needed != wasNeeded_)
@@ -352,6 +372,7 @@ namespace GroupPanel
         const Slots& houses() const { return lastHouse_; }
         const Slots& wheels() const { return lastWheel_; }
         const Slots& transports() const { return lastTransport_; }
+        const Slots& guns() const { return lastGun_; }
         const Counts& counts() const { return lastCounts_; }
         void setPersistent(bool persistent) { persistent_ = persistent; }
         bool persistent() const { return persistent_; }
@@ -361,6 +382,7 @@ namespace GroupPanel
         Slots lastHouse_{};
         Slots lastWheel_{};
         Slots lastTransport_{};
+        Slots lastGun_{};
         Counts lastCounts_{};
         bool wasNeeded_ = false;
         bool persistent_ = false;

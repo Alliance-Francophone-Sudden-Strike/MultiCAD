@@ -128,6 +128,7 @@ int main()
         Slots house{};
         Slots wheel{};
         Slots transport{};
+        Slots gun{};
 
         Draw16(pixels.data(), pitch, width, height, active, house, wheel);
         for (uint16_t pixel : pixels)
@@ -161,27 +162,44 @@ int main()
         const int roofX = one.x + kHouseX + 2;
         const int rimX = one.x + kWheelX + 2;
         const int wheelY = one.y + kWheelY;
+        const int gunX = one.x + kGunX + 3;
+        const int gunY = one.y + kGunY + 1;
         assert(pixels[badgeY * pitch + roofX] == kActiveFill);
         assert(pixels[badgeY * pitch + rimX] == kActiveFill);
         assert(pixels[wheelY * pitch + rimX] == kActiveFill);
+        assert(pixels[gunY * pitch + gunX] == kActiveFill);
 
         house[0] = true;
         wheel[0] = true;
         transport[0] = true;
-        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, nullptr, &transport);
+        gun[0] = true;
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, nullptr, &transport,
+               false, nullptr, &gun);
 
         assert(pixels[badgeY * pitch + roofX] == kContainedIcon);
         assert(pixels[badgeY * pitch + rimX] == kContainedIcon); // transport border
         assert(pixels[(badgeY + 2) * pitch + rimX] == kTransportFill);
         assert(pixels[wheelY * pitch + rimX] == kContainedIcon);
+        assert(pixels[gunY * pitch + gunX] == kContainedIcon);
         assert(pixels[one.y * pitch + one.x] == kActiveBorder);
         assert(pixels[(one.y + glyphY) * pitch + one.x + glyphX + glyphScale] == kActiveText);
         assert(pixels[(zero.y + kIconY) * pitch + zero.x + kHouseX + 2] == kActiveFill);
         assert(pixels[(zero.y + kWheelY) * pitch + zero.x + kWheelX + 2] == kActiveFill);
+        assert(pixels[(zero.y + kGunY + 1) * pitch + zero.x + kGunX + 3] == kActiveFill);
+
+        {
+            const int x[]{ kHouseX, kTransportX, kWheelX, kGunX };
+            const int y[]{ kIconY, kIconY, kWheelY, kGunY };
+            for (int a = 0; a < 4; ++a)
+                for (int b = a + 1; b < 4; ++b)
+                    assert(x[a] + kIconSize <= x[b] || x[b] + kIconSize <= x[a] ||
+                           y[a] + kIconSize <= y[b] || y[b] + kIconSize <= y[a]);
+        }
 
         house[0] = false;
         wheel[0] = false;
         transport[0] = false;
+        gun[0] = false;
 
         std::array<uint16_t, 16> tooSmall{};
         tooSmall.fill(untouched);
@@ -250,7 +268,10 @@ int main()
 
         assert(fade.update(none, none, none, 1000) == 0); // never needed: stays hidden
 
-        assert(fade.update(active, house, none, base, nullptr, &transport) == 0); // fades in from 0
+        Slots gun{};
+        gun[0] = true;
+
+        assert(fade.update(active, house, none, base, nullptr, &transport, &gun) == 0); // fades in from 0
         const int fadingIn = fade.update(active, house, none, base + fadeMs / 2);
         assert(fadingIn > 0 && fadingIn < 16);
         assert(fade.update(active, house, none, base + fadeMs) == 16); // fully faded in
@@ -264,6 +285,7 @@ int main()
         assert(fade.houses()[0]);
         assert(!fade.wheels()[0]);
         assert(fade.transports()[0]);
+        assert(fade.guns()[0]);
 
         Fade persistentFade;
         persistentFade.setPersistent(true);
