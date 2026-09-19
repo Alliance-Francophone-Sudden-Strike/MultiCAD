@@ -1715,15 +1715,17 @@ void GameDllHooks::withBattlefieldMouseCoordinates(
     const bool map = guard.outermost &&
         (battlefieldAt(areas, physicalX, physicalY) != nullptr ||
             Zoom::GetState().battlefieldDragging());
+    const int mappedX = map ? Zoom::GetState().mapX(physicalX) : physicalX;
+    const int mappedY = map ? Zoom::GetState().mapY(physicalY) : physicalY;
     if (map)
     {
-        *mouseX = Zoom::GetState().mapX(physicalX);
-        *mouseY = Zoom::GetState().mapY(physicalY);
+        *mouseX = mappedX;
+        *mouseY = mappedY;
     }
 
     fn();
 
-    if (map)
+    if (map && *mouseX == mappedX && *mouseY == mappedY)
     {
         *mouseX = physicalX;
         *mouseY = physicalY;
@@ -1743,15 +1745,17 @@ void GameDllHooks::updateBattlefieldHover(
     const bool map = guard.outermost &&
         (battlefieldAt(areas, physicalX, physicalY) != nullptr ||
             Zoom::GetState().battlefieldDragging());
+    const int mappedX = map ? Zoom::GetState().mapX(physicalX) : physicalX;
+    const int mappedY = map ? Zoom::GetState().mapY(physicalY) : physicalY;
     if (map)
     {
-        *mouseX = Zoom::GetState().mapX(physicalX);
-        *mouseY = Zoom::GetState().mapY(physicalY);
+        *mouseX = mappedX;
+        *mouseY = mappedY;
     }
 
     fn(active);
 
-    if (map)
+    if (map && *mouseX == mappedX && *mouseY == mappedY)
     {
         *mouseX = physicalX;
         *mouseY = physicalY;
@@ -4632,21 +4636,8 @@ void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& 
 
         const int left = area->x;
         const int top = area->y;
-        const int right = left + area->width;
-        const int bottom = top + area->height;
 
-        bool isInside =
-            mouseX >= left &&
-            mouseY >= top &&
-            mouseX < right &&
-            mouseY < bottom;
-
-        if (!isInside)
-            continue;
-
-        if (Zoom::GetState().scale() != Zoom::kMinScale && area->tag == 'FILD' &&
-            !Zoom::GetState().battlefieldDragging() &&
-            battlefieldAt(uiEventAreas, mouseX, mouseY) != area)
+        if (!areaOwnsPoint(uiEventAreas, area, mouseX, mouseY, data.eventTag))
             continue;
 
         if (area->flags & data.eventTag)
@@ -4683,20 +4674,13 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
 
         const int left = area->x;
         const int top = area->y;
-        const int right = left + area->width;
-        const int bottom = top + area->height;
 
-        bool wasInside =
-            data.prevMouseX >= left &&
-            data.prevMouseY >= top &&
-            data.prevMouseX < right &&
-            data.prevMouseY < bottom;
-
-        bool isInside =
-            data.mouseX >= left &&
-            data.mouseY >= top &&
-            data.mouseX < right &&
-            data.mouseY < bottom;
+        const bool wasInside = areaOwnsPoint(
+            uiEventAreas, area, data.prevMouseX, data.prevMouseY,
+            UI_MOUSE_MOVE | UI_MOUSE_ENTER | UI_MOUSE_LEAVE);
+        const bool isInside = areaOwnsPoint(
+            uiEventAreas, area, data.mouseX, data.mouseY,
+            UI_MOUSE_MOVE | UI_MOUSE_ENTER | UI_MOUSE_LEAVE);
 
         if (wasInside && !isInside && (area->flags & UI_MOUSE_LEAVE))
         {
@@ -4725,28 +4709,15 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
 
         const int left = area->x;
         const int top = area->y;
-        const int right = left + area->width;
-        const int bottom = top + area->height;
 
-        bool wasInside =
-            data.prevMouseX >= left &&
-            data.prevMouseY >= top &&
-            data.prevMouseX < right &&
-            data.prevMouseY < bottom;
-
-        bool isInside =
-            data.mouseX >= left &&
-            data.mouseY >= top &&
-            data.mouseX < right &&
-            data.mouseY < bottom;
-
-        if (!isInside)
+        if (!areaOwnsPoint(
+                uiEventAreas, area, data.mouseX, data.mouseY,
+                UI_MOUSE_MOVE | UI_MOUSE_ENTER | UI_MOUSE_LEAVE))
             continue;
 
-        if (Zoom::GetState().scale() != Zoom::kMinScale && area->tag == 'FILD' &&
-            !Zoom::GetState().battlefieldDragging() &&
-            battlefieldAt(uiEventAreas, data.mouseX, data.mouseY) != area)
-            continue;
+        const bool wasInside = areaOwnsPoint(
+            uiEventAreas, area, data.prevMouseX, data.prevMouseY,
+            UI_MOUSE_MOVE | UI_MOUSE_ENTER | UI_MOUSE_LEAVE);
 
         // MouseEnter
         if (!wasInside && (area->flags & UI_MOUSE_ENTER))
@@ -4784,7 +4755,21 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
     }
 }
 
-GameDllHooks::UiEventArea* GameDllHooks::battlefieldAt(UiEventArea* areas, int x, int y)
+bool GameDllHooks::areaOwnsPoint(UiEventArea* areas, UiEventArea* area, int x, int y, int eventTag)
+{
+    if (x < area->x || y < area->y ||
+        x >= area->x + area->width || y >= area->y + area->height)
+        return false;
+
+    if (Zoom::GetState().scale() != Zoom::kMinScale && area->tag == 'FILD' &&
+        !Zoom::GetState().battlefieldDragging() &&
+        battlefieldAt(areas, x, y, eventTag) != area)
+        return false;
+
+    return true;
+}
+
+GameDllHooks::UiEventArea* GameDllHooks::battlefieldAt(UiEventArea* areas, int x, int y, int eventTag)
 {
     UiEventArea* battlefield = nullptr;
     for (UiEventArea* area = areas; area; area = area->next)
@@ -4796,7 +4781,11 @@ GameDllHooks::UiEventArea* GameDllHooks::battlefieldAt(UiEventArea* areas, int x
             x < area->x + area->width && y < area->y + area->height)
         {
             if (area->tag != 'FILD')
+            {
+                if (eventTag && !(area->flags & eventTag))
+                    continue;
                 return nullptr;
+            }
             battlefield = area;
         }
     }
@@ -4831,6 +4820,13 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
     static bool altPressed = false;
     Zoom::State& zoom = Zoom::GetState();
+
+    const auto setMousePosition = [mouseX, mouseY, a4]()
+        {
+            *mouseX = (unsigned short)a4;
+            *mouseY = HIWORD(a4);
+        };
+
     const auto setPanKey = [&zoom, a3](bool pressed)
         {
             switch (a3)
@@ -4860,8 +4856,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
             int prevY = *mouseY;
             int prevX = *mouseX;
 
-            *mouseX = (unsigned short)a4;
-            *mouseY = HIWORD(a4);
+            setMousePosition();
 
             dispatchMouseMoveEvent(prevX, prevY, *mouseX, *mouseY);
 
@@ -4872,6 +4867,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
         case WM_LBUTTONDOWN:
         {
+            setMousePosition();
             zoom.setDragButton(
                 Zoom::State::LeftButton,
                 true,
@@ -4900,16 +4896,19 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         }
 
         case WM_LBUTTONUP:
+            setMousePosition();
             dispatchMouseButtonEvent(16);
             zoom.setDragButton(Zoom::State::LeftButton, false);
             break;
 
         case WM_LBUTTONDBLCLK:
+            setMousePosition();
             dispatchMouseButtonEvent(128);
             break;
 
         case WM_RBUTTONDOWN:
         {
+            setMousePosition();
             zoom.setDragButton(
                 Zoom::State::RightButton,
                 true,
@@ -4935,11 +4934,13 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         }
 
         case WM_RBUTTONUP:
+            setMousePosition();
             dispatchMouseButtonEvent(64);
             zoom.setDragButton(Zoom::State::RightButton, false);
             break;
 
         case WM_RBUTTONDBLCLK:
+            setMousePosition();
             dispatchMouseButtonEvent(256);
             break;
 
@@ -4959,6 +4960,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
         case WM_MBUTTONDOWN:
         {
+            setMousePosition();
             if (!zoom.dragging())
             {
                 if (UiEventArea* area = battlefieldAt(data.uiEventAreas, *mouseX, *mouseY))

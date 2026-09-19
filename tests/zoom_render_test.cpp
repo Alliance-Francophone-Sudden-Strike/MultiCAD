@@ -37,6 +37,12 @@ static void __cdecl captureCursorType(int x, int y, int*)
     cursorY = y;
 }
 
+static void __cdecl moveMouseDuringCallback()
+{
+    *callbackMouseX = 7;
+    *callbackMouseY = 9;
+}
+
 // The game reaches these overrides from inside one another. Whichever one runs
 // nested must leave the already-mapped coordinate alone instead of cropping and
 // scaling it a second time.
@@ -743,6 +749,23 @@ int main(int argc, char** argv)
     assert(nestedX == 10 && nestedY == 6); // Nested override must not map again.
     assert(cursorX == 10 && cursorY == 6);
     assert(mouseX == 4 && mouseY == 4); // Every override restored its own view.
+
+    Hooks::withBattlefieldMouseCoordinates(
+        &mouseX, &mouseY, &battlefield, moveMouseDuringCallback);
+    assert(mouseX == 7 && mouseY == 9);
+    mouseX = 4;
+    mouseY = 4;
+
+    Hooks::UiEventArea overlay{};
+    overlay.tag = 'OVRL';
+    overlay.width = 8;
+    overlay.height = 8;
+    battlefield.next = &overlay;
+    overlay.flags = 0;
+    assert(Hooks::areaOwnsPoint(&battlefield, &battlefield, 4, 4, 8));
+    overlay.flags = 8;
+    assert(!Hooks::areaOwnsPoint(&battlefield, &battlefield, 4, 4, 8));
+    battlefield.next = nullptr;
 
     updateWorld(1); // Resume/camera redraw must survive decoration composition.
     frame();

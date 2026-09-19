@@ -1623,7 +1623,8 @@ private:
     static void calculateClosedArea(UiElementBase* self, const CalculateClosedAreaData& data);
     static void dispatchMouseButtonEvent(const DispatchMouseButtonEventData& data);
     static void dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data);
-    static UiEventArea* battlefieldAt(UiEventArea* areas, int x, int y);
+    static UiEventArea* battlefieldAt(UiEventArea* areas, int x, int y, int eventTag = 0);
+    static bool areaOwnsPoint(UiEventArea* areas, UiEventArea* area, int x, int y, int eventTag);
     static void syncGroupPanelArea(const DispatchWndMessageData& data);
     inline static UiEventArea* groupPanelArea_{ nullptr };
     static int  dispatchWndMessage(const DispatchWndMessageData& data);
