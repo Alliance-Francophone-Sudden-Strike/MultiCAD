@@ -1285,11 +1285,13 @@ private:
 #pragma endregion Common_Function_Structs
 
 public:
+    static void configureWorldIsolation(GameVersion version);
     static void configureGroupPanel(GameVersion version, bool showCounts = false, bool debug = false,
                                      bool persistent = false);
     static void configureZeppelinPanel(GameVersion version);
     static void shutdown()
     {
+        configureWorldIsolation(GameVersion::UNKNOWN);
         configureGroupPanel(GameVersion::UNKNOWN);
         configureZeppelinPanel(GameVersion::UNKNOWN);
         DllHooksBase<GameTag>::shutdown();
@@ -1593,6 +1595,8 @@ public:
 private:
     static bool screenCoveredByUi(UiElementBase* ui, int width, int height);
 
+    static bool KnownIsolationDecor(const UIRenderElement* element);
+    static bool KnownIsolationUi(const UiElementBase* element);
     static void prepareUiElements(UiElementBase* ui);
     static void withBattlefieldMouseCoordinates(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());
     static void updateBattlefieldHover(int* mouseX, int* mouseY, UiEventArea* areas, int active, void(__cdecl* fn)(int));

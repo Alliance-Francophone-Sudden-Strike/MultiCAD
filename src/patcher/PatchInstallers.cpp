@@ -90,6 +90,10 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
 
     Zoom::GetState().setMode(
         state.patchEngine->skippedUnverified() ? Zoom::Mode::Off : Screen::GetZoom());
+    GameDllHooks::configureWorldIsolation(
+        !state.patchEngine->skippedUnverified() && version == GameVersion::HS_2 &&
+        detector.GetGameVersion(DllType::Game) == GameVersion::HS_2
+            ? GameVersion::HS_2 : GameVersion::UNKNOWN);
     Zoom::GetState().setIndicatorAnchor(Screen::GetZoomIndicator());
     Zoom::GetState().setIndicatorShape(Screen::GetZoomIndicatorShape());
     Zoom::GetState().setPersistentIndicator(Screen::GetPersistentZoomIndicator());

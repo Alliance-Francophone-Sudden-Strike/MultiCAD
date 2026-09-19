@@ -6,6 +6,7 @@
 #include "Zoom.h"
 #include "UIFilter.h"
 #include "GroupPanelTraits.h"
+#include "ZeppelinPanel.h"
 #include <array>
 #include <cassert>
 #include <cstdio>
@@ -83,8 +84,480 @@ static void __cdecl copyNative(int x, int y, int w, int h)
     copyMainSurfaceToRenderer(x, y, w, h);
 }
 
+static void testTrackedRenderer()
+{
+    auto& zoom = Zoom::GetState();
+    zoom.setMode(Zoom::Mode::On);
+    Screen::UpdateSize(width, height);
+    static ModuleStateShort module{};
+    g_moduleState = &module;
+    module.surface.main = g_rendererState.surfaces.main;
+    module.surface.back = g_rendererState.surfaces.back;
+    module.surface.stencil = g_rendererState.surfaces.stencil;
+    module.surface.stride = width * sizeof(Pixel);
+    module.pitch = pitch * sizeof(Pixel);
+    module.shadeColorMask = 0x7bef;
+    memset(module.fogSprites, 0, sizeof(module.fogSprites));
+    constexpr size_t count = width * (height + 1);
+    std::array<Pixel, count> originalMain{}, originalBack{}, expectedMain{}, expectedBack{};
+    std::array<Pixel, pitch * height> output{};
+    for (size_t i = 0; i < count; ++i)
+    {
+        originalMain[i] = static_cast<Pixel>(i * 17 + 1);
+        originalBack[i] = static_cast<Pixel>(i * 13 + 3);
+    }
+    const auto check = [&](const char* name, auto draw)
+    {
+        for (int offset : {0, width * 9, width * 9 + 5})
+        {
+            for (bool tracked : {false, true})
+            {
+                std::copy(originalMain.begin(), originalMain.end(), module.surface.main);
+                std::copy(originalBack.begin(), originalBack.end(), module.surface.back);
+                std::fill_n(module.surface.stencil, count, 0);
+                module.windowRect = {0, 0, width - 1, height - 1};
+                module.surface.offset = offset * sizeof(Pixel);
+                module.surface.y = height - offset / width;
+                module.surface.renderer = output.data();
+                module.pitch = pitch * sizeof(Pixel);
+                if (tracked)
+                    zoom.beginWorldIsolation(module.surface.main, module.surface.back, count, width);
+                draw();
+                if (!tracked)
+                {
+                    std::copy_n(module.surface.main, count, expectedMain.data());
+                    std::copy_n(module.surface.back, count, expectedBack.data());
+                }
+                else
+                {
+                    assert(std::equal(expectedMain.begin(), expectedMain.end(), module.surface.main));
+                    assert(std::equal(expectedBack.begin(), expectedBack.end(), module.surface.back));
+                    zoom.finishWorldIsolation(module.surface.main, module.surface.back);
+                    if (!std::equal(originalMain.begin(), originalMain.end(), module.surface.main) ||
+                        !std::equal(originalBack.begin(), originalBack.end(), module.surface.back))
+                    {
+                        printf("Isolation mismatch: %s offset=%d\n", name, offset);
+                        assert(false);
+                    }
+                }
+            }
+        }
+    };
+    check("primitives", [&]
+    {
+        drawMainSurfaceHorLine(-2, 6, width + 4, textColor);
+        drawMainSurfaceVertLine(7, -1, height + 2, textColor);
+        drawMainSurfaceFilledColorRect(29, 5, 6, 5, textColor);
+        drawMainSurfaceShadeColorRect(1, 4, 30, 5, textColor);
+        drawMainSurfaceColorPoint(31, 6, textColor);
+        drawBackSurfaceColorPoint(31, 6, textColor);
+        drawMainSurfaceColorRect(2, 2, 8, 10, textColor);
+        drawMainSurfaceColorEllipse(12, 8, 3, textColor, 1000);
+    });
+    check("outline fallback", [&] { drawMainSurfaceColorOutline(1, 1, 30, 14, textColor); });
+    check("scroll guard row", [&] { copyMainBackSurfaces(width, 0); copyMainBackSurfaces(-width, 0); });
+    check("copy and aliased destinations", [&]
+    {
+        copyBackToMainSurfaceRect(0, 0, width, height);
+        readMainSurfaceRect(0, 0, width, height, 0, 0, width, module.surface.back);
+        copyPixelRectFromTo(0, 0, width, originalMain.data(), 0, 0, width, module.surface.back, width, height);
+        convertAllColors(originalMain.data(), module.surface.main, count);
+        convertNotMagentaColors(originalBack.data(), module.surface.back, count);
+        module.surface.renderer = module.surface.back;
+        module.pitch = width * sizeof(Pixel);
+        copyMainSurfaceToRenderer(0, 0, width, height);
+        copyToRendererSurfaceRect(0, 0, width, height, 0, 0, width, originalMain.data());
+        copyMainSurfaceToRendererWithWarFog(0, 0, width - 1, height - 1);
+    });
+    check("fog", [&] { blendMainSurfaceWithWarFog(0, 0, width - 1, height - 1); });
+    check("palette sprites", [&]
+    {
+        for (int x : {-1, 3, 31})
+        {
+            drawMainSurfacePaletteSpriteCompact(x, 6, palette, &glyph);
+            drawMainSurfacePaletteSprite(x, 6, palette, &glyph);
+            drawMainSurfaceVanishingPaletteSprite(x, 6, 8, palette, &glyph);
+            drawMainSurfacePaletteSpriteStencil(x, 6, 0x300, palette, &glyph);
+            drawMainSurfacePaletteSpriteFrontStencil(x, 6, 0x300, palette, &glyph);
+            drawMainSurfacePaletteSpriteBackStencil(x, 6, 0x300, palette, &glyph);
+            drawMainSurfaceActualSprite(x, 6, 0x300, palette, &glyph);
+            drawMainSurfaceAdjustedSprite(x, 6, 0x300, &glyph);
+            drawBackSurfacePalletteSprite(x, 6, palette, &glyph);
+            drawBackSurfacePaletteSpriteAndStencil(x, 6, 0x300, palette, &glyph);
+            drawBackSurfacePaletteShadedSprite(x, 6, 0x300, palette, &glyph);
+        }
+    });
+    check("ui aliases", [&]
+    {
+        ImageSpriteUI ui{reinterpret_cast<Addr>(module.surface.back), width, 0, 0, width - 1, height - 1};
+        drawUiSprite(31, 6, &glyph, palette, &ui);
+        drawVanishingUiSprite(31, 6, 8, palette, &glyph, &ui);
+    });
+    check("raw sprite", [&]
+    {
+        const ImageSprite sprite{0, 0, 2, 1, 0xa1, 3, {{0x82, {textColor}}}};
+        drawMainSurfaceSprite(31, 6, &sprite);
+    });
+    zoom.setMode(Zoom::Mode::Off);
+    puts("Tracked renderer: clipping, aliases, fog, sprites, wrapping and guard-row restoration OK");
+}
+
+static void testPanelCursorIsolation()
+{
+    constexpr int w = 640, h = 480, stride = w + 8;
+    constexpr Pixel cursorColor = 0xf81f;
+    Screen::UpdateSize(w, h);
+    static ModuleStateShort module{};
+    g_moduleState = &module;
+    module.windowRect = {0, 0, w - 1, h - 1};
+    module.surface.stride = w * sizeof(Pixel);
+    module.surface.offset = 17 * w * sizeof(Pixel);
+    module.surface.y = h - 17;
+    const size_t count = w * (h + 1);
+    std::vector<Pixel> original(count), back(count, 0x3456);
+    for (size_t i = 0; i < count; ++i)
+        original[i] = static_cast<Pixel>(i * 11 + 1);
+    GroupPanel::Slots active{}, empty{};
+    GroupPanel::Counts counts{};
+    active[0] = active[3] = true;
+    counts[0] = 12;
+    ZeppelinPanel::Rows rows{};
+    rows[0] = {0x07e0, 127, 2, 5};
+    rows[1] = {0xf800, 45, 1, 3};
+    const auto group = GroupPanel::CellRect(0, w);
+    const auto zeppelin = ZeppelinPanel::PanelRect(w, h, 2);
+    std::vector<std::vector<Pixel>> expectedFrames;
+    std::vector<std::array<Pixel, 64 * 64>> expectedSaves;
+    auto& zoom = Zoom::GetState();
+    for (bool tracked : {false, true})
+    {
+        zoom.setMode(Zoom::Mode::On);
+        zoom.setBattlefield({0, 0, w, h});
+        std::copy(original.begin(), original.end(), g_rendererState.surfaces.main);
+        std::copy(back.begin(), back.end(), g_rendererState.surfaces.back);
+        std::vector<Pixel> output(stride * h, padding);
+        std::array<Pixel, 64 * 64> save{};
+        int savedX = group.x - 2, savedY = group.y, cw = 6, ch = 6;
+        const std::array<Zoom::Rect, 6> positions{{
+            {group.x - 2, group.y, 6, 6}, {group.x + 2, group.y, 6, 6},
+            {group.x + 2, group.y, 6, 6}, {zeppelin.x - 2, zeppelin.y, 6, 6},
+            {zeppelin.x + 2, zeppelin.y, 6, 6}, {zeppelin.x + 2, zeppelin.y, 6, 6}}};
+        for (int frame = 0; frame < 24; ++frame)
+        {
+            if (frame && frame % 6 == 0)
+                zoom.addWheelDelta(zoom.scale() == Zoom::kMinScale ? 120 : -120);
+            module.surface.renderer = output.data();
+            module.pitch = stride * sizeof(Pixel);
+            zoom.beginWorldIsolation(g_rendererState.surfaces.main, g_rendererState.surfaces.back,
+                                     count, tracked ? w : 0);
+            drawMainSurfaceFilledColorRect(savedX, savedY, cw, ch, cursorColor);
+            zoom.finishWorldIsolation(g_rendererState.surfaces.main, g_rendererState.surfaces.back);
+            assert(std::equal(original.begin(), original.end(), g_rendererState.surfaces.main));
+            assert(std::equal(back.begin(), back.end(), g_rendererState.surfaces.back));
+            copyMainSurfaceToRenderer(0, 0, w, h);
+            if (zoom.scale() != Zoom::kMinScale)
+            {
+                const auto source = output;
+                Zoom::ScaleNearest16(source.data(), stride, output.data(), stride, zoom.transform());
+            }
+            const int opacity = frame % 6 == 4 ? 8 : (frame % 6 == 5 ? 0 : 16);
+            counts[0] = static_cast<uint16_t>(12 + frame);
+            rows[0].secondsLeft = 127 - frame;
+            GroupPanel::Draw16(output.data(), stride, w, h, active, empty, empty, opacity, &counts);
+            ZeppelinPanel::Draw16(output.data(), stride, w, h, rows, 2);
+            const auto clean = output;
+            zoom.refreshCursorSaveRect(output.data(), stride, {0, 0, w, h}, w, h,
+                                       &savedX, &savedY, &cw, &ch, save.data());
+            for (int y = 0; y < ch; ++y)
+                std::copy_n(save.data() + y * 64, cw, output.data() + (savedY + y) * stride + savedX);
+            assert(output == clean);
+            const auto nextPosition = positions[frame % positions.size()];
+            savedX = nextPosition.x;
+            savedY = nextPosition.y;
+            for (int y = 0; y < ch; ++y)
+            {
+                std::copy_n(output.data() + (savedY + y) * stride + savedX, cw, save.data() + y * 64);
+                std::fill_n(output.data() + (savedY + y) * stride + savedX, cw, cursorColor);
+            }
+            if (tracked)
+            {
+                assert(output == expectedFrames[frame]);
+                assert(save == expectedSaves[frame]);
+            }
+            else
+            {
+                expectedFrames.push_back(output);
+                expectedSaves.push_back(save);
+            }
+        }
+    }
+    zoom.setMode(Zoom::Mode::Off);
+    puts("Panel cursor: full-size groups/zeppelins, save/erase/draw, fades and zoom transitions match eager isolation");
+}
+
+static int benchmarkRows;
+static bool benchmarkBack;
+static void __thiscall prepareScopeCheck(Hooks::UiElementBase* element)
+{
+    auto* main = g_rendererState.surfaces.main;
+    auto* back = g_rendererState.surfaces.back;
+    if (element->type == 1)
+    {
+        assert(main[0] == textColor);
+        back[0] = 0x2468;
+    }
+    else if (element->type == 2)
+    {
+        assert(main[0] == 1 && back[0] == 2);
+        main[0] = 0x1357;
+    }
+    else
+    {
+        assert(main[0] == 0x1357 && back[0] == 2);
+        main[0] = back[0] = 0x4567;
+    }
+}
+
+static void benchmarkWorldDraw(S32, S32, const Pixel*, const ImagePaletteSprite*)
+{
+    const auto clip = g_moduleState->windowRect;
+    g_moduleState->windowRect = {0, 0, Screen::width_ - 1, Screen::height_ - 1};
+    if (benchmarkRows)
+        drawMainSurfaceFilledColorRect(0, 0, Screen::width_, benchmarkRows, textColor);
+    if (benchmarkBack)
+        copyPixelRectFromTo(0, 0, Screen::width_, g_rendererState.surfaces.main,
+                           0, 0, Screen::width_, g_rendererState.surfaces.back, Screen::width_, benchmarkRows);
+    g_moduleState->windowRect = clip;
+}
+
+static void benchmarkUiDraw(S32, S32, const ImagePaletteSprite*, const void*, const ImageSpriteUI*)
+{
+    benchmarkWorldDraw(0, 0, nullptr, nullptr);
+}
+
+static void testNativeIsolation(uintptr_t game)
+{
+    Screen::UpdateSize(width, height);
+    static ModuleStateShort module{};
+    g_moduleState = &module;
+    module.surface.main = g_rendererState.surfaces.main;
+    module.surface.back = g_rendererState.surfaces.back;
+    module.surface.stencil = g_rendererState.surfaces.stencil;
+    module.actions.drawMainSurfacePaletteSpriteCompact = drawMainSurfacePaletteSpriteCompact;
+    module.actions.blendMainSurfaceWithWarFog_0 = blendMainSurfaceWithWarFog;
+    module.actionsPostfix.copyMainSurfaceToRenderer = reinterpret_cast<COPY_MAIN_SURFACE_TO_RENDERER_PTR>(&copyMainSurfaceToRenderer);
+    module.actionsPostfix.copyMainSurfaceToRendererWithWarFog = copyMainSurfaceToRendererWithWarFog;
+    module.actionsPostfix.readMainSurfaceRect = readMainSurfaceRect;
+    module.actionsPostfix.drawUiSprite = drawUiSprite;
+    memset(module.fogSprites, 0x80, sizeof(module.fogSprites));
+    const auto value = [game](uintptr_t rva) -> uintptr_t& { return *reinterpret_cast<uintptr_t*>(game + rva); };
+    value(0x106f6e4) = reinterpret_cast<uintptr_t>(&module.windowRect);
+    value(0x106e864) = reinterpret_cast<uintptr_t>(&drawMainSurfacePaletteSpriteStencil);
+    value(0x106e868) = reinterpret_cast<uintptr_t>(palette);
+    value(0x106e86c) = 0;
+    value(0x106e858) = value(0x106e85c) = 0;
+    auto* decorArea = reinterpret_cast<int*>(game + 0x103cf10);
+    auto* uiArea = reinterpret_cast<int*>(game + 0x103b708);
+    const auto dirty = [&]
+    {
+        for (auto* area : {decorArea, uiArea})
+        {
+            std::memset(area, 0, 104);
+            area[0] = 2;
+            area[1] = 1;
+        }
+        reinterpret_cast<uint8_t*>(decorArea + 2)[0] = 0x10;
+        reinterpret_cast<uint8_t*>(decorArea + 2)[1] = 0x10;
+        reinterpret_cast<uint8_t*>(uiArea + 2)[0] = 2;
+        reinterpret_cast<uint8_t*>(uiArea + 2)[1] = 2;
+    };
+    Hooks::UIRenderElement decor{};
+    decor.vtable = reinterpret_cast<void**>(game + 0xef874);
+    decor.rect = {0, 0, 31, 7};
+    decor.scale = reinterpret_cast<int*>(&glyph);
+    decor.some_ui_param = reinterpret_cast<int>(palette);
+    decor.type = 40;
+    value(0x103b6ec) = reinterpret_cast<uintptr_t>(&decor);
+    std::array<Pixel, width * 8> panelPixels{};
+    Hooks::UiElementBase panel{};
+    panel.vtable = reinterpret_cast<Hooks::UiElementVtable*>(game + 0xef19c);
+    panel.rightX = panel.clipRight = 31;
+    panel.bottomY = panel.clipBottom = 7;
+    panel.sprites = panelPixels.data();
+    panel.dstBuf = panelPixels.data();
+    panel.stride = width;
+    Hooks::DrawDecorUiElementData data{};
+    data.uiRenderElem = &decor;
+    data.closedAreaGameDataArray = decorArea;
+    data.cadPtr = reinterpret_cast<uintptr_t>(&module.windowRect);
+    data.blendMainWithWarFog = reinterpret_cast<decltype(data.blendMainWithWarFog)>(game + 0x982b0);
+    data.getFirstDecorUi = reinterpret_cast<decltype(data.getFirstDecorUi)>(game + 0x79b10);
+    data.getNextDecorUi = reinterpret_cast<decltype(data.getNextDecorUi)>(game + 0x79b60);
+    Hooks::init(game);
+    Hooks::configureWorldIsolation(GameVersion::HS_2);
+    assert(Hooks::KnownIsolationDecor(&decor));
+    assert(Hooks::KnownIsolationUi(&panel));
+    auto& zoom = Zoom::GetState();
+    zoom.setMode(Zoom::Mode::On);
+    std::array<Pixel, width * (height + 1)> mainBefore{}, backBefore{};
+    for (size_t i = 0; i < mainBefore.size(); ++i)
+    {
+        mainBefore[i] = static_cast<Pixel>(i + 1);
+        backBefore[i] = static_cast<Pixel>(i + 2);
+    }
+    std::copy(mainBefore.begin(), mainBefore.end(), module.surface.main);
+    std::copy(backBefore.begin(), backBefore.end(), module.surface.back);
+    std::fill_n(module.surface.stencil, mainBefore.size(), 0);
+    module.surface.stride = width * sizeof(Pixel);
+    module.surface.offset = width * 9 * sizeof(Pixel);
+    module.surface.y = 7;
+    module.windowRect = {0, 0, width - 1, height - 1};
+    std::array<Pixel, pitch * height> output{};
+    module.surface.renderer = output.data();
+    module.pitch = pitch * sizeof(Pixel);
+    data.surfaceWidth = width;
+    data.surfaceHeight = height;
+    value(0x103b6f8) = width;
+    value(0x103b6f4) = height;
+    dirty();
+    Hooks::prepareUiElements(&panel);
+    assert(zoom.isolationCopiedBytes() == 0);
+    assert(panelPixels[0] == textColor);
+    dirty();
+    Hooks::drawDecorUiElements(data);
+    assert(zoom.isolationCopiedBytes() == width * sizeof(Pixel) * 2);
+    assert(output[0] == textColor);
+    assert(std::equal(mainBefore.begin(), mainBefore.end(), module.surface.main));
+    assert(std::equal(backBefore.begin(), backBefore.end(), module.surface.back));
+
+    value(0x106e850) = value(0x106e900) = 2;
+    value(0x106e854) = value(0x106e8fc) = 2;
+    value(0x106e858) = 2;
+    value(0x106e85c) = 1;
+    value(0x106e86c) = reinterpret_cast<uintptr_t>(&glyph);
+    data.uiRenderElem = nullptr;
+    std::array<Pixel, 64 * 64> eagerSave{};
+    std::array<Pixel, pitch * height> eagerOutput{};
+    for (bool tracked : {false, true})
+    {
+        Hooks::configureWorldIsolation(tracked ? GameVersion::HS_2 : GameVersion::UNKNOWN);
+        dirty();
+        output.fill(0);
+        Hooks::drawDecorUiElements(data);
+        assert(std::equal(mainBefore.begin(), mainBefore.end(), module.surface.main));
+        assert(std::equal(backBefore.begin(), backBefore.end(), module.surface.back));
+        auto* save = reinterpret_cast<Pixel*>(game + 0x106c848);
+        assert(save[0] == mainBefore[11 * width + 2]);
+        assert(output[2 * pitch + 2] == textColor);
+        if (tracked)
+        {
+            assert(output == eagerOutput);
+            assert(std::equal(eagerSave.begin(), eagerSave.end(), save));
+            assert(zoom.isolationCopiedBytes() < mainBefore.size() * sizeof(Pixel) * 4);
+        }
+        else
+        {
+            eagerOutput = output;
+            std::copy_n(save, eagerSave.size(), eagerSave.data());
+        }
+    }
+    value(0x106e86c) = 0;
+    data.uiRenderElem = &decor;
+    std::array<void*, 9> unknownTable{};
+    unknownTable[1] = reinterpret_cast<void*>(&drawNative);
+    Hooks::UIRenderElement unknown{};
+    unknown.vtable = unknownTable.data();
+    unknown.type = 60;
+    decor.prev = &unknown;
+    dirty();
+    Hooks::drawDecorUiElements(data);
+    assert(std::equal(mainBefore.begin(), mainBefore.end(), module.surface.main));
+    assert(std::equal(backBefore.begin(), backBefore.end(), module.surface.back));
+    assert(zoom.isolationCopiedBytes() == mainBefore.size() * sizeof(Pixel) * 4);
+    decor.prev = nullptr;
+    puts("Native Fusion callbacks: lazy UI/decor, cursor background and unknown-callback fallback OK");
+
+    module.actions.drawMainSurfacePaletteSpriteCompact = benchmarkWorldDraw;
+    module.actionsPostfix.drawUiSprite = benchmarkUiDraw;
+    module.surface.offset = 0;
+    module.surface.y = height;
+    benchmarkRows = 2;
+    Hooks::UiElementVtable scopeTable{};
+    scopeTable.fn_A1000 = prepareScopeCheck;
+    Hooks::UiElementBase unknownUi{}, field{}, afterField{};
+    Hooks::UiEventArea fieldArea{};
+    fieldArea.tag = 'FILD';
+    unknownUi.vtable = field.vtable = afterField.vtable = &scopeTable;
+    unknownUi.type = 1;
+    field.type = 2;
+    afterField.type = 3;
+    field.uiEventArea = &fieldArea;
+    panel.prev = &unknownUi;
+    unknownUi.prev = &field;
+    field.prev = &afterField;
+    dirty();
+    Hooks::prepareUiElements(&panel);
+    assert(module.surface.main[0] == 0x1357 && module.surface.back[0] == 2);
+    assert(std::equal(mainBefore.begin() + 1, mainBefore.end(), module.surface.main + 1));
+    panel.prev = nullptr;
+    puts("UI isolation: contiguous callbacks and FILD commit boundaries OK");
+
+    LARGE_INTEGER frequency{};
+    QueryPerformanceFrequency(&frequency);
+    for (const auto resolution : {std::array<int, 2>{1920, 1080}, std::array<int, 2>{3840, 2160}})
+    {
+        const int w = resolution[0], h = resolution[1];
+        Screen::UpdateSize(w, h);
+        module.surface.stride = w * sizeof(Pixel);
+        module.surface.offset = 0;
+        module.surface.y = h;
+        module.pitch = w * sizeof(Pixel);
+        std::vector<Pixel> frame(static_cast<size_t>(w) * h);
+        module.surface.renderer = frame.data();
+        data.surfaceWidth = w;
+        data.surfaceHeight = h;
+        value(0x103b6f8) = w;
+        value(0x103b6f4) = h;
+        zoom.setMode(Zoom::Mode::On);
+        for (bool prepare : {true, false})
+            for (int rowsToWrite : {0, 100, h, h * 2})
+                for (bool tracked : {false, true})
+                {
+                    Hooks::configureWorldIsolation(tracked ? GameVersion::HS_2 : GameVersion::UNKNOWN);
+                    benchmarkRows = std::min(rowsToWrite, h);
+                    benchmarkBack = rowsToWrite > h;
+                    LARGE_INTEGER start{}, stop{};
+                    const auto run = [&]
+                    {
+                        dirty();
+                        if (prepare)
+                            Hooks::prepareUiElements(&panel);
+                        else
+                            Hooks::drawDecorUiElements(data);
+                    };
+                    run();
+                    const size_t bytes = zoom.isolationCopiedBytes();
+                    const size_t expected = tracked ? static_cast<size_t>(w) * rowsToWrite * sizeof(Pixel) * 2
+                        : static_cast<size_t>(w) * (h + 1) * sizeof(Pixel) * 4;
+                    assert(bytes == expected);
+                    QueryPerformanceCounter(&start);
+                    for (int i = 0; i < 80; ++i)
+                        run();
+                    QueryPerformanceCounter(&stop);
+                    printf("%dx%d %s surface_rows=%d %s bytes=%zu ms=%.4f\n", w, h,
+                           prepare ? "prepare" : "decor", rowsToWrite, tracked ? "tracked" : "eager", bytes,
+                           1000.0 * (stop.QuadPart - start.QuadPart) / frequency.QuadPart / 80);
+                }
+    }
+    zoom.setMode(Zoom::Mode::Off);
+    value(0x103b6ec) = 0;
+    Hooks::shutdown();
+}
+
 int main(int argc, char** argv)
 {
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    uintptr_t nativeGame = 0;
     Screen::UpdateSize(width, height);
     static ModuleStateShort module{};
     g_moduleState = &module;
@@ -112,6 +585,7 @@ int main(int argc, char** argv)
         const auto game = reinterpret_cast<uintptr_t>(
             LoadLibraryExA(argv[1], nullptr, DONT_RESOLVE_DLL_REFERENCES));
         assert(game);
+        nativeGame = game;
         *reinterpret_cast<void**>(game + 0x106f6e4) = &module.windowRect;
         vtable[8] = reinterpret_cast<void*>(game + 0xa0490);
     }
@@ -419,6 +893,11 @@ int main(int argc, char** argv)
         decorFrame(); // The map closes and the world composes again.
         assert(zoom.presentedScale() == zoom.scale());
     }
+
+    testTrackedRenderer();
+    testPanelCursorIsolation();
+    if (nativeGame)
+        testNativeIsolation(nativeGame);
 
     puts("Zoom rendering: pause/chat, 1x-2x, clipping, pitch, circular wrap, source preservation OK");
 }

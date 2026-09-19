@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "cad.h"
 #include "renderer.h"
+#include "Zoom.h"
 #include "ResolutionVerifier.h"
 
 #include "DllVersionDetector.h"
@@ -18,6 +19,21 @@
 #endif
 
 RendererState g_rendererState;
+
+namespace
+{
+    void CaptureSpriteRow()
+    {
+        auto& zoom = Zoom::GetState();
+        if (!zoom.trackingWorldWrites())
+            return;
+        const uintptr_t first = reinterpret_cast<uintptr_t>(g_rendererState.sprite.minX);
+        const uintptr_t last = reinterpret_cast<uintptr_t>(g_rendererState.sprite.maxX);
+        if (last > first)
+            zoom.captureWorldWrite(reinterpret_cast<void*>(first), last - first);
+    }
+}
+
 
 // 0x10001000
 void initValues()
@@ -393,6 +409,7 @@ void drawMainSurfaceHorLine(const S32 x, const S32 y, const S32 length, const Pi
             if (g_moduleState->surface.y <= y)
                 pixels = (Pixel*)((Addr)pixels - Screen::sizeInBytes_);
 
+            Zoom::GetState().captureWorldWrite(pixels, (max_x - new_x + 1) * sizeof(Pixel));
             std::fill_n(pixels, max_x - new_x + 1, pixel);
         }
     }
@@ -433,6 +450,7 @@ void drawMainSurfaceVertLine(const S32 x, const S32 y, const S32 height, const P
         {
             for (S32 xx = 0; xx < max_y; ++xx)
             {
+                Zoom::GetState().captureWorldWrite(pixels, sizeof(Pixel));
                 pixels[0] = pixel;
 
                 pixels = (Pixel*)((Addr)pixels + screenWidthInBytes);
@@ -442,6 +460,7 @@ void drawMainSurfaceVertLine(const S32 x, const S32 y, const S32 height, const P
         {
             for (S32 xx = 0; xx < max_y - delta; ++xx)
             {
+                Zoom::GetState().captureWorldWrite(pixels, sizeof(Pixel));
                 pixels[0] = pixel;
 
                 pixels = (Pixel*)((Addr)pixels + screenWidthInBytes);
@@ -451,6 +470,7 @@ void drawMainSurfaceVertLine(const S32 x, const S32 y, const S32 height, const P
 
             for (S32 xx = 0; xx < delta; ++xx)
             {
+                Zoom::GetState().captureWorldWrite(pixels, sizeof(Pixel));
                 pixels[0] = pixel;
 
                 pixels = (Pixel*)((Addr)pixels + screenWidthInBytes);
@@ -463,6 +483,7 @@ void drawMainSurfaceVertLine(const S32 x, const S32 y, const S32 height, const P
 
         for (S32 xx = 0; xx < max_y; ++xx)
         {
+            Zoom::GetState().captureWorldWrite(pixels, sizeof(Pixel));
             pixels[0] = pixel;
 
             pixels = (Pixel*)((Addr)pixels + screenWidthInBytes);
@@ -517,6 +538,7 @@ void drawMainSurfaceFilledColorRect(S32 x, S32 y, S32 width, S32 height, const P
         {
             for (S32 yy = 0; yy < height; ++yy)
             {
+                Zoom::GetState().captureWorldWrite(pixels, (width) * sizeof(Pixel));
                 std::fill_n(pixels, width, pixel);
 
                 pixels = (Pixel*)((Addr)pixels + widthInBytes);
@@ -526,6 +548,7 @@ void drawMainSurfaceFilledColorRect(S32 x, S32 y, S32 width, S32 height, const P
         {
             for (S32 yy = 0; yy < height - delta; ++yy)
             {
+                Zoom::GetState().captureWorldWrite(pixels, (width) * sizeof(Pixel));
                 std::fill_n(pixels, width, pixel);
 
                 pixels = (Pixel*)((Addr)pixels + widthInBytes);
@@ -535,6 +558,7 @@ void drawMainSurfaceFilledColorRect(S32 x, S32 y, S32 width, S32 height, const P
 
             for (S32 yy = 0; yy < delta; ++yy)
             {
+                Zoom::GetState().captureWorldWrite(pixels, (width) * sizeof(Pixel));
                 std::fill_n(pixels, width, pixel);
 
                 pixels = (Pixel*)((Addr)pixels + widthInBytes);
@@ -547,6 +571,7 @@ void drawMainSurfaceFilledColorRect(S32 x, S32 y, S32 width, S32 height, const P
 
         for (S32 yy = 0; yy < height; ++yy)
         {
+            Zoom::GetState().captureWorldWrite(pixels, (width) * sizeof(Pixel));
             std::fill_n(pixels, width, pixel);
 
             pixels = (Pixel*)((Addr)pixels + widthInBytes);
@@ -597,6 +622,7 @@ void drawMainSurfaceShadeColorRect(S32 x, S32 y, S32 width, S32 height, const Pi
         {
             for (S32 yy = 0; yy < height; ++yy)
             {
+                Zoom::GetState().captureWorldWrite(pixels, width * sizeof(Pixel));
                 for (S32 xx = 0; xx < width; ++xx)
                 {
                     pixels[xx] = SHADEPIXEL(pixels[xx], g_moduleState->shadeColorMask) + color;
@@ -609,6 +635,7 @@ void drawMainSurfaceShadeColorRect(S32 x, S32 y, S32 width, S32 height, const Pi
         {
             for (S32 yy = 0; yy < height - delta; ++yy)
             {
+                Zoom::GetState().captureWorldWrite(pixels, width * sizeof(Pixel));
                 for (S32 xx = 0; xx < width; ++xx)
                 {
                     pixels[xx] = SHADEPIXEL(pixels[xx], g_moduleState->shadeColorMask) + color;
@@ -621,6 +648,7 @@ void drawMainSurfaceShadeColorRect(S32 x, S32 y, S32 width, S32 height, const Pi
 
             for (S32 yy = 0; yy < delta; ++yy)
             {
+                Zoom::GetState().captureWorldWrite(pixels, width * sizeof(Pixel));
                 for (S32 xx = 0; xx < width; ++xx)
                 {
                     pixels[xx] = SHADEPIXEL(pixels[xx], g_moduleState->shadeColorMask) + color;
@@ -636,6 +664,7 @@ void drawMainSurfaceShadeColorRect(S32 x, S32 y, S32 width, S32 height, const Pi
 
         for (S32 yy = 0; yy < height; ++yy)
         {
+            Zoom::GetState().captureWorldWrite(pixels, width * sizeof(Pixel));
             for (S32 xx = 0; xx < width; ++xx)
             {
                 pixels[xx] = SHADEPIXEL(pixels[xx], g_moduleState->shadeColorMask) + color;
@@ -659,6 +688,7 @@ void drawMainSurfaceColorPoint(const S32 x, const S32 y, const Pixel pixel)
         if (g_moduleState->surface.y <= y)
             offset -= Screen::sizeInPixels_;
 
+        Zoom::GetState().captureWorldWrite(g_rendererState.surfaces.main + offset, sizeof(Pixel));
         g_rendererState.surfaces.main[offset] = pixel;
     }
 }
@@ -676,6 +706,7 @@ void drawBackSurfaceColorPoint(const S32 x, const S32 y, const Pixel pixel)
         if (g_moduleState->surface.y <= y)
             offset -= Screen::sizeInPixels_;
 
+        Zoom::GetState().captureWorldWrite(g_rendererState.surfaces.back + offset, sizeof(Pixel));
         g_rendererState.surfaces.back[offset] = pixel;
     }
 }
@@ -696,6 +727,7 @@ void readMainSurfaceRect(const S32 sx, const S32 sy, const S32 width, const S32 
         {
             for (S32 yy = 0; yy < height; ++yy)
             {
+                Zoom::GetState().captureWorldWrite(dst, width * sizeof(Pixel));
                 std::memcpy(dst, src, width * sizeof(Pixel));
                 src = (Pixel*)((Addr)src + widthInBytes);
                 dst = (Pixel*)((Addr)dst + (Addr)(stride * sizeof(Pixel)));
@@ -705,6 +737,7 @@ void readMainSurfaceRect(const S32 sx, const S32 sy, const S32 width, const S32 
         {
             for (S32 yy = 0; yy < height - delta; ++yy)
             {
+                Zoom::GetState().captureWorldWrite(dst, width * sizeof(Pixel));
                 std::memcpy(dst, src, width * sizeof(Pixel));
                 src = (Pixel*)((Addr)src + widthInBytes);
                 dst = (Pixel*)((Addr)dst + (Addr)(stride * sizeof(Pixel)));
@@ -714,6 +747,7 @@ void readMainSurfaceRect(const S32 sx, const S32 sy, const S32 width, const S32 
 
             for (S32 yy = 0; yy < delta; ++yy)
             {
+                Zoom::GetState().captureWorldWrite(dst, width * sizeof(Pixel));
                 std::memcpy(dst, src, width * sizeof(Pixel));
                 src = (Pixel*)((Addr)src + widthInBytes);
                 dst = (Pixel*)((Addr)dst + (Addr)(stride * sizeof(Pixel)));
@@ -726,6 +760,7 @@ void readMainSurfaceRect(const S32 sx, const S32 sy, const S32 width, const S32 
 
         for (S32 yy = 0; yy < height; ++yy)
         {
+            Zoom::GetState().captureWorldWrite(dst, width * sizeof(Pixel));
             std::memcpy(dst, src, width * sizeof(Pixel));
             src = (Pixel*)((Addr)src + widthInBytes);
             dst = (Pixel*)((Addr)dst + (Addr)(stride * sizeof(Pixel)));
@@ -736,6 +771,8 @@ void readMainSurfaceRect(const S32 sx, const S32 sy, const S32 width, const S32 
 // 0x10001be0
 void convertNotMagentaColors(const Pixel* input, Pixel* output, const S32 count)
 {
+    if (count > 0)
+        Zoom::GetState().captureWorldWrite(output, static_cast<size_t>(count) * sizeof(Pixel));
     for (S32 x = 0; x < count; ++x)
     {
         const Pixel pixel = input[x];
@@ -757,6 +794,8 @@ void convertNotMagentaColors(const Pixel* input, Pixel* output, const S32 count)
 // 0x10001c80
 void convertAllColors(const Pixel* input, Pixel* output, const S32 count)
 {
+    if (count > 0)
+        Zoom::GetState().captureWorldWrite(output, static_cast<size_t>(count) * sizeof(Pixel));
     for (S32 x = 0; x < count; ++x)
     {
         const Pixel pixel = input[x];
@@ -803,10 +842,12 @@ void copyMainBackSurfaces(const S32 dx, const S32 dy)
 
             src = g_moduleState->surface.back + screenSizeInPixels;
             dst = g_moduleState->surface.back;
+            Zoom::GetState().captureWorldWrite(dst, screenWidth * sizeof(Pixel));
             std::memcpy(dst, src, screenWidth * sizeof(Pixel));
 
             src = g_moduleState->surface.main + screenSizeInPixels;
             dst = g_moduleState->surface.main;
+            Zoom::GetState().captureWorldWrite(dst, screenWidth * sizeof(Pixel));
             std::memcpy(dst, src, screenWidth * sizeof(Pixel));
 
             src = g_moduleState->surface.stencil + screenSizeInPixels;
@@ -816,15 +857,18 @@ void copyMainBackSurfaces(const S32 dx, const S32 dy)
         {
             src = g_moduleState->surface.back;
             dst = g_moduleState->surface.back + screenSizeInPixels;
+            Zoom::GetState().captureWorldWrite(dst, screenWidth * sizeof(Pixel));
             std::memcpy(dst, src, screenWidth * sizeof(Pixel));
 
             src = g_moduleState->surface.main;
             dst = g_moduleState->surface.main + screenSizeInPixels;
+            Zoom::GetState().captureWorldWrite(dst, screenWidth * sizeof(Pixel));
             std::memcpy(dst, src, screenWidth * sizeof(Pixel));
 
             src = g_moduleState->surface.stencil;
             dst = g_moduleState->surface.stencil + screenSizeInPixels;
         }
+        Zoom::GetState().captureWorldWrite(dst, screenWidth * sizeof(Pixel));
         std::memcpy(dst, src, screenWidth * sizeof(Pixel));
     } while (false);
 
@@ -891,6 +935,7 @@ void copyBackToMainSurfaceRect(const S32 x, const S32 y, const U32 width, const 
         {
             while (lines--)
             {
+                Zoom::GetState().captureWorldWrite(d, width * sizeof(Pixel));
                 std::memcpy(d, s, width * sizeof(Pixel));
                 s = (Pixel*)((Addr)s + widthInBytes);
                 d = (Pixel*)((Addr)d + widthInBytes);
@@ -1104,6 +1149,7 @@ void drawMainSurfaceColorEllipse(const S32 x, const S32 y, S32 size, const Pixel
 // 0x100023e0
 void drawMainSurfaceColorOutline(S32 x, S32 y, S32 width, S32 height, const Pixel pixel)
 {
+    Zoom::GetState().captureWholeWorld();
     const S32 offset = (g_moduleState->surface.offset / sizeof(Pixel)) % Screen::width_;
 
     Pixel* src = (Pixel*)((Addr)g_rendererState.surfaces.main
@@ -1530,6 +1576,7 @@ bool copyToRendererSurfaceRect(S32 sx, S32 sy, S32 width, S32 height, S32 dx, S3
 
     for (S32 yy = 0; yy < height; ++yy)
     {
+        Zoom::GetState().captureWorldWrite(dst, width * sizeof(Pixel));
         std::memcpy(dst, src, width * sizeof(Pixel));
         src = (Pixel*)((Addr)src + stride * sizeof(Pixel));
         dst = (Pixel*)((Addr)dst + g_moduleState->pitch);
@@ -1549,6 +1596,7 @@ void copyPixelRectFromTo(S32 sx, S32 sy, S32 sstr, const Pixel* const input, S32
 
     for (S32 yy = 0; yy < height; ++yy)
     {
+        Zoom::GetState().captureWorldWrite(dst, width * sizeof(Pixel));
         std::memcpy(dst, src, width * sizeof(Pixel));
         src = (Pixel*)((Addr)src + sstr * sizeof(Pixel));
         dst = (Pixel*)((Addr)dst + dstr * sizeof(Pixel));
@@ -1588,6 +1636,7 @@ bool copyMainSurfaceToRenderer(S32 x, S32 y, S32 width, S32 height)
         {
             for (S32 i = 0; i < rows; ++i)
             {
+                Zoom::GetState().captureWorldWrite(dst, copyWidth);
                 std::memcpy(dst, src, copyWidth);
                 src = (Pixel*)((Addr)src + widthInBytes);
                 dst = (void*)((Addr)dst + g_moduleState->pitch);
@@ -1654,6 +1703,11 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
     U8* fogSrc = &g_moduleState->fogSprites[(y >> 3) + 8].unk[(x >> 4) + 8];
     DoublePixel* src = (DoublePixel*)((Addr)g_rendererState.surfaces.main + g_moduleState->surface.offset + (Screen::width_ * y + x) * sizeof(Pixel));
     DoublePixel* dst = (DoublePixel*)((Addr)g_moduleState->surface.renderer + x * sizeof(Pixel) + y * g_moduleState->pitch);
+    if (Zoom::GetState().trackingWorldWrites())
+        for (S32 row = y; row <= endY; ++row)
+            Zoom::GetState().captureWorldWrite(
+                static_cast<Pixel*>(g_moduleState->surface.renderer) + row * (g_moduleState->pitch / sizeof(Pixel)) + x,
+                static_cast<size_t>(endX - x + 1) * sizeof(Pixel));
     const Addr screenSizeInBytes = Screen::sizeInBytes_;
     const Addr screenWidthInBytes = Screen::widthInBytes_;
 
@@ -2012,6 +2066,7 @@ void blendMainSurfaceWithWarFog(const S32 x, const S32 y, const S32 endX, const 
                             {
                                 g_rendererState.fogBlockParams2.unk04 = 0;
                                 do {
+                                    Zoom::GetState().captureWorldWrite(src, blockSize);
                                     U8 k = 0x10;
                                     S32 v39 = fogOffset;
                                     do {
@@ -2063,6 +2118,7 @@ void blendMainSurfaceWithWarFog(const S32 x, const S32 y, const S32 endX, const 
                         {
                             do
                             {
+                                Zoom::GetState().captureWorldWrite(src, blockSize);
                                 src[0] = mask & (src[0] >> 1);
                                 src[1] = mask & (src[1] >> 1);
                                 src[2] = mask & (src[2] >> 1);
@@ -2158,6 +2214,7 @@ void drawBackSurfaceText(const S32 x, const S32 y, const char* const str, const 
 // 0x10003420
 void drawSurfacePaletteRhomb(const S32 angle_0, const S32 angle_1, const S32 angle_2, const S32 angle_3, S32 tx, S32 ty, const S32 stride, const ImagePaletteTile* const tile, Pixel* const output)
 {
+    Zoom::GetState().captureWholeWorld();
     // Tile height: 32
     // Tile width: 63
 
@@ -2427,6 +2484,7 @@ void drawSurfacePaletteRhomb(const S32 angle_0, const S32 angle_1, const S32 ang
 // 0x1000381e
 void shadeSurfaceRhomb(const S32 angle_0, const S32 angle_1, const S32 angle_2, const S32 angle_3, S32 tx, S32 ty, const S32 stride, Pixel* const output)
 {
+    Zoom::GetState().captureWholeWorld();
     const Addr screenSizeInBytes = Screen::sizeInBytes_;
 
     const U32 colorMask = ((U32)g_moduleState->actualGreenMask << 16) | g_moduleState->actualBlueMask | g_moduleState->actualRedMask;
@@ -2693,6 +2751,7 @@ void shadeSurfaceRhomb(const S32 angle_0, const S32 angle_1, const S32 angle_2, 
 // 0x10003C48
 void cleanSurfaceRhomb(const S32 angle_0, const S32 angle_1, const S32 angle_2, const S32 angle_3, S32 tx, S32 ty, const S32 stride, const ImagePaletteTile* const tile, Pixel* const output)
 {
+    Zoom::GetState().captureWholeWorld();
     const Addr screenSizeInBytes = Screen::sizeInBytes_;
 
     g_rendererState.tile.stencil = (Pixel*)((Addr)output + g_moduleState->surface.offset % Screen::widthInBytes_ + screenSizeInBytes);
@@ -2922,6 +2981,7 @@ void cleanSurfaceRhomb(const S32 angle_0, const S32 angle_1, const S32 angle_2, 
 // 0x10004016
 void drawSurfaceMaskRhomb(S32 x, S32 y, const S32 stride, const S32 mask, Pixel* const surface)
 {
+    Zoom::GetState().captureWholeWorld();
     const Addr screenSizeInBytes = Screen::sizeInBytes_;
 
     g_rendererState.tile.stencil = (Pixel*)((Addr)surface + g_moduleState->surface.offset % Screen::widthInBytes_ + screenSizeInBytes);
@@ -3203,6 +3263,7 @@ void drawBackSurfaceRhombsPaletteSprite(S32 x, S32 y, const ImagePaletteSprite* 
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -3394,6 +3455,7 @@ void drawBackSurfaceRhombsPaletteSprite2(S32 x, S32 y, const ImagePaletteSprite*
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -3587,6 +3649,7 @@ void drawBackSurfaceRhombsPaletteShadedSprite(S32 x, S32 y, U16 level, const Ima
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -3802,6 +3865,7 @@ void drawMainSurfacePaletteSpriteStencil(S32 x, S32 y, U16 level, const Pixel* c
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -3984,6 +4048,7 @@ void drawMainSurfacePaletteSpriteCompact(S32 x, S32 y, const Pixel* palette, con
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -4150,6 +4215,7 @@ void drawMainSurfaceVanishingPaletteSprite(S32 x, S32 y, const S32 vanishOffset,
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -4335,6 +4401,7 @@ void drawBackSurfacePalletteSprite(S32 x, S32 y, const Pixel* const palette, con
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -4531,6 +4598,7 @@ void drawBackSurfacePaletteSpriteAndStencil(S32 x, S32 y, U16 level, const Pixel
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -4733,6 +4801,7 @@ void drawBackSurfacePaletteShadedSprite(S32 x, S32 y, U16 level, const Pixel* co
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -4918,6 +4987,7 @@ void drawMainSurfacePaletteSprite(S32 x, S32 y, const Pixel* const palette, cons
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -5103,6 +5173,7 @@ void drawMainSurfaceSprite(S32 x, S32 y, const ImageSprite* const sprite)
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };
                 ImageSpritePixel* pixels = (ImageSpritePixel*)content;
 
@@ -5268,6 +5339,7 @@ void drawMainSurfaceAnimationSprite(S32 x, S32 y, const AnimationPixel* palette,
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -5459,6 +5531,7 @@ void drawMainSurfaceAnimationSpriteStencil(S32 x, S32 y, U16 level, const Animat
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -5661,6 +5734,7 @@ void drawMainSurfacePaletteSpriteFrontStencil(S32 x, S32 y, U16 level, const Pix
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -5876,6 +5950,7 @@ void drawMainSurfacePaletteSpriteBackStencil(S32 x, S32 y, U16 level, const Pixe
             while (g_rendererState.sprite.height > 0)
             {
                 chessPixel ^= 1;
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -6086,6 +6161,7 @@ void drawMainSurfaceShadowSprite(S32 x, S32 y, const DoublePixel shadePixel, con
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -6244,6 +6320,7 @@ void drawBackSurfaceShadowSprite(S32 x, S32 y, const DoublePixel shadePixel, con
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -6402,6 +6479,7 @@ void drawMainSurfaceAdjustedSprite(S32 x, S32 y, U16 level, const ImagePaletteSp
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -6603,6 +6681,7 @@ void drawMainSurfaceActualSprite(S32 x, S32 y, U16 level, const Pixel* const pal
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many pixels we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -6831,6 +6910,7 @@ void drawUiSprite(S32 x, S32 y, const ImagePaletteSprite* const sprite, const vo
             {
                 while (g_rendererState.sprite.height > 0)
                 {
+                    CaptureSpriteRow();
                     ptrdiff_t skip{ 0 };
                     ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -6933,6 +7013,7 @@ void drawUiSprite(S32 x, S32 y, const ImagePaletteSprite* const sprite, const vo
             {
                 while (g_rendererState.sprite.height > 0)
                 {
+                    CaptureSpriteRow();
                     ptrdiff_t skip{ 0 };
                     ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -7048,6 +7129,7 @@ void drawUiSprite(S32 x, S32 y, const ImagePaletteSprite* const sprite, const vo
             {
                 while (g_rendererState.sprite.height > 0)
                 {
+                    CaptureSpriteRow();
                     ptrdiff_t skip{ 0 };
                     ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -7140,6 +7222,7 @@ void drawUiSprite(S32 x, S32 y, const ImagePaletteSprite* const sprite, const vo
             {
                 while (g_rendererState.sprite.height > 0)
                 {
+                    CaptureSpriteRow();
                     ptrdiff_t skip{ 0 };
                     ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -7335,6 +7418,7 @@ void markUiWithButtonType(S32 x, S32 y, const ImagePaletteSprite* const sprite, 
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many elements we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 
@@ -7498,6 +7582,7 @@ void drawVanishingUiSprite(S32 x, S32 y, const S32 vanishLevel, const Pixel* pal
         {
             while (g_rendererState.sprite.height > 0)
             {
+                CaptureSpriteRow();
                 ptrdiff_t skip{ 0 };       // How many elements we should skip if pixels->count was bigger than diff between minX and sx
                 ImagePaletteSpritePixel* pixels = (ImagePaletteSpritePixel*)content;
 

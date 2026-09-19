@@ -9,6 +9,53 @@
 
 namespace
 {
+    std::array<std::array<uintptr_t, 4>, 10> g_isolationUiTables{};
+    std::array<std::array<uintptr_t, 6>, 5> g_isolationDecorTables{};
+    void** g_isolationDecorHead = nullptr;
+    uintptr_t* g_isolationCursorDraw = nullptr;
+    uintptr_t g_isolationFog = 0;
+    uintptr_t g_isolationFirst = 0;
+    uintptr_t g_isolationNext = 0;
+
+    template<size_t N, size_t M>
+    bool KnownIsolationTable(const void* table, const std::array<std::array<uintptr_t, N>, M>& known,
+                             const std::array<size_t, N - 1>& slots)
+    {
+        for (const auto& entry : known)
+            if (entry[0] && entry[0] == reinterpret_cast<uintptr_t>(table))
+            {
+                const auto* functions = static_cast<const uintptr_t*>(table);
+                for (size_t i = 0; i < slots.size(); ++i)
+                    if (functions[slots[i]] != entry[i + 1])
+                        return false;
+                return true;
+            }
+        return false;
+    }
+
+    bool KnownIsolationCursor()
+    {
+        if (!g_isolationCursorDraw)
+            return false;
+        const uintptr_t draw = *g_isolationCursorDraw;
+        const uintptr_t known[] = {
+            0,
+            reinterpret_cast<uintptr_t>(&drawMainSurfacePaletteSpriteStencil),
+            reinterpret_cast<uintptr_t>(&drawMainSurfacePaletteSpriteCompact),
+            reinterpret_cast<uintptr_t>(&drawMainSurfaceVanishingPaletteSprite),
+            reinterpret_cast<uintptr_t>(&drawMainSurfacePaletteSprite),
+            reinterpret_cast<uintptr_t>(&drawMainSurfaceSprite),
+            reinterpret_cast<uintptr_t>(&drawMainSurfaceAnimationSprite),
+            reinterpret_cast<uintptr_t>(&drawMainSurfaceAnimationSpriteStencil),
+            reinterpret_cast<uintptr_t>(&drawMainSurfacePaletteSpriteFrontStencil),
+            reinterpret_cast<uintptr_t>(&drawMainSurfacePaletteSpriteBackStencil),
+            reinterpret_cast<uintptr_t>(&drawMainSurfaceShadowSprite),
+            reinterpret_cast<uintptr_t>(&drawMainSurfaceAdjustedSprite),
+            reinterpret_cast<uintptr_t>(&drawMainSurfaceActualSprite)
+        };
+        return std::find(std::begin(known), std::end(known), draw) != std::end(known);
+    }
+
     GroupPanelReader g_groupPanel;
     GroupPanel::Fade g_groupPanelFade;
     int g_groupPanelOpacity = 0;
@@ -265,6 +312,65 @@ namespace
             g_groupPanelCursorHeight,
             g_groupPanelCursorPixels);
     }
+}
+
+bool GameDllHooks::KnownIsolationDecor(const UIRenderElement* element)
+{
+    return KnownIsolationTable(element->vtable, g_isolationDecorTables, {1, 2, 6, 7, 8});
+}
+
+bool GameDllHooks::KnownIsolationUi(const UiElementBase* element)
+{
+    if (!g_isolationDecorHead ||
+        !KnownIsolationTable(element->vtable, g_isolationUiTables, {9, 11, 12}))
+        return false;
+    for (auto* decor = static_cast<UIRenderElement*>(*g_isolationDecorHead); decor; decor = decor->prev)
+        if (!KnownIsolationDecor(decor))
+            return false;
+    return true;
+}
+
+
+void GameDllHooks::configureWorldIsolation(GameVersion version)
+{
+    g_isolationUiTables = {};
+    g_isolationDecorTables = {};
+    g_isolationDecorHead = nullptr;
+    g_isolationCursorDraw = nullptr;
+    g_isolationFog = g_isolationFirst = g_isolationNext = 0;
+    if (version != GameVersion::HS_2 || !globals_)
+        return;
+
+    g_isolationUiTables = {{
+        {0xef148, 0xa1000, 0xa98d0, 0xa95a0},
+        {0xef19c, 0xa1000, 0xa10f0, 0xa1110},
+        {0xef90c, 0xa1000, 0x9a6f0, 0xa1110},
+        {0xefacc, 0xa1000, 0xa10f0, 0xa1110},
+        {0xefb58, 0xa1000, 0xa2000, 0xa1110},
+        {0xefbd8, 0xa1000, 0xa5a60, 0xa5aa0},
+        {0xefc2c, 0xa1000, 0xa6030, 0xa1110},
+        {0xeff2c, 0xa1000, 0xa10f0, 0xacde0},
+        {0xeff94, 0xa1000, 0xad740, 0xa1110},
+        {0xf0250, 0xa1000, 0xc2bc0, 0xc2bd0}
+    }};
+    g_isolationDecorTables = {{
+        {0xef84c, 0xa04f0, 0xa0620, 0xa0450, 0x97610, 0x976a0},
+        {0xef874, 0xa04f0, 0xa0620, 0xa0450, 0xa0460, 0xa0490},
+        {0xefa64, 0xa04f0, 0xa0620, 0xa0450, 0xa0460, 0xa0490},
+        {0xefbb4, 0xa04f0, 0xa0620, 0xa0450, 0xa42d0, 0xa4310},
+        {0xefcc4, 0xa04f0, 0xa0620, 0xa0450, 0xa6400, 0xa6490}
+    }};
+    for (auto& entry : g_isolationUiTables)
+        for (auto& address : entry)
+            address = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(address));
+    for (auto& entry : g_isolationDecorTables)
+        for (auto& address : entry)
+            address = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(address));
+    g_isolationDecorHead = globals_->getPtr<void*>(0x103b6ec);
+    g_isolationCursorDraw = globals_->getPtr<uintptr_t>(0x106e864);
+    g_isolationFog = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(0x982b0));
+    g_isolationFirst = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(0x79b10));
+    g_isolationNext = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(0x79b60));
 }
 
 void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, bool debug, bool persistent)
@@ -1551,7 +1657,8 @@ void GameDllHooks::prepareUiElements(UiElementBase* ui)
             Zoom::GetState().beginWorldIsolation(
                 g_rendererState.surfaces.main,
                 g_rendererState.surfaces.back,
-                static_cast<size_t>(Screen::width_) * (Screen::height_ + 1));
+                static_cast<size_t>(Screen::width_) * (Screen::height_ + 1),
+                g_isolationDecorHead ? Screen::width_ : 0);
         }
         else if (!isolate && isolated)
         {
@@ -1560,6 +1667,8 @@ void GameDllHooks::prepareUiElements(UiElementBase* ui)
                 g_rendererState.surfaces.back);
         }
         isolated = isolate;
+        if (isolate && Zoom::GetState().trackingWorldWrites() && !KnownIsolationUi(ui))
+            Zoom::GetState().captureWholeWorld();
         ui->vtable->fn_A1000(ui);
     }
     if (isolated)
@@ -1892,7 +2001,11 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         Zoom::GetState().beginWorldIsolation(
             g_rendererState.surfaces.main,
             g_rendererState.surfaces.back,
-            static_cast<size_t>(Screen::width_) * (Screen::height_ + 1));
+            static_cast<size_t>(Screen::width_) * (Screen::height_ + 1),
+            g_isolationFog == reinterpret_cast<uintptr_t>(data.blendMainWithWarFog) &&
+            g_isolationFirst == reinterpret_cast<uintptr_t>(data.getFirstDecorUi) &&
+            g_isolationNext == reinterpret_cast<uintptr_t>(data.getNextDecorUi) &&
+            KnownIsolationCursor() ? Screen::width_ : 0);
     }
 
     UiElementBase presentation{};
@@ -1918,6 +2031,8 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         else
         {
             using Fn = void(__thiscall*)(UIRenderElement*);
+            if (Zoom::GetState().trackingWorldWrites() && !KnownIsolationDecor(uiObj))
+                Zoom::GetState().captureWholeWorld();
             reinterpret_cast<Fn>(uiObj->vtable[1])(uiObj);
         }
     }

@@ -207,6 +207,8 @@ namespace Zoom
                 presentation_.clear();
                 isolatedWorld_.clear();
                 isolatedBack_.clear();
+                savedWorldRows_.clear();
+                savedBackRows_.clear();
             }
         }
 
@@ -451,6 +453,7 @@ namespace Zoom
 
         void reset()
         {
+            finishWorldIsolation(isolationMain_, isolationBack_);
             resetScale();
             dragButtons_ = 0;
             battlefieldDragButtons_ = 0;
@@ -580,16 +583,21 @@ namespace Zoom
             }
         }
 
-        void beginWorldIsolation(uint16_t* main, uint16_t* back, size_t pixels)
+        void beginWorldIsolation(uint16_t* main, uint16_t* back, size_t pixels, size_t rowWidth = 0)
         {
-            finishWorldIsolation(main, back);
-            if (mode_ == Mode::Off || !main || !back)
+            finishWorldIsolation(isolationMain_, isolationBack_);
+            isolationCopiedBytes_ = 0;
+            if (mode_ == Mode::Off || !main || !back || !pixels)
                 return;
+            if (rowWidth && pixels % rowWidth)
+                rowWidth = 0;
 
             try
             {
                 isolatedWorld_.resize(pixels);
                 isolatedBack_.resize(pixels);
+                savedWorldRows_.assign(rowWidth ? pixels / rowWidth : 0, 0);
+                savedBackRows_.assign(rowWidth ? pixels / rowWidth : 0, 0);
             }
             catch (...)
             {
@@ -597,17 +605,53 @@ namespace Zoom
                 return;
             }
 
-            std::copy_n(main, pixels, isolatedWorld_.data());
-            std::copy_n(back, pixels, isolatedBack_.data());
+            isolationMain_ = main;
+            isolationBack_ = back;
+            isolationRowWidth_ = rowWidth;
             worldIsolated_ = true;
+            if (!rowWidth)
+            {
+                std::copy_n(main, pixels, isolatedWorld_.data());
+                std::copy_n(back, pixels, isolatedBack_.data());
+                isolationCopiedBytes_ = pixels * sizeof(uint16_t) * 2;
+            }
+        }
+
+        bool trackingWorldWrites() const { return worldIsolated_ && isolationRowWidth_ != 0; }
+        size_t isolationCopiedBytes() const { return isolationCopiedBytes_; }
+
+        void captureWorldWrite(const void* destination, size_t bytes)
+        {
+            if (!trackingWorldWrites() || !bytes)
+                return;
+            captureSurfaceWrite(destination, bytes, isolationMain_, isolatedWorld_, savedWorldRows_);
+            captureSurfaceWrite(destination, bytes, isolationBack_, isolatedBack_, savedBackRows_);
+        }
+
+        void captureWholeWorld()
+        {
+            if (!trackingWorldWrites())
+                return;
+            captureWorldWrite(isolationMain_, isolatedWorld_.size() * sizeof(uint16_t));
+            captureWorldWrite(isolationBack_, isolatedBack_.size() * sizeof(uint16_t));
+            isolationRowWidth_ = 0;
         }
 
         void finishWorldIsolation(uint16_t* main, uint16_t* back)
         {
             if (!worldIsolated_)
                 return;
-            std::copy(isolatedWorld_.begin(), isolatedWorld_.end(), main);
-            std::copy(isolatedBack_.begin(), isolatedBack_.end(), back);
+            if (isolationRowWidth_)
+            {
+                restoreSurface(main, isolatedWorld_, savedWorldRows_);
+                restoreSurface(back, isolatedBack_, savedBackRows_);
+            }
+            else
+            {
+                std::copy(isolatedWorld_.begin(), isolatedWorld_.end(), main);
+                std::copy(isolatedBack_.begin(), isolatedBack_.end(), back);
+                isolationCopiedBytes_ += isolatedWorld_.size() * sizeof(uint16_t) * 2;
+            }
             worldIsolated_ = false;
         }
 
@@ -686,6 +730,61 @@ namespace Zoom
         std::vector<uint16_t> presentation_;
         std::vector<uint16_t> isolatedWorld_;
         std::vector<uint16_t> isolatedBack_;
+        uint16_t* isolationMain_{};
+        uint16_t* isolationBack_{};
+        size_t isolationRowWidth_{};
+        size_t isolationCopiedBytes_{};
+        std::vector<uint8_t> savedWorldRows_;
+        std::vector<uint8_t> savedBackRows_;
+
+        void captureSurfaceWrite(const void* destination, size_t bytes, uint16_t* surface,
+                                 std::vector<uint16_t>& saved, std::vector<uint8_t>& rows)
+        {
+            const uintptr_t address = reinterpret_cast<uintptr_t>(destination);
+            const uintptr_t base = reinterpret_cast<uintptr_t>(surface);
+            const size_t surfaceBytes = saved.size() * sizeof(uint16_t);
+            if (address >= base + surfaceBytes || (address < base && bytes <= base - address))
+                return;
+            const size_t firstByte = address > base ? address - base : 0;
+            const size_t available = address < base ? bytes - (base - address) : bytes;
+            const size_t lastByte = firstByte + std::min(available, surfaceBytes - firstByte) - 1;
+            const size_t rowBytes = isolationRowWidth_ * sizeof(uint16_t);
+            const size_t last = lastByte / rowBytes + 1;
+            for (size_t row = firstByte / rowBytes; row < last;)
+            {
+                if (rows[row])
+                {
+                    ++row;
+                    continue;
+                }
+                const size_t first = row;
+                do { rows[row++] = 1; } while (row < last && !rows[row]);
+                const size_t count = (row - first) * isolationRowWidth_;
+                std::copy_n(surface + first * isolationRowWidth_, count,
+                            saved.data() + first * isolationRowWidth_);
+                isolationCopiedBytes_ += count * sizeof(uint16_t);
+            }
+        }
+
+        void restoreSurface(uint16_t* surface, const std::vector<uint16_t>& saved,
+                            const std::vector<uint8_t>& rows)
+        {
+            for (size_t row = 0; row < rows.size();)
+            {
+                if (!rows[row])
+                {
+                    ++row;
+                    continue;
+                }
+                const size_t first = row;
+                do { ++row; } while (row < rows.size() && rows[row]);
+                const size_t count = (row - first) * isolationRowWidth_;
+                std::copy_n(saved.data() + first * isolationRowWidth_, count,
+                            surface + first * isolationRowWidth_);
+                isolationCopiedBytes_ += count * sizeof(uint16_t);
+            }
+        }
+
 
         void advanceIndicatorAnimation(uint32_t tick)
         {

@@ -363,4 +363,62 @@ int main()
     assert(mainSurface[0] == 0);
     assert(backSurface[0] == 0);
 
+    std::array<uint16_t, 40> trackedMain{}, trackedBack{};
+    for (size_t i = 0; i < trackedMain.size(); ++i)
+    {
+        trackedMain[i] = static_cast<uint16_t>(i + 1);
+        trackedBack[i] = static_cast<uint16_t>(i + 101);
+    }
+    const auto originalMain = trackedMain;
+    const auto originalBack = trackedBack;
+    const auto beginTracked = [&]
+    {
+        isolation.beginWorldIsolation(trackedMain.data(), trackedBack.data(), trackedMain.size(), 8);
+    };
+    const auto finishTracked = [&]
+    {
+        isolation.finishWorldIsolation(trackedMain.data(), trackedBack.data());
+        assert(trackedMain == originalMain && trackedBack == originalBack);
+    };
+    beginTracked();
+    finishTracked();
+    assert(isolation.isolationCopiedBytes() == 0);
+
+    beginTracked();
+    isolation.captureWorldWrite(trackedMain.data() + 9, sizeof(uint16_t));
+    trackedMain[9] = 99;
+    isolation.captureWorldWrite(trackedMain.data() + 10, 2 * sizeof(uint16_t));
+    trackedMain[10] = 98;
+    assert(isolation.isolationCopiedBytes() == 16);
+    isolation.captureWorldWrite(trackedBack.data() + 9, sizeof(uint16_t));
+    trackedBack[9] = 97;
+    isolation.captureWorldWrite(trackedMain.data() + 31, 3 * sizeof(uint16_t));
+    trackedMain[31] = trackedMain[32] = trackedMain[33] = 96;
+    finishTracked();
+    assert(isolation.isolationCopiedBytes() == 128);
+
+    beginTracked();
+    isolation.captureWorldWrite(trackedMain.data() + 9, sizeof(uint16_t));
+    trackedMain[9] = 99;
+    isolation.captureWholeWorld();
+    assert(!isolation.trackingWorldWrites());
+    trackedMain[9] = 98;
+    trackedMain[0] = trackedBack[39] = 97;
+    finishTracked();
+    assert(isolation.isolationCopiedBytes() == trackedMain.size() * sizeof(uint16_t) * 4);
+
+    beginTracked();
+    isolation.captureWorldWrite(trackedMain.data() + 39, sizeof(uint16_t));
+    trackedMain[39] = 99;
+    isolation.captureWorldWrite(nullptr, 0);
+    finishTracked();
+    assert(isolation.isolationCopiedBytes() == 32);
+
+    beginTracked();
+    isolation.captureWorldWrite(trackedBack.data(), sizeof(uint16_t));
+    trackedBack[0] = 99;
+    isolation.setMode(Mode::Off);
+    assert(trackedBack == originalBack);
+    assert(!isolation.trackingWorldWrites());
+
 }
