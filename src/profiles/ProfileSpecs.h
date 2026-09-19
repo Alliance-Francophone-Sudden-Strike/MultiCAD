@@ -786,6 +786,20 @@ const std::array patches_game_ss_2_v2_2
     // Sets the screen height at which units are displayed
     PatchSpec{0x9AAA9, PatchSpec::to_bytes(SCREEN_HEIGHT_TO_SHOW_UNITS)},
 
+    // Avoid dividing by zero when drawing a selected recon plane that has reached its destination.
+    // Preserve the original progress width calculation and its one-pixel minimum for a zero duration.
+    PatchSpec{0xC39A7,
+    {
+        0x6B, 0xC0, 0x30,                   // imul eax, eax, 30h
+        0x8B, 0x8B, 0x99, 0x00, 0x00, 0x00, // mov ecx, [ebx+99h]
+        0xE3, 0x07,                         // jecxz C39B9
+        0x99,                               // cdq
+        0xF7, 0xF9,                         // idiv ecx
+        0x85, 0xC0,                         // test eax, eax
+        0x7F, 0x05,                         // jg C39BE
+        0xB8, 0x01, 0x00, 0x00, 0x00        // mov eax, 1
+    }},
+
     // Fixes a building selection issue related to changes in CAD structure
     PatchSpec{0x9B8E8, {kStencilPixelColorShift}},
     PatchSpec{0x9B8E9, PatchSpec::concat(
