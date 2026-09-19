@@ -619,6 +619,10 @@ constexpr bool ValidateUiTraits()
 {
     constexpr auto& A = UiTraits<V>::addresses;
 
+    static_assert(A.uiEventAreas == A.wndGlobalVariables + 0x101C,
+        "uiEventAreas must sit directly before the wnd click globals, "
+        "one event ring buffer past wndGlobalVariables");
+
     return
         A.pointedUiElem &&
         A.updateUiFlag &&
@@ -1175,6 +1179,7 @@ private:
         int a3;
         int a4;
         int* dword_1106F6F0;
+        int* wndClickGlobals;
 
         int(__cdecl* dispatchMouseButtonEvent)(int);
         int(__cdecl* dispatchMouseMoveEvent)(int, int, int, int);
@@ -1576,6 +1581,7 @@ public:
             a3,
             a4,
             g->getPtr<int>(A.wndGlobalVariables),
+            g->getPtr<int>(A.uiEventAreas) + 1,
             g->getFn<int(__cdecl)(int)>(A.fnDispatchMouseButtonEvent),
             g->getFn<int(__cdecl)(int, int, int, int)>(A.fnDispatchMouseMoveEvent),
             g->getFn<int(__cdecl)(int, int, int, int)>(A.fnWriteEventToRingBuffer),
