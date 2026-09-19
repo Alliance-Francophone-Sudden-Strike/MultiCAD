@@ -78,14 +78,24 @@ namespace Zoom
         int height{};
     };
 
-    // Walks source columns for the scaler without a per-pixel divide: the old
-    // loop called Transform::sourceX per pixel, which is a multiply and an
-    // integer divide every time. `index` tracks exactly the value sourceX
+    inline uint16_t Blend565(uint16_t from, uint16_t to, int t)
+    {
+        const uint32_t a = (from & 0xF81Fu) | ((from & 0x07E0u) << 16);
+        const uint32_t b = (to & 0xF81Fu) | ((to & 0x07E0u) << 16);
+        const uint32_t blend = ((a * (16 - t) + b * t + 0x01004008u) >> 4) & 0x07E0F81Fu;
+        return static_cast<uint16_t>((blend & 0xF81Fu) | ((blend >> 16) & 0x07E0u));
+    }
+
+    constexpr int kFilterSharpness = 2;
+
+    // Walks source columns and rows for the scaler without a per-pixel divide:
+    // the old loop called Transform::sourceX per pixel, which is a multiply and
+    // an integer divide every time. `index` tracks exactly the value sourceX
     // returns, so the image stays aligned with the mapping input hit-testing
-    // uses. Rows need no walk -- sourceY is called once per row, not per pixel.
+    // uses.
     struct Sampler
     {
-        int index{};     // current source column
+        int index{};     // current source line
         int remainder{}; // fractional position, in units of span
         int step{};      // source extent
         int span{};      // destination extent
@@ -98,6 +108,14 @@ namespace Zoom
                 remainder -= span;
                 ++index;
             }
+        }
+
+        int weight() const
+        {
+            const int over = remainder + step - span;
+            if (over <= 0)
+                return 0;
+            return std::clamp(((over * 16 + step / 2) / step - 8) * kFilterSharpness + 8, 0, 16);
         }
     };
 
@@ -127,6 +145,18 @@ namespace Zoom
                 offset % destination.width,
                 source.width,
                 destination.width
+            };
+        }
+
+        Sampler samplerY(int physicalY) const
+        {
+            const int y = std::clamp(physicalY - destination.y, 0, destination.height - 1);
+            const int offset = y * source.height;
+            return {
+                source.y + offset / destination.height,
+                offset % destination.height,
+                source.height,
+                destination.height
             };
         }
     };
@@ -160,23 +190,77 @@ namespace Zoom
         };
     }
 
-    inline void ScaleNearest16(
+    constexpr size_t ScaleScratchSize(size_t destinationWidth)
+    {
+        return 4 * destinationWidth;
+    }
+
+    inline void ScaleSharp16(
         const uint16_t* source, int sourcePitch,
         uint16_t* destination, int destinationPitch,
-        const Transform& transform)
+        const Transform& transform, uint16_t* scratch)
     {
         const int left = transform.destination.x;
-        const int right = left + transform.destination.width;
+        const int top = transform.destination.y;
+        const int bottom = top + transform.destination.height;
+        const int width = transform.destination.width;
+        const int lastColumn = transform.source.x + transform.source.width - 1;
+        const int lastRow = transform.source.y + transform.source.height - 1;
 
-        for (int y = transform.destination.y;
-            y < transform.destination.y + transform.destination.height; ++y)
+        uint16_t* const columnIndex = scratch + 2 * width;
+        uint16_t* const columnWeight = scratch + 3 * width;
+        Sampler column = transform.samplerX(left);
+        for (int px = 0; px < width; ++px, column.advance())
         {
-            const uint16_t* const src = source + transform.sourceY(y) * sourcePitch;
-            uint16_t* const dst = destination + y * destinationPitch;
+            columnIndex[px] = static_cast<uint16_t>(column.index);
+            columnWeight[px] = static_cast<uint16_t>(
+                column.index < lastColumn ? column.weight() : 0);
+        }
 
-            Sampler x = transform.samplerX(left);
-            for (int px = left; px < right; ++px, x.advance())
-                dst[px] = src[x.index];
+        const bool columnsExact = transform.source.width == width;
+        int cached[2] = { -1, -1 };
+        const auto scaledRow = [&](int sy) -> const uint16_t*
+        {
+            const uint16_t* const src = source + sy * sourcePitch;
+            if (columnsExact)
+                return src + transform.source.x;
+
+            uint16_t* const row = scratch + (sy & 1) * width;
+            if (cached[sy & 1] == sy)
+                return row;
+            cached[sy & 1] = sy;
+
+            for (int px = 0; px < width; ++px)
+            {
+                const int t = columnWeight[px];
+                const int index = columnIndex[px];
+                row[px] = t == 0 ? src[index] : Blend565(src[index], src[index + 1], t);
+            }
+            return row;
+        };
+
+        Sampler y = transform.samplerY(top);
+        for (int py = top; py < bottom; ++py, y.advance())
+        {
+            uint16_t* const dst = destination + py * destinationPitch + left;
+            const int t = y.index < lastRow ? y.weight() : 0;
+            const uint16_t* const first = scaledRow(y.index);
+
+            if (t == 0)
+            {
+                std::copy_n(first, width, dst);
+                continue;
+            }
+
+            const uint16_t* const second = scaledRow(y.index + 1);
+            if (t == 16)
+            {
+                std::copy_n(second, width, dst);
+                continue;
+            }
+
+            for (int px = 0; px < width; ++px)
+                dst[px] = Blend565(first[px], second[px], t);
         }
     }
 
@@ -205,6 +289,7 @@ namespace Zoom
             {
                 world_.clear();
                 presentation_.clear();
+                rowScratch_.clear();
                 isolatedWorld_.clear();
                 isolatedBack_.clear();
                 savedWorldRows_.clear();
@@ -490,7 +575,7 @@ namespace Zoom
             pointerValid_ = false;
         }
 
-        bool ensureBuffers(size_t pixels)
+        bool ensureBuffers(size_t pixels, size_t width)
         {
             try
             {
@@ -498,6 +583,7 @@ namespace Zoom
                     presentationValid_ = false;
                 world_.resize(pixels);
                 presentation_.resize(pixels);
+                rowScratch_.resize(ScaleScratchSize(width));
                 return true;
             }
             catch (...)
@@ -509,6 +595,7 @@ namespace Zoom
 
         uint16_t* worldBuffer() { return world_.data(); }
         uint16_t* presentationBuffer() { return presentation_.data(); }
+        uint16_t* rowScratch() { return rowScratch_.data(); }
 
         // Screen rect the game saved before drawing the cursor, clipped to the
         // surface. Empty when no cursor is currently drawn.
@@ -728,6 +815,7 @@ namespace Zoom
         uint32_t actualPitch_{};
         std::vector<uint16_t> world_;
         std::vector<uint16_t> presentation_;
+        std::vector<uint16_t> rowScratch_;
         std::vector<uint16_t> isolatedWorld_;
         std::vector<uint16_t> isolatedBack_;
         uint16_t* isolationMain_{};

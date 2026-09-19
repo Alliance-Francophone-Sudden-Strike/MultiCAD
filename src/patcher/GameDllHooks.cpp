@@ -1801,7 +1801,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     }
 
     const size_t pixels = static_cast<size_t>(width) * height;
-    if (!zoom.ensureBuffers(pixels))
+    if (!zoom.ensureBuffers(pixels, width))
         return false;
 
     Pixel* const world = zoom.worldBuffer();
@@ -1823,12 +1823,13 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         width,
         height);
 
-    Zoom::ScaleNearest16(
+    Zoom::ScaleSharp16(
         world,
         width,
         static_cast<Pixel*>(g_moduleState->surface.renderer),
         static_cast<int>(g_moduleState->pitch / sizeof(Pixel)),
-        transform);
+        transform,
+        zoom.rowScratch());
 
     if (showIndicator)
         Zoom::DrawIndicator16(

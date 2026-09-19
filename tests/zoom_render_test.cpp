@@ -234,6 +234,7 @@ static void testPanelCursorIsolation()
     const auto zeppelin = ZeppelinPanel::PanelRect(w, h, 2);
     std::vector<std::vector<Pixel>> expectedFrames;
     std::vector<std::array<Pixel, 64 * 64>> expectedSaves;
+    std::vector<Pixel> scratch(Zoom::ScaleScratchSize(w));
     auto& zoom = Zoom::GetState();
     for (bool tracked : {false, true})
     {
@@ -264,7 +265,8 @@ static void testPanelCursorIsolation()
             if (zoom.scale() != Zoom::kMinScale)
             {
                 const auto source = output;
-                Zoom::ScaleNearest16(source.data(), stride, output.data(), stride, zoom.transform());
+                Zoom::ScaleSharp16(source.data(), stride, output.data(), stride,
+                                   zoom.transform(), scratch.data());
             }
             const int opacity = frame % 6 == 4 ? 8 : (frame % 6 == 5 ? 0 : 16);
             counts[0] = static_cast<uint16_t>(12 + frame);
@@ -614,7 +616,8 @@ int main(int argc, char** argv)
     data.blendMainWithWarFog = blend;
     data.getFirstDecorUi = first; data.getNextDecorUi = next;
 
-    std::array<Pixel, width * height> world{};
+    std::array<Pixel, width * height> world{}, scaledWorld{};
+    std::array<Pixel, Zoom::ScaleScratchSize(width)> worldScratch{};
     const auto updateWorld = [&](int tick)
     {
         for (int y = 0; y < height; ++y)
@@ -647,11 +650,13 @@ int main(int argc, char** argv)
         assert(g_rendererState.surfaces.main[0] == mainBefore);
         assert(std::equal(main.begin(), main.end(), g_rendererState.surfaces.main));
         assert(std::equal(back.begin(), back.end(), g_rendererState.surfaces.back));
+        Zoom::ScaleSharp16(world.data(), width, scaledWorld.data(), width, zoom.transform(),
+                           worldScratch.data());
         for (int y = 0; y < height; ++y)
         {
             for (int x = 0; x < width; ++x)
             {
-                Pixel expected = world[zoom.transform().sourceY(y) * width + zoom.transform().sourceX(x)];
+                Pixel expected = scaledWorld[y * width + x];
                 if (data.uiRenderElem && ((y == 1 && x < 2) || (y == height - 1 && x == width - 1)))
                     expected = textColor;
                 assert(renderer[y * pitch + x] == expected);

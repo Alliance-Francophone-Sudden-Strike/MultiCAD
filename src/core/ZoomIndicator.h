@@ -7,16 +7,6 @@
 
 namespace Zoom
 {
-    inline uint16_t Blend565(uint16_t from, uint16_t to, int t)
-    {
-        const int fr = (from >> 11) & 0x1F, fg = (from >> 5) & 0x3F, fb = from & 0x1F;
-        const int tr = (to >> 11) & 0x1F, tg = (to >> 5) & 0x3F, tb = to & 0x1F;
-        return static_cast<uint16_t>(
-            (((fr * (16 - t) + tr * t + 8) / 16) << 11) |
-            (((fg * (16 - t) + tg * t + 8) / 16) << 5) |
-            ((fb * (16 - t) + tb * t + 8) / 16));
-    }
-
     inline float IndicatorLevelFraction(float scale, int dot)
     {
         return std::clamp(scale - (kMaxScale - dot) + 1.f, 0.f, 1.f);

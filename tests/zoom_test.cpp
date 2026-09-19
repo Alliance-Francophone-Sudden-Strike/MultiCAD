@@ -42,10 +42,11 @@ int main()
 
     std::array<uint16_t, 24> source{}; // 4 rows, pitch 6
     std::array<uint16_t, 40> destination{}; // 4 rows, pitch 10
+    std::array<uint16_t, ScaleScratchSize(8)> scratch{};
     for (int y = 0; y < 4; ++y)
         for (int x = 0; x < 6; ++x)
             source[y * 6 + x] = static_cast<uint16_t>(y * 10 + x);
-    ScaleNearest16(source.data(), 6, destination.data(), 10, two);
+    ScaleSharp16(source.data(), 6, destination.data(), 10, two, scratch.data());
     assert(destination[0] == 12 && destination[7] == 15);
     assert(destination[30] == 22 && destination[37] == 25);
     assert(destination[8] == 0 && destination[38] == 0); // padded pitch untouched
@@ -66,6 +67,114 @@ int main()
             assert(walk.index == direct.index && walk.remainder == direct.remainder);
             assert(walk.index == level.sourceX(x));
         }
+    }
+
+    for (int scale = kMinScale; scale <= kMaxScale; ++scale)
+    {
+        const Transform level = MakeTransform({ 10, 20, 100, 80 }, scale);
+        const int top = level.destination.y;
+
+        Sampler walk = level.samplerY(top);
+        for (int y = top; y < top + level.destination.height; ++y, walk.advance())
+        {
+            const Sampler direct = level.samplerY(y);
+            assert(walk.index == direct.index && walk.remainder == direct.remainder);
+            assert(walk.index == level.sourceY(y));
+        }
+    }
+
+    for (int scale = kMinScale; scale <= kMaxScale; ++scale)
+    {
+        const Transform level = MakeTransform({ 10, 20, 100, 80 }, scale);
+        const int lastColumn = level.source.x + level.source.width - 1;
+        const int lastRow = level.source.y + level.source.height - 1;
+
+        Sampler x = level.samplerX(level.destination.x);
+        for (int px = 0; px < level.destination.width; ++px, x.advance())
+        {
+            const int t = x.weight();
+            assert(t >= 0 && t <= 16);
+            assert(x.index >= level.source.x && x.index <= lastColumn);
+            assert(t == 0 || x.index + 1 <= lastColumn);
+        }
+
+        Sampler y = level.samplerY(level.destination.y);
+        for (int py = 0; py < level.destination.height; ++py, y.advance())
+        {
+            const int t = y.weight();
+            assert(t >= 0 && t <= 16);
+            assert(y.index >= level.source.y && y.index <= lastRow);
+            assert(t == 0 || y.index + 1 <= lastRow);
+        }
+    }
+
+    const auto scaled = [](Rect field, int scale, const std::vector<uint16_t>& pixels)
+    {
+        const Transform level = MakeTransform(field, scale);
+        std::vector<uint16_t> out(pixels.size());
+        std::vector<uint16_t> rows(ScaleScratchSize(level.destination.width));
+        ScaleSharp16(pixels.data(), field.width, out.data(), field.width, level, rows.data());
+        return out;
+    };
+
+    {
+        const Rect field{ 0, 0, 20, 8 };
+        std::vector<uint16_t> pixels(20 * 8);
+        for (size_t i = 0; i < pixels.size(); ++i)
+            pixels[i] = static_cast<uint16_t>(i * 7 + 1);
+        assert(scaled(field, kMinScale, pixels) == pixels);
+    }
+
+    for (int scale = kMinScale; scale <= kMaxScale; ++scale)
+    {
+        const Rect field{ 0, 0, 28, 8 };
+        const std::vector<uint16_t> flat(28 * 8, 0x5AD3);
+        assert(scaled(field, scale, flat) == flat);
+    }
+
+    const auto blended = [&scaled](int scale, int extent, bool vertical)
+    {
+        const Rect field = vertical ? Rect{ 0, 0, 8, extent } : Rect{ 0, 0, extent, 8 };
+        std::vector<uint16_t> pixels(static_cast<size_t>(field.width) * field.height);
+        for (int y = 0; y < field.height; ++y)
+            for (int x = 0; x < field.width; ++x)
+                pixels[y * field.width + x] = ((vertical ? y : x) & 1) ? 0xFFFF : 0x0000;
+
+        int count = 0;
+        for (const uint16_t pixel : scaled(field, scale, pixels))
+        {
+            assert(pixel == 0x0000 || pixel == 0xFFFF || pixel == 0x8410);
+            count += pixel == 0x8410;
+        }
+        return count;
+    };
+
+    for (const bool vertical : { false, true })
+    {
+        assert(blended(5, 20, vertical) == 8 * 20 / 5);
+        assert(blended(6, 24, vertical) == 8 * 24 / 3);
+        assert(blended(7, 28, vertical) == 8 * 28 / 7);
+        assert(blended(kMinScale, 20, vertical) == 0);
+        assert(blended(kMaxScale, 20, vertical) == 0);
+    }
+
+    for (int scale = kMinScale; scale <= kMaxScale; ++scale)
+    {
+        const Rect field{ 0, 0, 20, 24 };
+        const Transform level = MakeTransform(field, scale);
+        const int lastColumn = level.source.x + level.source.width - 1;
+        const int lastRow = level.source.y + level.source.height - 1;
+        std::vector<uint16_t> pixels(20 * 24, 0x1111);
+        for (int y = 0; y < 24; ++y)
+            pixels[y * 20 + lastColumn] = 0x2222;
+        for (int x = 0; x < 20; ++x)
+            pixels[lastRow * 20 + x] = 0x3333;
+        pixels[lastRow * 20 + lastColumn] = 0x4444;
+
+        const auto out = scaled(field, scale, pixels);
+        assert(out[19] == 0x2222);
+        assert(out[23 * 20] == 0x3333);
+        assert(out[23 * 20 + 19] == 0x4444);
     }
 
     State state;
@@ -251,7 +360,7 @@ int main()
 
     State presentation;
     presentation.setMode(Mode::On);
-    assert(presentation.ensureBuffers(6));
+    assert(presentation.ensureBuffers(6, 3));
     std::array<uint16_t, 8> renderer{ 1, 2, 3, 99, 4, 5, 6, 99 };
     void* rendererPtr = renderer.data();
     uint32_t rendererPitch = 4 * sizeof(uint16_t);
@@ -267,7 +376,7 @@ int main()
 
     State cursor;
     cursor.setMode(Mode::On);
-    assert(cursor.ensureBuffers(16));
+    assert(cursor.ensureBuffers(16, 4));
     std::array<uint16_t, 16> cursorRenderer{};
     void* cursorRendererPtr = cursorRenderer.data();
     uint32_t cursorRendererPitch = 4 * sizeof(uint16_t);
