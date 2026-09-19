@@ -6,11 +6,12 @@
 #include "UiFilter.h"
 #include "types.h"
 #include "ZoomIndicator.h"
+#include "WorldIsolationTraits.h"
 
 namespace
 {
-    std::array<std::array<uintptr_t, 4>, 10> g_isolationUiTables{};
-    std::array<std::array<uintptr_t, 6>, 5> g_isolationDecorTables{};
+    std::array<std::array<uintptr_t, 4>, kMaxIsolationUi> g_isolationUiTables{};
+    std::array<std::array<uintptr_t, 6>, kMaxIsolationDecor> g_isolationDecorTables{};
     void** g_isolationDecorHead = nullptr;
     uintptr_t* g_isolationCursorDraw = nullptr;
     uintptr_t g_isolationFog = 0;
@@ -343,39 +344,27 @@ void GameDllHooks::configureWorldIsolation(GameVersion version)
     g_isolationDecorHead = nullptr;
     g_isolationCursorDraw = nullptr;
     g_isolationFog = g_isolationFirst = g_isolationNext = 0;
-    if (version != GameVersion::HS_2 || !globals_)
+
+    const WorldIsolationAddresses* addresses = TryGetWorldIsolationAddresses(version);
+    if (!addresses || !globals_)
         return;
 
-    g_isolationUiTables = {{
-        {0xef148, 0xa1000, 0xa98d0, 0xa95a0},
-        {0xef19c, 0xa1000, 0xa10f0, 0xa1110},
-        {0xef90c, 0xa1000, 0x9a6f0, 0xa1110},
-        {0xefacc, 0xa1000, 0xa10f0, 0xa1110},
-        {0xefb58, 0xa1000, 0xa2000, 0xa1110},
-        {0xefbd8, 0xa1000, 0xa5a60, 0xa5aa0},
-        {0xefc2c, 0xa1000, 0xa6030, 0xa1110},
-        {0xeff2c, 0xa1000, 0xa10f0, 0xacde0},
-        {0xeff94, 0xa1000, 0xad740, 0xa1110},
-        {0xf0250, 0xa1000, 0xc2bc0, 0xc2bd0}
-    }};
-    g_isolationDecorTables = {{
-        {0xef84c, 0xa04f0, 0xa0620, 0xa0450, 0x97610, 0x976a0},
-        {0xef874, 0xa04f0, 0xa0620, 0xa0450, 0xa0460, 0xa0490},
-        {0xefa64, 0xa04f0, 0xa0620, 0xa0450, 0xa0460, 0xa0490},
-        {0xefbb4, 0xa04f0, 0xa0620, 0xa0450, 0xa42d0, 0xa4310},
-        {0xefcc4, 0xa04f0, 0xa0620, 0xa0450, 0xa6400, 0xa6490}
-    }};
+    g_isolationUiTables = addresses->ui;
+    g_isolationDecorTables = addresses->decor;
     for (auto& entry : g_isolationUiTables)
-        for (auto& address : entry)
-            address = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(address));
+        if (entry[0])
+            for (auto& address : entry)
+                address = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(address));
     for (auto& entry : g_isolationDecorTables)
-        for (auto& address : entry)
-            address = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(address));
-    g_isolationDecorHead = globals_->getPtr<void*>(0x103b6ec);
-    g_isolationCursorDraw = globals_->getPtr<uintptr_t>(0x106e864);
-    g_isolationFog = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(0x982b0));
-    g_isolationFirst = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(0x79b10));
-    g_isolationNext = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(0x79b60));
+        if (entry[0])
+            for (auto& address : entry)
+                address = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(address));
+
+    g_isolationDecorHead = globals_->getPtr<void*>(addresses->decorHead);
+    g_isolationCursorDraw = globals_->getPtr<uintptr_t>(addresses->cursorDraw);
+    g_isolationFog = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(addresses->fnBlendMainWithWarFog));
+    g_isolationFirst = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(addresses->fnGetFirstDecorUi));
+    g_isolationNext = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(addresses->fnGetNextDecorUi));
 }
 
 void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, bool debug, bool persistent)
