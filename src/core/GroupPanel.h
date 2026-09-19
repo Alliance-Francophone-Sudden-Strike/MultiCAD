@@ -61,6 +61,11 @@ namespace GroupPanel
         return 0x30 + KeyIndexForSlot(slot);
     }
 
+    constexpr bool AltOnly(bool alt, bool ctrl, bool shift, bool rightAlt)
+    {
+        return alt && !shift && (!ctrl || rightAlt);
+    }
+
     // 19% smaller than the original 27px cell / 4px gap.
     constexpr int kCell = 22;
     constexpr int kGap = 3;

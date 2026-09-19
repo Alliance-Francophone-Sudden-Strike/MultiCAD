@@ -134,12 +134,18 @@ namespace
         return true;
     }
 
+    bool altOnly()
+    {
+        return GroupPanel::AltOnly(
+            (GetKeyState(VK_MENU) & 0x8000) != 0,
+            (GetKeyState(VK_CONTROL) & 0x8000) != 0,
+            (GetKeyState(VK_SHIFT) & 0x8000) != 0,
+            (GetKeyState(VK_RMENU) & 0x8000) != 0);
+    }
+
     int groupPanelAltSlot(int key)
     {
-        if (!g_groupPanel.bound() ||
-            (GetKeyState(VK_MENU) & 0x8000) == 0 ||
-            (GetKeyState(VK_CONTROL) & 0x8000) != 0 ||
-            (GetKeyState(VK_SHIFT) & 0x8000) != 0)
+        if (!g_groupPanel.bound() || !altOnly())
             return -1;
 
         for (int slot = 0; slot < GroupPanel::kCount; ++slot)
@@ -166,10 +172,7 @@ namespace
 
     bool zeppelinPanelAltShow(int key)
     {
-        return key == 'Z' && zeppelinPanelVisible() &&
-            (GetKeyState(VK_MENU) & 0x8000) != 0 &&
-            (GetKeyState(VK_CONTROL) & 0x8000) == 0 &&
-            (GetKeyState(VK_SHIFT) & 0x8000) == 0;
+        return key == 'Z' && zeppelinPanelVisible() && altOnly();
     }
 
     Zoom::Rect UnionRect(const Zoom::Rect& a, const Zoom::Rect& b)
@@ -4808,7 +4811,6 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
     auto const writeEventToRingBuffer = data.writeEventToRingBuffer;
     auto const multiByteToWideCharOr = data.multiByteToWideCharOr;
 
-    static bool altPressed = false;
     Zoom::State& zoom = Zoom::GetState();
 
     const auto setMousePosition = [mouseX, mouseY, a4]()
@@ -4996,10 +4998,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
                 writeEventToRingBuffer('/UTF', a3 + 0x1000000, *mouseX, *mouseY);
 
             // ALT + E toggle UI
-            if (a3 == VK_MENU)
-                altPressed = true;
-
-            if (altPressed && a3 == 'Y')
+            if (altOnly() && a3 == 'Y')
             {
                 bool newState = !GetUIFilter().isEnabled();
                 GetUIFilter().setEnabled(newState);
@@ -5070,9 +5069,6 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
             writeEventToRingBuffer('/KBD', a3 + 512, *mouseX, *mouseY);
             if (data.multiByteToWideCharOr)
                 writeEventToRingBuffer('/UTF', a3 + 0x2000000, *mouseX, *mouseY);
-
-            if (a3 == VK_MENU)
-                altPressed = false;
 
             break;
         }

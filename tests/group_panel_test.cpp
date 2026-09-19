@@ -33,6 +33,12 @@ int main()
     static_assert(VirtualKeyForSlot(8) == 0x39);
     static_assert(VirtualKeyForSlot(9) == 0x30);
 
+    static_assert(AltOnly(true, false, false, false));
+    static_assert(AltOnly(true, true, false, true));
+    static_assert(!AltOnly(true, true, false, false));
+    static_assert(!AltOnly(true, false, true, false));
+    static_assert(!AltOnly(false, false, false, true));
+
     // every slot maps to a distinct stored value covering exactly 1..10
     {
         std::array<bool, kCount + 1> seen{};
