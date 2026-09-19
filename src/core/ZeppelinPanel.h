@@ -18,6 +18,7 @@ namespace ZeppelinPanel
         int secondsLeft;
         int held;
         int total;
+        bool started;
     };
 
     using Rows = std::array<Row, kMaxRows>;
@@ -45,6 +46,24 @@ namespace ZeppelinPanel
 
     constexpr uint16_t kTimeText = 0xFFFF;
     constexpr uint16_t kCountText = 0xBDF7;
+
+    constexpr uint32_t kHoldMs = 5000;
+    constexpr uint32_t kFadeMs = Zoom::kIndicatorFadeMs;
+    constexpr uint32_t kAlternateMs = 2000;
+
+    constexpr int HoldOpacity(uint32_t elapsed)
+    {
+        if (elapsed >= kHoldMs)
+            return 0;
+        if (elapsed + kFadeMs <= kHoldMs)
+            return 16;
+        return static_cast<int>((kHoldMs - elapsed) * 16 / kFadeMs);
+    }
+
+    constexpr bool FrozenShowsTime(uint32_t tick)
+    {
+        return (tick / kAlternateMs) % 2 != 0;
+    }
 
     constexpr int Width()
     {
@@ -179,16 +198,21 @@ namespace ZeppelinPanel
         int height,
         const Rows& rows,
         int rowCount,
-        const Rect* clip = nullptr)
+        const Rect* clip = nullptr,
+        int opacity = 16,
+        uint32_t tick = 0)
     {
         rowCount = std::clamp(rowCount, 0, kMaxRows);
+        opacity = std::clamp(opacity, 0, 16);
 
-        if (!destination || pitch < width || rowCount <= 0 || !Fits(width, height, rowCount))
+        if (!destination || pitch < width || rowCount <= 0 || opacity <= 0 ||
+            !Fits(width, height, rowCount))
             return;
 
         const auto plot = [&](int x, int y, uint16_t color)
         {
-            destination[y * pitch + x] = color;
+            uint16_t& pixel = destination[y * pitch + x];
+            pixel = opacity == 16 ? color : Zoom::Blend565(pixel, color, opacity);
         };
 
         const auto fillRect = [&](int left, int top, int cols, int rowsCount, uint16_t color)
@@ -232,9 +256,11 @@ namespace ZeppelinPanel
                 continue;
 
             const bool running = entry.held >= entry.total;
+            const bool showTime =
+                running || (entry.started && FrozenShowsTime(tick));
 
             int glyphs[kMaxGlyphs]{};
-            const int count = running
+            const int count = showTime
                 ? TimeGlyphs(entry.secondsLeft, glyphs)
                 : CountGlyphs(entry.held, entry.total, glyphs);
 

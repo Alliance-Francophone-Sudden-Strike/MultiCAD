@@ -70,7 +70,10 @@ namespace
     bool g_groupPanelDebug = false;
 
     ZeppelinReader g_zeppelin;
-    bool g_zeppelinOpen = false;
+    bool g_zeppelinRequested = false;
+    uint32_t g_zeppelinRequestTick = 0;
+    uint32_t g_zeppelinTick = 0;
+    int g_zeppelinOpacity = 0;
     bool g_zeppelinVisible = false;
     Zoom::Rect g_zeppelinLastRect{};
 
@@ -146,7 +149,7 @@ namespace
 
     int zeppelinVisibleRows()
     {
-        return g_zeppelinOpen && g_zeppelinVisible ? g_zeppelin.rowCount() : 0;
+        return g_zeppelinOpacity > 0 && g_zeppelinVisible ? g_zeppelin.rowCount() : 0;
     }
 
     Zoom::Rect ZeppelinPanelRect()
@@ -160,7 +163,7 @@ namespace
         return g_zeppelinVisible;
     }
 
-    bool zeppelinPanelAltToggle(int key)
+    bool zeppelinPanelAltShow(int key)
     {
         return key == 'Z' && zeppelinPanelVisible() &&
             (GetKeyState(VK_MENU) & 0x8000) != 0 &&
@@ -297,7 +300,9 @@ namespace
             g_groupPanelSurfaceHeight,
             g_zeppelin.rows(),
             zeppelinVisibleRows(),
-            clip);
+            clip,
+            g_zeppelinOpacity,
+            g_zeppelinTick);
 
         const Zoom::Rect panel = ZeppelinPanelRect();
         Zoom::GetState().refreshCursorSaveRect(
@@ -395,7 +400,8 @@ void GameDllHooks::configureZeppelinPanel(GameVersion version)
     else
         g_zeppelin = {};
 
-    g_zeppelinOpen = false;
+    g_zeppelinRequested = false;
+    g_zeppelinOpacity = 0;
     g_zeppelinVisible = false;
     g_zeppelinLastRect = {};
 }
@@ -1939,6 +1945,10 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         g_zeppelinVisible = g_zeppelin.rowCount() > 0 && ZeppelinPanel::Fits(
             data.surfaceWidth, data.surfaceHeight, g_zeppelin.rowCount());
     }
+
+    g_zeppelinTick = tick;
+    g_zeppelinOpacity = g_zeppelinRequested
+        ? ZeppelinPanel::HoldOpacity(tick - g_zeppelinRequestTick) : 0;
 
     const bool zeppelinShown = zeppelinVisibleRows() > 0;
     g_zeppelinLastRect = zeppelinShown ? ZeppelinPanelRect() : Zoom::Rect{};
@@ -4982,9 +4992,10 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
             if (altSlot >= 0 && g_groupPanel.select(altSlot))
                 break;
 
-            if (zeppelinPanelAltToggle(a3))
+            if (zeppelinPanelAltShow(a3))
             {
-                g_zeppelinOpen = !g_zeppelinOpen;
+                g_zeppelinRequested = true;
+                g_zeppelinRequestTick = GetTickCount();
                 break;
             }
 
@@ -5061,7 +5072,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         {
             setPanKey(false);
 
-            if (groupPanelAltSlot(a3) >= 0 || zeppelinPanelAltToggle(a3))
+            if (groupPanelAltSlot(a3) >= 0 || zeppelinPanelAltShow(a3))
                 break;
 
             writeEventToRingBuffer('/KBD', a3 + 512, *mouseX, *mouseY);

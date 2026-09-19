@@ -129,6 +129,7 @@ private:
                 ZeppelinPanel::SecondsLeft(progress, target, kTicksPerSecond),
                 std::popcount(held & mask),
                 std::popcount(mask),
+                progress > 0,
             };
             ++rowCount_;
         }

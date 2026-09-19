@@ -141,14 +141,27 @@ int main()
         assert(SwatchArea(first).x + kSwatch == first.x + first.width);
     }
 
+    static_assert(HoldOpacity(0) == 16);
+    static_assert(HoldOpacity(kHoldMs - kFadeMs) == 16);
+    static_assert(HoldOpacity(kHoldMs - kFadeMs / 2) == 8);
+    static_assert(HoldOpacity(kHoldMs - 1) < 16);
+    static_assert(HoldOpacity(kHoldMs) == 0);
+    static_assert(HoldOpacity(0u - 1u) == 0);
+
+    static_assert(!FrozenShowsTime(0));
+    static_assert(!FrozenShowsTime(kAlternateMs - 1));
+    static_assert(FrozenShowsTime(kAlternateMs));
+    static_assert(FrozenShowsTime(2 * kAlternateMs - 1));
+    static_assert(!FrozenShowsTime(2 * kAlternateMs));
+
     assert(!Fits(200, kHeight, 3));
     assert(!Fits(kWidth, 60, 3));
     assert(Fits(kWidth, kHeight, 3));
 
     Rows rows{};
-    rows[0] = { 0xF800, 150, 0, 3 };
-    rows[1] = { 0x07E0, 75, 3, 3 };
-    rows[2] = { 0x001F, 150, 1, 3 };
+    rows[0] = { 0xF800, 150, 0, 3, false };
+    rows[1] = { 0x07E0, 75, 3, 3, true };
+    rows[2] = { 0x001F, 150, 1, 3, false };
 
     std::vector<uint16_t> open(static_cast<size_t>(kPitch) * kHeight, kUntouched);
     Draw16(open.data(), kPitch, kWidth, kHeight, rows, 3);
@@ -227,6 +240,48 @@ int main()
         Draw16(none.data(), kPitch, kWidth, kHeight, rows, 0);
         for (uint16_t pixel : none)
             assert(pixel == kUntouched);
+    }
+
+    {
+        Rows frozen = rows;
+        frozen[2].started = true;
+        const Zoom::Rect two = TextArea(RowRect(2, kWidth, kHeight, 3));
+
+        std::vector<uint16_t> counting(static_cast<size_t>(kPitch) * kHeight, kUntouched);
+        Draw16(counting.data(), kPitch, kWidth, kHeight, frozen, 3, nullptr, 16, 0);
+        assert(AreaHas(counting, two, kCountText));
+        assert(!AreaHas(counting, two, kTimeText));
+
+        std::vector<uint16_t> timing(static_cast<size_t>(kPitch) * kHeight, kUntouched);
+        Draw16(timing.data(), kPitch, kWidth, kHeight, frozen, 3, nullptr, 16, kAlternateMs);
+        assert(AreaHas(timing, two, kCountText));
+        assert(!AreaHas(timing, two, kTimeText));
+        assert(counting != timing);
+
+        std::vector<uint16_t> reset(static_cast<size_t>(kPitch) * kHeight, kUntouched);
+        Draw16(reset.data(), kPitch, kWidth, kHeight, rows, 3, nullptr, 16, kAlternateMs);
+        assert(AreaHas(reset, two, kCountText));
+        assert(reset != timing);
+
+        std::vector<uint16_t> live(static_cast<size_t>(kPitch) * kHeight, kUntouched);
+        Draw16(live.data(), kPitch, kWidth, kHeight, frozen, 3, nullptr, 16, 0);
+        assert(AreaHas(live, TextArea(RowRect(1, kWidth, kHeight, 3)), kTimeText));
+    }
+
+    {
+        std::vector<uint16_t> gone(static_cast<size_t>(kPitch) * kHeight, kUntouched);
+        Draw16(gone.data(), kPitch, kWidth, kHeight, rows, 3, nullptr, 0);
+        for (uint16_t pixel : gone)
+            assert(pixel == kUntouched);
+
+        std::vector<uint16_t> fading(static_cast<size_t>(kPitch) * kHeight, kUntouched);
+        Draw16(fading.data(), kPitch, kWidth, kHeight, rows, 3, nullptr, 8);
+        const Zoom::Rect swatch = SwatchArea(RowRect(0, kWidth, kHeight, 3));
+        const size_t middle =
+            static_cast<size_t>(RowRect(0, kWidth, kHeight, 3).y + kRowHeight / 2) * kPitch;
+        assert(fading[middle + swatch.x] == Zoom::Blend565(kUntouched, rows[0].color, 8));
+        assert(fading[middle + swatch.x] != rows[0].color);
+        assert(fading[middle + swatch.x] != kUntouched);
     }
 
     {
