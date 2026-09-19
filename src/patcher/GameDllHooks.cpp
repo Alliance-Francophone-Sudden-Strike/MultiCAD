@@ -4859,7 +4859,6 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
         case WM_LBUTTONDOWN:
         {
-            setMousePosition();
             zoom.setDragButton(
                 Zoom::State::LeftButton,
                 true,
@@ -4888,19 +4887,16 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         }
 
         case WM_LBUTTONUP:
-            setMousePosition();
             dispatchMouseButtonEvent(16);
             zoom.setDragButton(Zoom::State::LeftButton, false);
             break;
 
         case WM_LBUTTONDBLCLK:
-            setMousePosition();
             dispatchMouseButtonEvent(128);
             break;
 
         case WM_RBUTTONDOWN:
         {
-            setMousePosition();
             zoom.setDragButton(
                 Zoom::State::RightButton,
                 true,
@@ -4926,13 +4922,11 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         }
 
         case WM_RBUTTONUP:
-            setMousePosition();
             dispatchMouseButtonEvent(64);
             zoom.setDragButton(Zoom::State::RightButton, false);
             break;
 
         case WM_RBUTTONDBLCLK:
-            setMousePosition();
             dispatchMouseButtonEvent(256);
             break;
 
@@ -4952,7 +4946,6 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
         case WM_MBUTTONDOWN:
         {
-            setMousePosition();
             if (!zoom.dragging())
             {
                 if (UiEventArea* area = battlefieldAt(data.uiEventAreas, *mouseX, *mouseY))
