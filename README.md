@@ -3,23 +3,23 @@
 **MultiCAD** is a universal graphics DLL replacement for **Sudden Strike**, **Sudden Strike Forever**, and related games.
 It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) — note that higher resolutions may be a bit laggy — and includes various bug fixes across different game versions.
 
+> [!IMPORTANT]
+> This fork main goal is to produce the same multi resolution `.dll` as the parent project but with the ability to zoom in while playing.
+>
+> **Verified in game:** Sudden Strike 2, Hidden Stroke 2, Sudden Strike: Resource War 2.4, Europe 2015, Sudden Strike Gold HD v1.2 (de, en, fr, ru).
+>
+> **Supported but not yet played through:** Sudden Strike: Resource War 2.3, Black Sea, Black Gold, Sudden Strike Gold (en).
+>
+> **Not supported:** Sudden Strike 1.0 and 1.2, Sudden Strike Gold de/fr/ru, Sudden Strike HD v1.1. They run with resolution support only.
+>
+> **An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.**
+
 > [!NOTE]
-> This fork main goal is to produce the same multi resolution `.dll` as the parent project but without the menu version check. It should allow community to use the custom resolution `.dll` next to a custom menu `.dll` without conflicts.
+> Two other new features are the ability to enable a group panel and the ability to display information about zeppelins capture timing in multiplayer games. **As of now these features are only working with SS2/HS2.** Feel free to open issues in this repository if you need support for another version of the game.
 >
 > This fork also allow the user to force a profile override for the game and menu modules, allowing potential custom builds of `game*.dll` and `menu*.dll`. This feature targets advanced users who need to run modified or repacked versions of the game and menu DLLs. **Use with caution.**
->
-> Missing zeppelins in strategic map (opened with the `M` key) bug is fixed in this build. Crash on strategic map opening for ultra wide resolutions should also be addressed.
->
-> An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.
 
-> [!WARNING]
-> This fork also provides 3 new features: the ability to zoom and the control-group panel.
-> **Verified in game:** Sudden Strike 2, Hidden Stroke 2, Sudden Strike: Resource War 2.4, Europe 2015, Sudden Strike Gold HD v1.2 (de, en, fr, ru).
-> **Supported but not yet played through:** Sudden Strike: Resource War 2.3, Black Sea, Black Gold, Sudden Strike Gold (en).
-> **Not supported:** Sudden Strike 1.0 and 1.2, Sudden Strike Gold de/fr/ru, Sudden Strike HD v1.1. They run with resolution support only.
-> A 3rd new feature is the ability to display information about zeppelins capture timing in multiplayer games but only for SS2/HS2.
-
-## Supported Games
+## Resolution Supported Games
 
 ### Original Games
 
@@ -43,31 +43,31 @@ It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) �
 
 ### Mods
 
-| Game                             | Status | Versions / Languages | Fixes       |
-| -------------------------------- | ------ | -------------------- | ----------- |
-| **Sudden Strike HD v1.1**        | ✔      | en, ru               | 2 bug fixes |
-| **Sudden Strike Gold HD v1.2**   | ✔      | en, de, fr, ru       | 7 bug fixes |
-| **APRM**                         | ✔      | 3.0, 3.1, 4.0        | 7 bug fixes |
-| **AXPRM**                        | ✔      | 2.0                  | 7 bug fixes |
-| **TWO**                          | ✔      | en                   | 7 bug fixes |
-| **Eastern Front Mod**            | ✔      |                      | 6 bug fixes |
-| **Hidden Stroke 2 APRM**         | ✔      |                      | 6 bug fixes |
-| **Hidden Stroke 2 Fusion**       | ✔      |                      | 6 bug fixes |
-| **Hidden Stroke 2 Resource War** | ✔      |                      | 6 bug fixes |
-| **Hidden Stroke 3**              | ✔      |                      | 6 bug fixes |
-| **Hidden Stroke 4**              | ✔      |                      | 6 bug fixes |
-| **Liberation Mod**               | ✔      | 2.75, 5.1, 5.3       | 6 bug fixes |
-| **LRM**                          | ✔      | 5.1                  | 6 bug fixes |
-| **MWM 3**                        | ✔      |                      | 6 bug fixes |
-| **Neddus Stroke**                | ✔      |                      | 6 bug fixes |
-| **PWM**                          | ✔      | 2.0, 3.0             | 6 bug fixes |
-| **RCM**                          | ✔      | 2.7                  | 6 bug fixes |
-| **RWM 6.x**                      | ✔      | 6.5, 6.6, 6.71, 6.8  | 6 bug fixes |
-| **RWM 8.x**                      | ✔      | 8.0, 8.5             | 6 bug fixes |
-| **RWG Truth of War**             | ✔      | en, de, fr, ru       | 6 bug fixes |
-| **Vietnam Project**              | ✔      | 1.0, 1.1, 1.2        | 6 bug fixes |
-| **Warzone 2**                    | ✔      |                      | 6 bug fixes |
-| **World at War**                 | ✔      | 0.5                  | 6 bug fixes |
+| Game                             | Status | Versions / Languages     | Fixes       |
+| -------------------------------- | ------ | ------------------------ | ----------- |
+| **Sudden Strike HD v1.1**        | ✔      | en, ru                   | 2 bug fixes |
+| **Sudden Strike Gold HD v1.2**   | ✔      | en, de, fr, ru je vérifi | 7 bug fixes |
+| **APRM**                         | ✔      | 3.0, 3.1, 4.0            | 7 bug fixes |
+| **AXPRM**                        | ✔      | 2.0                      | 7 bug fixes |
+| **TWO**                          | ✔      | en                       | 7 bug fixes |
+| **Eastern Front Mod**            | ✔      |                          | 6 bug fixes |
+| **Hidden Stroke 2 APRM**         | ✔      |                          | 6 bug fixes |
+| **Hidden Stroke 2 Fusion**       | ✔      |                          | 6 bug fixes |
+| **Hidden Stroke 2 Resource War** | ✔      |                          | 6 bug fixes |
+| **Hidden Stroke 3**              | ✔      |                          | 6 bug fixes |
+| **Hidden Stroke 4**              | ✔      |                          | 6 bug fixes |
+| **Liberation Mod**               | ✔      | 2.75, 5.1, 5.3           | 6 bug fixes |
+| **LRM**                          | ✔      | 5.1                      | 6 bug fixes |
+| **MWM 3**                        | ✔      |                          | 6 bug fixes |
+| **Neddus Stroke**                | ✔      |                          | 6 bug fixes |
+| **PWM**                          | ✔      | 2.0, 3.0                 | 6 bug fixes |
+| **RCM**                          | ✔      | 2.7                      | 6 bug fixes |
+| **RWM 6.x**                      | ✔      | 6.5, 6.6, 6.71, 6.8      | 6 bug fixes |
+| **RWM 8.x**                      | ✔      | 8.0, 8.5                 | 6 bug fixes |
+| **RWG Truth of War**             | ✔      | en, de, fr, ru           | 6 bug fixes |
+| **Vietnam Project**              | ✔      | 1.0, 1.1, 1.2            | 6 bug fixes |
+| **Warzone 2**                    | ✔      |                          | 6 bug fixes |
+| **World at War**                 | ✔      | 0.5                      | 6 bug fixes |
 
 > 💡 Note: `Audio Mixer Zero-Volume Fix` restores the game volume in the audio mixer to full if it was set to zero. Applies to **all versions**.
 
@@ -104,6 +104,8 @@ To set a specific resolution, add a `Resolution` line **anywhere after** the `[G
 
 > 💡 Note: `Resolution` must be between 640x480 and 3840x2160, with a height divisible by 8 — a renderer requirement. Out-of-range values are ignored with a message.
 > Heights are rounded down to a multiple of 8 and widths to a multiple of 16 — the renderer and the fog-of-war blitter work in blocks of that size — so `1366x768` runs as `1360x768`. A mode your display then refuses brings up a picker listing the modes it does report, and saves your choice back to the ini. With no `Resolution` line set, the game uses your desktop resolution, rounded the same way.
+
+### Zoom
 
 Battlefield zoom is now possible but disabled by default for all game DLLs.
 
