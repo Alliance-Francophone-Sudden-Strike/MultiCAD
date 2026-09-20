@@ -148,6 +148,19 @@ int main()
     static_assert(HoldOpacity(kHoldMs) == 0);
     static_assert(HoldOpacity(0u - 1u) == 0);
 
+    static_assert(ToggleOpacity(true, 0) == 0);
+    static_assert(ToggleOpacity(true, kFadeMs / 2) == 8);
+    static_assert(ToggleOpacity(true, kFadeMs) == 16);
+    static_assert(ToggleOpacity(false, 0) == 16);
+    static_assert(ToggleOpacity(false, kFadeMs / 2) == 8);
+    static_assert(ToggleOpacity(false, kFadeMs) == 0);
+    static_assert(ToggleOpacity(false, 0u - 1u) == 0);
+
+    static_assert(ParseBehaviour("toggle") == Behaviour::Toggle);
+    static_assert(ParseBehaviour("temp") == Behaviour::Temp);
+    static_assert(ParseBehaviour("") == Behaviour::Temp);
+    static_assert(ParseBehaviour("nonsense") == Behaviour::Temp);
+
     static_assert(!FrozenShowsTime(0));
     static_assert(!FrozenShowsTime(kAlternateMs - 1));
     static_assert(FrozenShowsTime(kAlternateMs));

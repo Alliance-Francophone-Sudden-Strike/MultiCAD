@@ -3,6 +3,7 @@
 #include "types.h"
 #include "cad.h"
 #include "Zoom.h"
+#include "ZeppelinPanel.h"
 #include "DllHooksBase.h"
 
 #include <vector>
@@ -1293,7 +1294,8 @@ public:
     static void configureWorldIsolation(GameVersion version);
     static void configureGroupPanel(GameVersion version, bool showCounts = false, bool debug = false,
                                      bool persistent = false);
-    static void configureZeppelinPanel(GameVersion version);
+    static void configureZeppelinPanel(GameVersion version,
+                                       ZeppelinPanel::Behaviour behaviour = ZeppelinPanel::Behaviour::Temp);
     static void shutdown()
     {
         configureWorldIsolation(GameVersion::UNKNOWN);

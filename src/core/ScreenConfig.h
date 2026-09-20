@@ -3,6 +3,7 @@
 #include "types.h"
 #include "util.h"
 #include "Zoom.h"
+#include "ZeppelinPanel.h"
 
 namespace Graphics
 {
@@ -250,6 +251,20 @@ public:
         char buffer[8]{};
         GetPrivateProfileStringA("Game", "ZeppelinPanel", "off", buffer, sizeof(buffer), iniPath.c_str());
         return Zoom::ParseMode(buffer) == Zoom::Mode::On;
+    }
+
+    static ZeppelinPanel::Behaviour GetZeppelinPanelBehaviour()
+    {
+        const std::string iniPath = GetIniPath();
+        if (iniPath.empty())
+            return ZeppelinPanel::Behaviour::Temp;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "ZeppelinPanelBehaviour", "temp", buffer, sizeof(buffer), iniPath.c_str());
+        for (char& c : buffer)
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c + ('a' - 'A'));
+        return ZeppelinPanel::ParseBehaviour(buffer);
     }
 
 private:

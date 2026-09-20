@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <string_view>
 
 namespace ZeppelinPanel
 {
@@ -58,6 +59,24 @@ namespace ZeppelinPanel
         if (elapsed + kFadeMs <= kHoldMs)
             return 16;
         return static_cast<int>((kHoldMs - elapsed) * 16 / kFadeMs);
+    }
+
+    enum class Behaviour
+    {
+        Temp,
+        Toggle
+    };
+
+    constexpr Behaviour ParseBehaviour(std::string_view value)
+    {
+        return value == "toggle" ? Behaviour::Toggle : Behaviour::Temp;
+    }
+
+    constexpr int ToggleOpacity(bool shown, uint32_t elapsed)
+    {
+        const int ramp = elapsed >= kFadeMs
+            ? 16 : static_cast<int>(elapsed * 16 / kFadeMs);
+        return shown ? ramp : 16 - ramp;
     }
 
     constexpr bool FrozenShowsTime(uint32_t tick)

@@ -71,6 +71,7 @@ namespace
     bool g_groupPanelDebug = false;
 
     ZeppelinReader g_zeppelin;
+    ZeppelinPanel::Behaviour g_zeppelinBehaviour = ZeppelinPanel::Behaviour::Temp;
     bool g_zeppelinRequested = false;
     uint32_t g_zeppelinRequestTick = 0;
     uint32_t g_zeppelinTick = 0;
@@ -173,6 +174,24 @@ namespace
     bool zeppelinPanelAltShow(int key)
     {
         return key == 'Z' && zeppelinPanelVisible() && altOnly();
+    }
+
+    void zeppelinPanelPress()
+    {
+        const uint32_t now = GetTickCount();
+
+        if (g_zeppelinBehaviour != ZeppelinPanel::Behaviour::Toggle)
+        {
+            g_zeppelinRequested = true;
+            g_zeppelinRequestTick = now;
+            return;
+        }
+
+        const int current = ZeppelinPanel::ToggleOpacity(
+            g_zeppelinRequested, now - g_zeppelinRequestTick);
+        g_zeppelinRequested = !g_zeppelinRequested;
+        const int ramp = g_zeppelinRequested ? current : 16 - current;
+        g_zeppelinRequestTick = now - ramp * ZeppelinPanel::kFadeMs / 16;
     }
 
     Zoom::Rect UnionRect(const Zoom::Rect& a, const Zoom::Rect& b)
@@ -385,13 +404,14 @@ void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, boo
     g_groupPanelShowCount = showCounts;
 }
 
-void GameDllHooks::configureZeppelinPanel(GameVersion version)
+void GameDllHooks::configureZeppelinPanel(GameVersion version, ZeppelinPanel::Behaviour behaviour)
 {
     if (globals_)
         g_zeppelin.bind(*globals_, version);
     else
         g_zeppelin = {};
 
+    g_zeppelinBehaviour = behaviour;
     g_zeppelinRequested = false;
     g_zeppelinOpacity = 0;
     g_zeppelinVisible = false;
@@ -1944,8 +1964,10 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     }
 
     g_zeppelinTick = tick;
-    g_zeppelinOpacity = g_zeppelinRequested
-        ? ZeppelinPanel::HoldOpacity(tick - g_zeppelinRequestTick) : 0;
+    g_zeppelinOpacity = g_zeppelinBehaviour == ZeppelinPanel::Behaviour::Toggle
+        ? ZeppelinPanel::ToggleOpacity(g_zeppelinRequested, tick - g_zeppelinRequestTick)
+        : (g_zeppelinRequested
+            ? ZeppelinPanel::HoldOpacity(tick - g_zeppelinRequestTick) : 0);
 
     const bool zeppelinShown = zeppelinVisibleRows() > 0;
     g_zeppelinLastRect = zeppelinShown ? ZeppelinPanelRect() : Zoom::Rect{};
@@ -4981,8 +5003,8 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 
             if (zeppelinPanelAltShow(a3))
             {
-                g_zeppelinRequested = true;
-                g_zeppelinRequestTick = GetTickCount();
+                if ((a4 & 0x40000000) == 0)
+                    zeppelinPanelPress();
                 break;
             }
 

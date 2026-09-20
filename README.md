@@ -176,7 +176,7 @@ By default, the panel is only drawn while at least one group holds units. To kee
 
 On multiplayer maps built around capturing zeppelins, MultiCAD can list the zeppelin groups you have not captured yet in the bottom-right corner of the screen: one colour swatch per group, with its state to the left of it: `2/3` while you hold only some of the group's zeppelins, then the capture countdown once you hold them all. If a started capture is interrupted, the countdown freezes and the row alternates every two seconds between the held count and that frozen time, both greyed out; if an enemy capture resets the group, the count comes back on its own. A group drops off the list as soon as you own it.
 
-Show it with **`Alt` + `z`**: it stays up for five seconds, then fades out. Pressing the shortcut again restarts those five seconds. Either `Alt` key works, including `AltGr`.
+Show it with **`Alt` + `z`**. By default it stays up for five seconds, then fades out, and pressing the shortcut again restarts those five seconds. Either `Alt` key works, including `AltGr`.
 
 To enable it, set `ZeppelinPanel=on` in the game's ini:
 
@@ -185,7 +185,17 @@ To enable it, set `ZeppelinPanel=on` in the game's ini:
 > ZeppelinPanel=on
 > ```
 
-It defaults to `off`. The panel only appears on maps that actually define zeppelin groups, so it stays out of the way in single-player and on ordinary multiplayer maps.
+Set `ZeppelinPanelBehaviour=toggle` to have the shortcut open and close the panel instead, leaving it on screen until you press it again:
+
+> ```ini
+> [Game]
+> ZeppelinPanel=on
+> ZeppelinPanelBehaviour=toggle
+> ```
+
+`ZeppelinPanelBehaviour` defaults to `temp`, the five-second hold described above.
+
+`ZeppelinPanel` defaults to `off`. The panel only appears on maps that actually define zeppelin groups, so it stays out of the way in single-player and on ordinary multiplayer maps.
 
 > [!NOTE]
 > This panel is currently enabled for **Hidden Stroke 2** only. On every other version it stays inactive, even with `ZeppelinPanel=on`.
