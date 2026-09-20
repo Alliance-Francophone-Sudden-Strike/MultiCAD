@@ -84,14 +84,47 @@ namespace ZeppelinPanel
         return (tick / kAlternateMs) % 2 != 0;
     }
 
-    constexpr int Width()
+    inline int& ScaleQuarters()
     {
-        return kTextWidth + kPad + kSwatch;
+        static int quarters = PanelScale::kMinQuarters;
+        return quarters;
     }
 
-    constexpr int Height(int rows)
+    inline void SetScale(int quarters)
     {
-        return rows <= 0 ? 0 : rows * kRowHeight + (rows - 1) * kRowGap;
+        ScaleQuarters() = std::clamp(quarters, PanelScale::kMinQuarters, PanelScale::kMaxQuarters);
+    }
+
+    constexpr int Pad(int q)       { return PanelScale::Size(kPad, q); }
+    constexpr int Swatch(int q)    { return PanelScale::Size(kSwatch, q); }
+    constexpr int TimeScale(int q) { return PanelScale::Repeat(kTimeScale, q); }
+    constexpr int DigitGap(int q)  { return PanelScale::Size(kDigitGap, q); }
+    constexpr int RowHeight(int q) { return PanelScale::Size(kRowHeight, q); }
+    constexpr int RowGap(int q)    { return PanelScale::Size(kRowGap, q); }
+
+    constexpr int TimeWidth(int q)
+    {
+        return 4 * kDigitWidth * TimeScale(q) + kColonWidth * TimeScale(q) + 4 * DigitGap(q);
+    }
+
+    constexpr int CountWidth(int q)
+    {
+        return 4 * kDigitWidth * TimeScale(q) + kSlashWidth * TimeScale(q) + 4 * DigitGap(q);
+    }
+
+    constexpr int TextWidth(int q)
+    {
+        return TimeWidth(q) > CountWidth(q) ? TimeWidth(q) : CountWidth(q);
+    }
+
+    constexpr int Width(int q)
+    {
+        return TextWidth(q) + Pad(q) + Swatch(q);
+    }
+
+    constexpr int Height(int rows, int q)
+    {
+        return rows <= 0 ? 0 : rows * RowHeight(q) + (rows - 1) * RowGap(q);
     }
 
     constexpr int Bottom(int screenHeight)
@@ -99,24 +132,24 @@ namespace ZeppelinPanel
         return screenHeight - kMargin;
     }
 
-    constexpr Rect PanelRect(int screenWidth, int screenHeight, int rows)
+    constexpr Rect PanelRect(int screenWidth, int screenHeight, int rows, int q)
     {
-        const int height = Height(rows);
-        return { screenWidth - kMargin - Width(), Bottom(screenHeight) - height, Width(), height };
+        const int height = Height(rows, q);
+        return { screenWidth - kMargin - Width(q), Bottom(screenHeight) - height, Width(q), height };
     }
 
-    constexpr Rect RowRect(int index, int screenWidth, int screenHeight, int rows)
+    constexpr Rect RowRect(int index, int screenWidth, int screenHeight, int rows, int q)
     {
-        const Rect panel = PanelRect(screenWidth, screenHeight, rows);
-        return { panel.x, panel.y + index * (kRowHeight + kRowGap), Width(), kRowHeight };
+        const Rect panel = PanelRect(screenWidth, screenHeight, rows, q);
+        return { panel.x, panel.y + index * (RowHeight(q) + RowGap(q)), Width(q), RowHeight(q) };
     }
 
-    constexpr bool Fits(int screenWidth, int screenHeight, int rows)
+    constexpr bool Fits(int screenWidth, int screenHeight, int rows, int q, int groupQuarters)
     {
-        return GroupPanel::Fits(screenWidth, screenHeight) &&
-               screenWidth >= Width() + 2 * kMargin &&
-               Bottom(screenHeight) - Height(rows) >=
-                   GroupPanel::kMargin + GroupPanel::Height() + kRowGap;
+        return GroupPanel::Fits(screenWidth, screenHeight, groupQuarters) &&
+               screenWidth >= Width(q) + 2 * kMargin &&
+               Bottom(screenHeight) - Height(rows, q) >=
+                   GroupPanel::kMargin + GroupPanel::Height(groupQuarters) + RowGap(q);
     }
 
     constexpr int SecondsLeft(int progress, int target, int ticksPerSecond)
@@ -126,11 +159,11 @@ namespace ZeppelinPanel
         return (target - progress + ticksPerSecond - 1) / ticksPerSecond;
     }
 
-    constexpr int GlyphWidth(int glyph)
+    constexpr int GlyphWidth(int glyph, int q)
     {
         return (glyph == kGlyphColon ? kColonWidth
                 : glyph == kGlyphSlash ? kSlashWidth
-                : kDigitWidth) * kTimeScale;
+                : kDigitWidth) * TimeScale(q);
     }
 
     constexpr int TimeGlyphs(int seconds, int* out)
@@ -166,24 +199,49 @@ namespace ZeppelinPanel
         return count;
     }
 
-    constexpr int GlyphsWidth(const int* glyphs, int count)
+    constexpr int GlyphsWidth(const int* glyphs, int count, int q)
     {
         int width = 0;
         for (int i = 0; i < count; ++i)
-            width += GlyphWidth(glyphs[i]) + (i > 0 ? kDigitGap : 0);
+            width += GlyphWidth(glyphs[i], q) + (i > 0 ? DigitGap(q) : 0);
         return width;
     }
 
-    constexpr int WidestTimeWidth()
+    constexpr int WidestTimeWidth(int q)
     {
         int glyphs[kMaxGlyphs]{};
-        return GlyphsWidth(glyphs, TimeGlyphs(kMaxSeconds, glyphs));
+        return GlyphsWidth(glyphs, TimeGlyphs(kMaxSeconds, glyphs), q);
     }
 
-    constexpr int WidestCountWidth()
+    constexpr int WidestCountWidth(int q)
     {
         int glyphs[kMaxGlyphs]{};
-        return GlyphsWidth(glyphs, CountGlyphs(kMaxZeppelins, kMaxZeppelins, glyphs));
+        return GlyphsWidth(glyphs, CountGlyphs(kMaxZeppelins, kMaxZeppelins, glyphs), q);
+    }
+
+    inline int Pad()       { return Pad(ScaleQuarters()); }
+    inline int Swatch()    { return Swatch(ScaleQuarters()); }
+    inline int TimeScale() { return TimeScale(ScaleQuarters()); }
+    inline int RowHeight() { return RowHeight(ScaleQuarters()); }
+    inline int RowGap()    { return RowGap(ScaleQuarters()); }
+    inline int TextWidth() { return TextWidth(ScaleQuarters()); }
+    inline int Width()     { return Width(ScaleQuarters()); }
+    inline int Height(int rows) { return Height(rows, ScaleQuarters()); }
+    inline int GlyphsWidth(const int* glyphs, int count) { return GlyphsWidth(glyphs, count, ScaleQuarters()); }
+
+    inline Rect PanelRect(int screenWidth, int screenHeight, int rows)
+    {
+        return PanelRect(screenWidth, screenHeight, rows, ScaleQuarters());
+    }
+
+    inline Rect RowRect(int index, int screenWidth, int screenHeight, int rows)
+    {
+        return RowRect(index, screenWidth, screenHeight, rows, ScaleQuarters());
+    }
+
+    inline bool Fits(int screenWidth, int screenHeight, int rows)
+    {
+        return Fits(screenWidth, screenHeight, rows, ScaleQuarters(), GroupPanel::ScaleQuarters());
     }
 
     inline constexpr uint8_t kColon[kDigitHeight]
@@ -204,11 +262,24 @@ namespace ZeppelinPanel
         0b100,
     };
 
-    static_assert(kSwatch < kRowHeight);
-    static_assert(kDigitHeight * kTimeScale <= kRowHeight);
-    static_assert(kTextWidth + kPad + kSwatch == Width());
-    static_assert(WidestTimeWidth() == kTimeWidth);
-    static_assert(WidestCountWidth() == kCountWidth);
+    constexpr bool LayoutFits(int q)
+    {
+        return Swatch(q) < RowHeight(q) &&
+               kDigitHeight * TimeScale(q) <= RowHeight(q) &&
+               TextWidth(q) + Pad(q) + Swatch(q) == Width(q) &&
+               WidestTimeWidth(q) == TimeWidth(q) &&
+               WidestCountWidth(q) == CountWidth(q);
+    }
+
+    constexpr bool LayoutFitsEveryScale()
+    {
+        for (int q = PanelScale::kMinQuarters; q <= PanelScale::kMaxQuarters; ++q)
+            if (!LayoutFits(q))
+                return false;
+        return true;
+    }
+
+    static_assert(LayoutFitsEveryScale());
 
     inline void Draw16(
         uint16_t* destination,
@@ -224,8 +295,10 @@ namespace ZeppelinPanel
         rowCount = std::clamp(rowCount, 0, kMaxRows);
         opacity = std::clamp(opacity, 0, 16);
 
+        const int q = ScaleQuarters();
+
         if (!destination || pitch < width || rowCount <= 0 || opacity <= 0 ||
-            !Fits(width, height, rowCount))
+            !Fits(width, height, rowCount, q, GroupPanel::ScaleQuarters()))
             return;
 
         const auto plot = [&](int x, int y, uint16_t color)
@@ -260,16 +333,21 @@ namespace ZeppelinPanel
                             clip->y + clip->height <= area.y);
         };
 
+        const int textWidth = TextWidth(q);
+        const int swatch = Swatch(q);
+        const int rowHeight = RowHeight(q);
+        const int timeScale = TimeScale(q);
+
         for (int index = 0; index < rowCount; ++index)
         {
-            const Rect row = RowRect(index, width, height, rowCount);
+            const Rect row = RowRect(index, width, height, rowCount, q);
             if (hidden(row))
                 continue;
 
             const Row& entry = rows[static_cast<size_t>(index)];
 
-            fillRect(row.x + kTextWidth + kPad, row.y + (kRowHeight - kSwatch) / 2,
-                     kSwatch, kSwatch, entry.color);
+            fillRect(row.x + textWidth + Pad(q), row.y + (rowHeight - swatch) / 2,
+                     swatch, swatch, entry.color);
 
             if (entry.held <= 0 || entry.total <= 0)
                 continue;
@@ -284,21 +362,21 @@ namespace ZeppelinPanel
                 : CountGlyphs(entry.held, entry.total, glyphs);
 
             const uint16_t ink = running ? kTimeText : kCountText;
-            int x = row.x + kTextWidth - GlyphsWidth(glyphs, count);
-            const int textY = row.y + (kRowHeight - kDigitHeight * kTimeScale) / 2;
+            int x = row.x + textWidth - GlyphsWidth(glyphs, count, q);
+            const int textY = row.y + (rowHeight - kDigitHeight * timeScale) / 2;
 
             for (int i = 0; i < count; ++i)
             {
                 const int glyph = glyphs[i];
                 if (glyph == kGlyphColon)
-                    blit(kColon, kColonWidth, kDigitHeight, x, textY, kTimeScale, ink);
+                    blit(kColon, kColonWidth, kDigitHeight, x, textY, timeScale, ink);
                 else if (glyph == kGlyphSlash)
-                    blit(kSlash, kSlashWidth, kDigitHeight, x, textY, kTimeScale, ink);
+                    blit(kSlash, kSlashWidth, kDigitHeight, x, textY, timeScale, ink);
                 else
                     blit(GroupPanel::kDigits[glyph], kDigitWidth, kDigitHeight,
-                         x, textY, kTimeScale, ink);
+                         x, textY, timeScale, ink);
 
-                x += GlyphWidth(glyph) + kDigitGap;
+                x += GlyphWidth(glyph, q) + DigitGap(q);
             }
         }
     }

@@ -96,6 +96,7 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
             ? version : GameVersion::UNKNOWN);
     Zoom::GetState().setIndicatorAnchor(Screen::GetZoomIndicator());
     Zoom::GetState().setIndicatorShape(Screen::GetZoomIndicatorShape());
+    Zoom::GetState().setIndicatorScale(Screen::GetZoomIndicatorScale());
     Zoom::GetState().setPersistentIndicator(Screen::GetPersistentZoomIndicator());
     Zoom::GetState().setInvertZoom(Screen::GetInvertZoom());
     Zoom::GetState().setZoomOnCursor(Screen::GetZoomOnCursor());
@@ -103,10 +104,12 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
         Screen::GetGroupPanel() ? version : GameVersion::UNKNOWN,
         Screen::GetGroupPanelCount(),
         Screen::GetGroupPanelDebug(),
-        Screen::GetPersistentGroupPanel());
+        Screen::GetPersistentGroupPanel(),
+        Screen::GetGroupPanelScale());
     GameDllHooks::configureZeppelinPanel(
         Screen::GetZeppelinPanel() ? version : GameVersion::UNKNOWN,
-        Screen::GetZeppelinPanelBehaviour());
+        Screen::GetZeppelinPanelBehaviour(),
+        Screen::GetZeppelinPanelScale());
     return true;
 }
 

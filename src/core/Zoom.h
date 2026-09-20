@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PanelScale.h"
+
 #include <algorithm>
 #include <cstring>
 #include <cstdint>
@@ -305,6 +307,11 @@ namespace Zoom
         IndicatorAnchor indicatorAnchor() const { return indicatorAnchor_; }
         IndicatorShape indicatorShape() const { return indicatorShape_; }
         void setIndicatorShape(IndicatorShape shape) { indicatorShape_ = shape; }
+        int indicatorScaleQuarters() const { return indicatorScale_; }
+        void setIndicatorScale(int quarters)
+        {
+            indicatorScale_ = std::clamp(quarters, PanelScale::kMinQuarters, PanelScale::kMaxQuarters);
+        }
         void setPersistentIndicator(bool persistent) { persistentIndicator_ = persistent; }
         void setInvertZoom(bool invert) { invertZoom_ = invert; }
         void setZoomOnCursor(bool enabled) { zoomOnCursor_ = enabled; }
@@ -787,6 +794,7 @@ namespace Zoom
         bool worldIsolated_{};
         IndicatorAnchor indicatorAnchor_{ IndicatorAnchor::Left };
         IndicatorShape indicatorShape_{ IndicatorShape::Squares };
+        int indicatorScale_{ PanelScale::kMinQuarters };
         bool persistentIndicator_{};
         bool invertZoom_{};
         bool zoomOnCursor_{};

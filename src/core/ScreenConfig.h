@@ -2,8 +2,11 @@
 
 #include "types.h"
 #include "util.h"
+#include "PanelScale.h"
 #include "Zoom.h"
 #include "ZeppelinPanel.h"
+
+#include <cstdlib>
 
 namespace Graphics
 {
@@ -266,6 +269,24 @@ public:
                 c = static_cast<char>(c + ('a' - 'A'));
         return ZeppelinPanel::ParseBehaviour(buffer);
     }
+
+    static int GetPanelScale(const char* key)
+    {
+        const std::string iniPath = GetIniPath();
+        if (iniPath.empty())
+            return PanelScale::kMinQuarters;
+
+        char buffer[16]{};
+        GetPrivateProfileStringA("Game", key, "1", buffer, sizeof(buffer), iniPath.c_str());
+        for (char& c : buffer)
+            if (c == ',')
+                c = '.';
+        return PanelScale::Quarters(static_cast<float>(std::atof(buffer)));
+    }
+
+    static int GetGroupPanelScale() { return GetPanelScale("GroupPanelScale"); }
+    static int GetZeppelinPanelScale() { return GetPanelScale("ZeppelinPanelScale"); }
+    static int GetZoomIndicatorScale() { return GetPanelScale("ZoomIndicatorScale"); }
 
 private:
 

@@ -19,15 +19,15 @@ namespace Zoom
 
     inline void DrawIndicatorSquares16(
         uint16_t* destination, int pitch, int width, int height, float scale, bool right,
-        int opacity = 16)
+        int opacity = 16, int quarters = PanelScale::kMinQuarters)
     {
         constexpr int dots = kMaxScale - kMinScale + 1;
-        constexpr int size = 12;
-        constexpr int gap = 8;
+        const int size = PanelScale::Size(12, quarters);
+        const int gap = PanelScale::Size(8, quarters);
         constexpr int margin = 12;
         constexpr uint16_t outline = 0x8410;
         constexpr uint16_t fill = 0xC618;
-        constexpr int totalHeight = dots * size + (dots - 1) * gap;
+        const int totalHeight = dots * size + (dots - 1) * gap;
         const int left = right ? width - margin - size : margin;
         const int top = (height - totalHeight) / 2;
 
@@ -56,17 +56,17 @@ namespace Zoom
 
     inline void DrawIndicatorBars16(
         uint16_t* destination, int pitch, int width, int height, float scale, bool right,
-        int opacity = 16)
+        int opacity = 16, int quarters = PanelScale::kMinQuarters)
     {
         constexpr int dots = kMaxScale - kMinScale + 1;
-        constexpr int thickness = 2;
-        constexpr int gap = 18;
-        constexpr int shortLen = 14;
-        constexpr int longLen = 28;
+        const int thickness = PanelScale::Size(2, quarters);
+        const int gap = PanelScale::Size(18, quarters);
+        const int shortLen = PanelScale::Size(14, quarters);
+        const int longLen = PanelScale::Size(28, quarters);
         constexpr int margin = 12;
         constexpr uint16_t outline = 0x8410;
         constexpr uint16_t fill = 0xC618;
-        constexpr int totalHeight = dots * thickness + (dots - 1) * gap;
+        const int totalHeight = dots * thickness + (dots - 1) * gap;
         const int anchorX = right ? width - margin : margin;
         const int top = (height - totalHeight) / 2;
         const int leftEdge = right ? anchorX - longLen : anchorX;
@@ -97,11 +97,11 @@ namespace Zoom
 
     inline void DrawIndicator16(
         IndicatorShape shape, uint16_t* destination, int pitch, int width, int height, float scale,
-        bool right, int opacity = 16)
+        bool right, int opacity = 16, int quarters = PanelScale::kMinQuarters)
     {
         if (shape == IndicatorShape::Bars)
-            DrawIndicatorBars16(destination, pitch, width, height, scale, right, opacity);
+            DrawIndicatorBars16(destination, pitch, width, height, scale, right, opacity, quarters);
         else
-            DrawIndicatorSquares16(destination, pitch, width, height, scale, right, opacity);
+            DrawIndicatorSquares16(destination, pitch, width, height, scale, right, opacity, quarters);
     }
 }

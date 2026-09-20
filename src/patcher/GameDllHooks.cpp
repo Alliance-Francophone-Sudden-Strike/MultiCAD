@@ -389,8 +389,10 @@ void GameDllHooks::configureWorldIsolation(GameVersion version)
     g_isolationNext = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(addresses->fnGetNextDecorUi));
 }
 
-void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, bool debug, bool persistent)
+void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, bool debug, bool persistent,
+                                       int scaleQuarters)
 {
+    GroupPanel::SetScale(scaleQuarters);
     g_groupPanelDebug = debug;
     g_surfaceRegionRepair = &RepairGroupPanelRegion;
     g_surfacePresentRepair = &RepairGroupPanelOnPresent;
@@ -404,8 +406,10 @@ void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, boo
     g_groupPanelShowCount = showCounts;
 }
 
-void GameDllHooks::configureZeppelinPanel(GameVersion version, ZeppelinPanel::Behaviour behaviour)
+void GameDllHooks::configureZeppelinPanel(GameVersion version, ZeppelinPanel::Behaviour behaviour,
+                                          int scaleQuarters)
 {
+    ZeppelinPanel::SetScale(scaleQuarters);
     if (globals_)
         g_zeppelin.bind(*globals_, version);
     else
@@ -1863,7 +1867,8 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             height,
             zoom.animatedScale(),
             zoom.indicatorAnchor() == Zoom::IndicatorAnchor::Right,
-            zoom.indicatorOpacity(indicatorTick));
+            zoom.indicatorOpacity(indicatorTick),
+            zoom.indicatorScaleQuarters());
 
     // A panel keeps its whole image in its own sprite buffer - that is what the
     // incremental path blits its dirty tiles from - so repaint it from there.

@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <string_view>
 
 int main()
@@ -120,6 +121,115 @@ int main()
     {
         const Zoom::Rect first = CellRect(0, screenWidth);
         assert(HitTest(first.x + kCell + kGap / 2, first.y, screenWidth) == -1);
+    }
+
+    static_assert(PanelScale::Quarters(0.f) == PanelScale::kMinQuarters);
+    static_assert(PanelScale::Quarters(-1.f) == PanelScale::kMinQuarters);
+    static_assert(PanelScale::Quarters(1.f) == 4);
+    static_assert(PanelScale::Quarters(1.1f) == 4);
+    static_assert(PanelScale::Quarters(1.125f) == 5);
+    static_assert(PanelScale::Quarters(1.2f) == 5);
+    static_assert(PanelScale::Quarters(2.f) == 8);
+    static_assert(PanelScale::Quarters(2.99f) == 12);
+    static_assert(PanelScale::Quarters(3.f) == PanelScale::kMaxQuarters);
+    static_assert(PanelScale::Quarters(99.f) == PanelScale::kMaxQuarters);
+    assert(PanelScale::Quarters(std::numeric_limits<float>::quiet_NaN()) == PanelScale::kMinQuarters);
+
+    static_assert(Width(PanelScale::kMinQuarters) == 247);
+    static_assert(Height(PanelScale::kMinQuarters) == 31);
+
+    for (int q = PanelScale::kMinQuarters; q <= PanelScale::kMaxQuarters; ++q)
+    {
+        assert(Fits(screenWidth, screenHeight, q));
+        if (q > PanelScale::kMinQuarters)
+        {
+            assert(Width(q) > Width(q - 1));
+            assert(Height(q) > Height(q - 1));
+        }
+
+        const Zoom::Rect first = CellRect(0, screenWidth, q);
+        const Zoom::Rect last = CellRect(kCount - 1, screenWidth, q);
+        assert(first.x == screenWidth - kMargin - Width(q));
+        assert(last.x + last.width == screenWidth - kMargin);
+        assert(first.width == Cell(q) && first.height == Cell(q));
+
+        for (int a = 0; a < kCount; ++a)
+            for (int b = a + 1; b < kCount; ++b)
+            {
+                const Zoom::Rect ra = CellRect(a, screenWidth, q);
+                const Zoom::Rect rb = CellRect(b, screenWidth, q);
+                assert(ra.x + ra.width <= rb.x || rb.x + rb.width <= ra.x);
+            }
+
+        for (int slot = 0; slot < kCount; ++slot)
+        {
+            const Zoom::Rect cell = CellRect(slot, screenWidth, q);
+            assert(HitTest(cell.x, cell.y, screenWidth, q) == slot);
+            assert(HitTest(cell.x + cell.width - 1, cell.y, screenWidth, q) == slot);
+            assert(HitTest(cell.x, cell.y + cell.height - 1, screenWidth, q) == slot);
+            assert(HitTest(cell.x + cell.width - 1, cell.y + cell.height - 1, screenWidth, q) == slot);
+            assert(HitTest(cell.x - 1, cell.y, screenWidth, q) != slot);
+            assert(HitTest(cell.x + cell.width, cell.y, screenWidth, q) != slot);
+            assert(HitTest(cell.x, cell.y - 1, screenWidth, q) == -1);
+            assert(HitTest(cell.x, cell.y + cell.height, screenWidth, q) == -1);
+            if (slot + 1 < kCount)
+                assert(HitTest(cell.x + cell.width + Gap(q) / 2, cell.y, screenWidth, q) == -1);
+        }
+    }
+
+    {
+        SetScale(8);
+        assert(ScaleQuarters() == 8);
+
+        constexpr int width = 640;
+        constexpr int height = 140;
+        constexpr int pitch = width + 4;
+        constexpr uint16_t untouched = 0xABCD;
+        static std::array<uint16_t, pitch * height> pixels{};
+        pixels.fill(untouched);
+
+        Slots active{};
+        Slots house{};
+        Slots wheel{};
+        Slots transport{};
+        Slots gun{};
+        Counts counts{};
+        for (int slot = 0; slot < kCount; ++slot)
+        {
+            active[slot] = true;
+            house[slot] = true;
+            wheel[slot] = true;
+            transport[slot] = true;
+            gun[slot] = true;
+            counts[slot] = 9999;
+        }
+
+        assert(Fits(width, height));
+        Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, &counts, &transport,
+               false, nullptr, &gun);
+
+        int minX = width, maxX = -1, minY = height, maxY = -1;
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
+                if (pixels[y * pitch + x] != untouched)
+                {
+                    minX = minX < x ? minX : x;
+                    maxX = maxX > x ? maxX : x;
+                    minY = minY < y ? minY : y;
+                    maxY = maxY > y ? maxY : y;
+                }
+
+        const Zoom::Rect first = CellRect(0, width);
+        assert(minX == first.x);
+        assert(maxX == first.x + Width() - 1);
+        assert(minY == first.y);
+        assert(maxY == first.y + Height() - 1);
+        assert(HitTest(minX, minY, width) == 0);
+        assert(HitTest(maxX, minY, width) == kCount - 1);
+        assert(HitTest(minX - 1, minY, width) == -1);
+
+        SetScale(PanelScale::kMinQuarters);
+        assert(Width() == 247 && Height() == 31);
     }
 
     // --- 16-bit rendering ---------------------------------------------------
@@ -427,20 +537,23 @@ int main()
     static_assert(CountDigits(999) == 3);
     static_assert(CountDigits(1000) == 4);
     static_assert(CountDigits(kCountMax) == kCountMaxDigits);
-    static_assert(CountWidth(1) == kCountDigitWidth * kCountScale);
-    static_assert(CountWidth(2) == 2 * kCountDigitWidth * kCountScale + kCountDigitGap);
-    static_assert(CountLeft(9) > CountLeft(99));
-    static_assert(CountLeft(99) > CountLeft(999));
-    static_assert(CountLeft(999) > CountLeft(1000));
+    static_assert(CountWidth(1, PanelScale::kMinQuarters) == kCountDigitWidth * kCountScale);
+    static_assert(CountWidth(2, PanelScale::kMinQuarters) ==
+                  2 * kCountDigitWidth * kCountScale + kCountDigitGap);
+    static_assert(CountLeft(9, PanelScale::kMinQuarters) > CountLeft(99, PanelScale::kMinQuarters));
+    static_assert(CountLeft(99, PanelScale::kMinQuarters) > CountLeft(999, PanelScale::kMinQuarters));
+    static_assert(CountLeft(999, PanelScale::kMinQuarters) > CountLeft(1000, PanelScale::kMinQuarters));
     static_assert(kCountTop > kCell);
-    static_assert(Height() == kCell + CountStripHeight());
+    static_assert(Height(PanelScale::kMinQuarters) ==
+                  kCell + CountStripHeight(PanelScale::kMinQuarters));
 
     for (int value : { 1, 9, 10, 99, 100, 999, 1000, kCountMax })
     {
         const int digits = CountDigits(value);
-        assert(CountLeft(value) - kCountOutline >= 0);
-        assert(CountLeft(value) + CountWidth(digits) + kCountOutline <= kCell);
-        assert(CountWidth(digits) <= kCell - 2 * kCountOutline);
+        assert(CountLeft(value, PanelScale::kMinQuarters) - kCountOutline >= 0);
+        assert(CountLeft(value, PanelScale::kMinQuarters) +
+                   CountWidth(digits, PanelScale::kMinQuarters) + kCountOutline <= kCell);
+        assert(CountWidth(digits, PanelScale::kMinQuarters) <= kCell - 2 * kCountOutline);
     }
 
     {
@@ -472,10 +585,10 @@ int main()
         assert(pixels[(one.y + glyphY) * pitch + one.x + glyphX + glyphScale] == kActiveText);
         const int topRow = one.y + kCountTop;
         for (int x = 0; x < kCountDigitWidth * kCountScale; ++x)
-            assert(pixels[topRow * pitch + one.x + CountLeft(3) + x] == kCountText);
+            assert(pixels[topRow * pitch + one.x + CountLeft(3, PanelScale::kMinQuarters) + x] == kCountText);
 
         for (int x = -kCountOutline; x < kCountDigitWidth * kCountScale + kCountOutline; ++x)
-            assert(pixels[(topRow - kCountOutline) * pitch + one.x + CountLeft(3) + x] == kCountPlate);
+            assert(pixels[(topRow - kCountOutline) * pitch + one.x + CountLeft(3, PanelScale::kMinQuarters) + x] == kCountPlate);
 
         assert(pixels[(one.y + kCell) * pitch + one.x + kCell / 2] == untouched);
 
@@ -483,16 +596,18 @@ int main()
         pixels.fill(untouched);
         Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, &counts);
         const int secondDigitX =
-            one.x + CountLeft(12) + kCountDigitWidth * kCountScale + kCountDigitGap;
+            one.x + CountLeft(12, PanelScale::kMinQuarters) + kCountDigitWidth * kCountScale + kCountDigitGap;
         for (int x = 0; x < kCountDigitWidth * kCountScale; ++x)
             assert(pixels[topRow * pitch + secondDigitX + x] == kCountText);
-        assert(CountLeft(12) + CountWidth(2) + kCountOutline <= kCell);
+        assert(CountLeft(12, PanelScale::kMinQuarters) +
+               CountWidth(2, PanelScale::kMinQuarters) + kCountOutline <= kCell);
 
         counts[0] = 1000;
         pixels.fill(untouched);
         Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, &counts);
         const int fourthDigitX =
-            one.x + CountLeft(1000) + 3 * (kCountDigitWidth * kCountScale + kCountDigitGap);
+            one.x + CountLeft(1000, PanelScale::kMinQuarters) +
+            3 * (kCountDigitWidth * kCountScale + kCountDigitGap);
         for (int x = 0; x < kCountDigitWidth * kCountScale; ++x)
             assert(pixels[topRow * pitch + fourthDigitX + x] == kCountText);
 
@@ -500,7 +615,7 @@ int main()
         pixels.fill(untouched);
         Draw16(pixels.data(), pitch, width, height, active, house, wheel, 16, &counts);
         for (int x = 0; x < kCountDigitWidth * kCountScale; ++x)
-            assert(pixels[topRow * pitch + one.x + CountLeft(kCountMax) + x] == kCountText);
+            assert(pixels[topRow * pitch + one.x + CountLeft(kCountMax, PanelScale::kMinQuarters) + x] == kCountText);
 
         counts[1] = 7;
         pixels.fill(untouched);

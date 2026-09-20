@@ -1293,9 +1293,11 @@ private:
 public:
     static void configureWorldIsolation(GameVersion version);
     static void configureGroupPanel(GameVersion version, bool showCounts = false, bool debug = false,
-                                     bool persistent = false);
+                                     bool persistent = false,
+                                     int scaleQuarters = PanelScale::kMinQuarters);
     static void configureZeppelinPanel(GameVersion version,
-                                       ZeppelinPanel::Behaviour behaviour = ZeppelinPanel::Behaviour::Temp);
+                                       ZeppelinPanel::Behaviour behaviour = ZeppelinPanel::Behaviour::Temp,
+                                       int scaleQuarters = PanelScale::kMinQuarters);
     static void shutdown()
     {
         configureWorldIsolation(GameVersion::UNKNOWN);

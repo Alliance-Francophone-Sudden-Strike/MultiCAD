@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cassert>
+#include <vector>
 
 int main()
 {
@@ -328,6 +329,42 @@ int main()
     indicator.fill(0);
     DrawIndicator16(IndicatorShape::Squares, indicator.data(), 64, 64, 128, static_cast<float>(kMinScale), false);
     assert(indicator[18 * 64 + 12] != 0);
+
+    {
+        constexpr int w = 320;
+        constexpr int h = 700;
+        constexpr int pitch = w + 4;
+        constexpr uint16_t untouched = 0xABCD;
+        std::vector<uint16_t> big(static_cast<size_t>(pitch) * h, untouched);
+
+        for (IndicatorShape drawn : { IndicatorShape::Squares, IndicatorShape::Bars })
+            for (bool right : { false, true })
+            {
+                std::fill(big.begin(), big.end(), untouched);
+                DrawIndicator16(drawn, big.data(), pitch, w, h, static_cast<float>(kMaxScale),
+                                right, 16, PanelScale::kMaxQuarters);
+
+                int painted = 0;
+                for (int y = 0; y < h; ++y)
+                {
+                    for (int x = 0; x < w; ++x)
+                        if (big[static_cast<size_t>(y) * pitch + x] != untouched)
+                            ++painted;
+                    for (int x = w; x < pitch; ++x)
+                        assert(big[static_cast<size_t>(y) * pitch + x] == untouched);
+                }
+                assert(painted > 0);
+            }
+    }
+
+    State indicatorScale;
+    assert(indicatorScale.indicatorScaleQuarters() == PanelScale::kMinQuarters);
+    indicatorScale.setIndicatorScale(PanelScale::kMaxQuarters);
+    assert(indicatorScale.indicatorScaleQuarters() == PanelScale::kMaxQuarters);
+    indicatorScale.setIndicatorScale(0);
+    assert(indicatorScale.indicatorScaleQuarters() == PanelScale::kMinQuarters);
+    indicatorScale.setIndicatorScale(99);
+    assert(indicatorScale.indicatorScaleQuarters() == PanelScale::kMaxQuarters);
 
     State shape;
     assert(shape.indicatorShape() == IndicatorShape::Squares);

@@ -18,13 +18,13 @@ namespace
 
     Zoom::Rect TextArea(const Zoom::Rect& row)
     {
-        return { row.x, row.y, ZeppelinPanel::kTextWidth, row.height };
+        return { row.x, row.y, ZeppelinPanel::TextWidth(), row.height };
     }
 
     Zoom::Rect SwatchArea(const Zoom::Rect& row)
     {
-        return { row.x + ZeppelinPanel::kTextWidth + ZeppelinPanel::kPad, row.y,
-                 ZeppelinPanel::kSwatch, row.height };
+        return { row.x + ZeppelinPanel::TextWidth() + ZeppelinPanel::Pad(), row.y,
+                 ZeppelinPanel::Swatch(), row.height };
     }
 
     bool Centred(const std::vector<uint16_t>& pixels, const Zoom::Rect& area, uint16_t color)
@@ -60,7 +60,7 @@ namespace
         assert(count == static_cast<int>(expected.size()));
         for (int i = 0; i < count; ++i)
             assert(glyphs[i] == expected[static_cast<size_t>(i)]);
-        assert(ZeppelinPanel::GlyphsWidth(glyphs, count) <= ZeppelinPanel::kTextWidth);
+        assert(ZeppelinPanel::GlyphsWidth(glyphs, count) <= ZeppelinPanel::TextWidth());
     }
 
     void ExpectCount(int held, int total, const std::vector<int>& expected)
@@ -70,7 +70,7 @@ namespace
         assert(count == static_cast<int>(expected.size()));
         for (int i = 0; i < count; ++i)
             assert(glyphs[i] == expected[static_cast<size_t>(i)]);
-        assert(ZeppelinPanel::GlyphsWidth(glyphs, count) <= ZeppelinPanel::kTextWidth);
+        assert(ZeppelinPanel::GlyphsWidth(glyphs, count) <= ZeppelinPanel::TextWidth());
     }
 
     std::vector<uint8_t> Materialise(std::string_view pattern, uint8_t filler = 0xAA)
@@ -91,11 +91,11 @@ int main()
 {
     using namespace ZeppelinPanel;
 
-    static_assert(Width() == kTextWidth + kPad + kSwatch);
-    static_assert(Height(0) == 0);
-    static_assert(Height(3) == 3 * kRowHeight + 2 * kRowGap);
-    static_assert(WidestTimeWidth() == kTimeWidth);
-    static_assert(WidestCountWidth() == kCountWidth);
+    static_assert(Width(PanelScale::kMinQuarters) == kTextWidth + kPad + kSwatch);
+    static_assert(Height(0, PanelScale::kMinQuarters) == 0);
+    static_assert(Height(3, PanelScale::kMinQuarters) == 3 * kRowHeight + 2 * kRowGap);
+    static_assert(WidestTimeWidth(PanelScale::kMinQuarters) == kTimeWidth);
+    static_assert(WidestCountWidth(PanelScale::kMinQuarters) == kCountWidth);
 
     static_assert(SecondsLeft(0, 3750, kTicks) == 150);
     static_assert(SecondsLeft(3750, 3750, kTicks) == 0);
@@ -139,6 +139,36 @@ int main()
         assert(second.y == first.y + kRowHeight + kRowGap);
         assert(RowRect(2, kWidth, kHeight, 3).y + kRowHeight == panel.y + panel.height);
         assert(SwatchArea(first).x + kSwatch == first.x + first.width);
+    }
+
+    for (int q = PanelScale::kMinQuarters; q <= PanelScale::kMaxQuarters; ++q)
+    {
+        if (q > PanelScale::kMinQuarters)
+        {
+            assert(Width(q) > Width(q - 1));
+            assert(Height(3, q) > Height(3, q - 1));
+        }
+        assert(Fits(kWidth, kHeight, 3, q, PanelScale::kMinQuarters));
+
+        const Zoom::Rect panel = PanelRect(kWidth, kHeight, 3, q);
+        assert(panel.x + panel.width == kWidth - kMargin);
+        assert(panel.y + panel.height == kHeight - kMargin);
+        assert(panel.y >= GroupPanel::kMargin + GroupPanel::Height(PanelScale::kMinQuarters));
+
+        for (int index = 0; index + 1 < 3; ++index)
+        {
+            const Zoom::Rect a = RowRect(index, kWidth, kHeight, 3, q);
+            const Zoom::Rect b = RowRect(index + 1, kWidth, kHeight, 3, q);
+            assert(a.y + a.height <= b.y);
+            assert(a.x == panel.x && a.width == panel.width);
+        }
+        assert(RowRect(2, kWidth, kHeight, 3, q).y + RowHeight(q) == panel.y + panel.height);
+
+        int glyphs[kMaxGlyphs]{};
+        const int count = CountGlyphs(kMaxZeppelins, kMaxZeppelins, glyphs);
+        assert(GlyphsWidth(glyphs, count, q) <= TextWidth(q));
+        assert(TextWidth(q) + Pad(q) + Swatch(q) == Width(q));
+        assert(Swatch(q) < RowHeight(q));
     }
 
     static_assert(HoldOpacity(0) == 16);
@@ -295,6 +325,36 @@ int main()
         assert(fading[middle + swatch.x] == Zoom::Blend565(kUntouched, rows[0].color, 8));
         assert(fading[middle + swatch.x] != rows[0].color);
         assert(fading[middle + swatch.x] != kUntouched);
+    }
+
+    {
+        SetScale(8);
+        assert(ScaleQuarters() == 8);
+
+        constexpr int wide = 720;
+        constexpr int tall = 420;
+        constexpr int pitch = wide + 4;
+        std::vector<uint16_t> big(static_cast<size_t>(pitch) * tall, kUntouched);
+        assert(Fits(wide, tall, 3));
+        Draw16(big.data(), pitch, wide, tall, rows, 3);
+
+        const Zoom::Rect panel = PanelRect(wide, tall, 3);
+        for (int y = 0; y < tall; ++y)
+            for (int x = 0; x < wide; ++x)
+                if (y < panel.y || y >= panel.y + panel.height ||
+                    x < panel.x || x >= panel.x + panel.width)
+                    assert(big[static_cast<size_t>(y) * pitch + x] == kUntouched);
+
+        const Zoom::Rect swatch = SwatchArea(RowRect(0, wide, tall, 3));
+        assert(swatch.x + Swatch() == panel.x + panel.width);
+        const size_t middle =
+            static_cast<size_t>(RowRect(0, wide, tall, 3).y + RowHeight() / 2) * pitch;
+        assert(big[middle + swatch.x] == rows[0].color);
+        assert(big[middle + swatch.x + Swatch() - 1] == rows[0].color);
+        assert(big[middle + swatch.x - 1] == kUntouched);
+
+        SetScale(PanelScale::kMinQuarters);
+        assert(Width() == kTextWidth + kPad + kSwatch);
     }
 
     {

@@ -138,6 +138,7 @@ Other available settings settings:
 - `PersistentZoomIndicator=on` keeps the indicator visible while zoomed in; it defaults to `off`.
 - `InvertZoom=on` reverses the mouse wheel direction for zooming; it defaults to `off`.
 - `ZoomOnCursor=on` zooms towards the cursor instead of the screen centre; it defaults to `off`.
+- `ZoomIndicatorScale=1.5` draws the indicator larger. It accepts `1` to `3` in steps of `0.25` and defaults to `1`. Values outside that range are clamped to the nearest bound and values between steps round to the nearest step, so `1.3` behaves as `1.25`. An indicator too large for the current resolution is not drawn.
 
 ### Control-Group Panel
 
@@ -172,6 +173,16 @@ Each lit cell also shows how many units the group holds, centred just below the 
 
 By default, the panel is only drawn while at least one group holds units. To keep it on screen at all times, even with no groups, set `PersistentGroupPanel=on` in the game's ini.
 
+On a high-resolution display the cells can be enlarged with `GroupPanelScale`:
+
+> ```ini
+> [Game]
+> GroupPanel=on
+> GroupPanelScale=2
+> ```
+
+`GroupPanelScale` accepts `1` to `3` in steps of `0.25` and defaults to `1`. Values outside that range are clamped to the nearest bound and values between steps round to the nearest step, so `1.3` behaves as `1.25`. The cells, glyphs, badges and counts all grow together, the panel stays anchored to the top-right corner, and the clickable area keeps matching what is drawn. A panel too large for the current resolution is not drawn at all.
+
 ### Zeppelin Capture Panel
 
 On multiplayer maps built around capturing zeppelins, MultiCAD can list the zeppelin groups you have not captured yet in the bottom-right corner of the screen: one colour swatch per group, with its state to the left of it: `2/3` while you hold only some of the group's zeppelins, then the capture countdown once you hold them all. If a started capture is interrupted, the countdown freezes and the row alternates every two seconds between the held count and that frozen time, both greyed out; if an enemy capture resets the group, the count comes back on its own. A group drops off the list as soon as you own it.
@@ -196,6 +207,16 @@ Set `ZeppelinPanelBehaviour=toggle` to have the shortcut open and close the pane
 `ZeppelinPanelBehaviour` defaults to `temp`, the five-second hold described above.
 
 `ZeppelinPanel` defaults to `off`. The panel only appears on maps that actually define zeppelin groups, so it stays out of the way in single-player and on ordinary multiplayer maps.
+
+The panel has its own scale, independent of the control-group panel's:
+
+> ```ini
+> [Game]
+> ZeppelinPanel=on
+> ZeppelinPanelScale=1.5
+> ```
+
+`ZeppelinPanelScale` accepts `1` to `3` in steps of `0.25` and defaults to `1`, with the same clamping and rounding as `GroupPanelScale`. The panel stays anchored to the bottom-right corner, and one too large for the current resolution is not drawn.
 
 > [!NOTE]
 > This panel is currently enabled for **Hidden Stroke 2** only. On every other version it stays inactive, even with `ZeppelinPanel=on`.
