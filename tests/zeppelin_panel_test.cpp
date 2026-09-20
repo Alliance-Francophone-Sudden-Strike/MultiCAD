@@ -309,6 +309,21 @@ int main()
         std::vector<uint16_t> live(static_cast<size_t>(kPitch) * kHeight, kUntouched);
         Draw16(live.data(), kPitch, kWidth, kHeight, frozen, 3, nullptr, 16, 0);
         assert(AreaHas(live, TextArea(RowRect(1, kWidth, kHeight, 3)), kTimeText));
+
+        Rows abandoned = rows;
+        abandoned[0].started = true;
+        const Zoom::Rect zero = TextArea(RowRect(0, kWidth, kHeight, 3));
+
+        std::vector<uint16_t> left(static_cast<size_t>(kPitch) * kHeight, kUntouched);
+        Draw16(left.data(), kPitch, kWidth, kHeight, abandoned, 3, nullptr, 16, 0);
+        assert(AreaHas(left, zero, kCountText));
+        assert(!AreaHas(left, zero, kTimeText));
+
+        std::vector<uint16_t> leftTime(static_cast<size_t>(kPitch) * kHeight, kUntouched);
+        Draw16(leftTime.data(), kPitch, kWidth, kHeight, abandoned, 3, nullptr, 16, kAlternateMs);
+        assert(AreaHas(leftTime, zero, kCountText));
+        assert(!AreaHas(leftTime, zero, kTimeText));
+        assert(left != leftTime);
     }
 
     {

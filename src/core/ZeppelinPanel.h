@@ -349,7 +349,7 @@ namespace ZeppelinPanel
             fillRect(row.x + textWidth + Pad(q), row.y + (rowHeight - swatch) / 2,
                      swatch, swatch, entry.color);
 
-            if (entry.held <= 0 || entry.total <= 0)
+            if (entry.total <= 0 || (entry.held <= 0 && !entry.started))
                 continue;
 
             const bool running = entry.held >= entry.total;

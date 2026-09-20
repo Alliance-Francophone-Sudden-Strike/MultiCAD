@@ -185,7 +185,7 @@ On a high-resolution display the cells can be enlarged with `GroupPanelScale`:
 
 ### Zeppelin Capture Panel
 
-On multiplayer maps built around capturing zeppelins, MultiCAD can list the zeppelin groups you have not captured yet in the bottom-right corner of the screen: one colour swatch per group, with its state to the left of it: `2/3` while you hold only some of the group's zeppelins, then the capture countdown once you hold them all. If a started capture is interrupted, the countdown freezes and the row alternates every two seconds between the held count and that frozen time, both greyed out; if an enemy capture resets the group, the count comes back on its own. A group drops off the list as soon as you own it.
+On multiplayer maps built around capturing zeppelins, MultiCAD can list the zeppelin groups you have not captured yet in the bottom-right corner of the screen: one colour swatch per group, with its state to the left of it: `2/3` while you hold only some of the group's zeppelins, then the capture countdown once you hold them all. If a started capture is interrupted, the countdown freezes and the row alternates every two seconds between the held count and that frozen time, both greyed out — including once you hold none of the group; if an enemy capture resets the group, the count comes back on its own. A group drops off the list as soon as you own it.
 
 Show it with **`Alt` + `z`**. By default it stays up for five seconds, then fades out, and pressing the shortcut again restarts those five seconds. Either `Alt` key works, including `AltGr`.
 
