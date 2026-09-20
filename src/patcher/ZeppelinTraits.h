@@ -18,6 +18,8 @@ struct ZeppelinAddresses
     uintptr_t modeFlag;
     uintptr_t objectPtr;
     uintptr_t localPlayer;
+    uintptr_t playerTeam;
+    uintptr_t playerStride;
 
     uintptr_t objectSize;
     uintptr_t groupCount;
@@ -50,6 +52,8 @@ struct ZeppelinTraits<GameVersion::HS_2>
         0x106F6B0,
         0x106F69C,
         0x106F05C,
+        0x892FD4,
+        0xB5,
 
         0x152C,
         0x480,
@@ -72,7 +76,7 @@ struct ZeppelinTraits<GameVersion::HS_2>
         {{
             { 0xC99D0, "a1????????5683f801752468????????682c150000e8????????83c40885c0743b8bc8e8????????a3????????5ec368????????683c030000e83205" },
             { 0xB47E0, "568b742408578bf96a0068????????8bcee8????????85c075138b46088987241500005fb8010000005ec204" },
-            { 0xB53A7, "8bc1992bc2d1f803c7eb098bc7992bc2d1f803c13b86241500007d338bcbe8????????84c0742833c033d28a451c8d0c808d0cc98a9488d4" },
+            { 0xB53A7, "8bc1992bc2d1f803c7eb098bc7992bc2d1f803c13b86241500007d338bcbe8????????84c0742833c033d28a451c8d0c808d0cc98a9488d42f????" },
             { 0xB54A3, "81c630050000c74424284c010000897424388b442418c78544010000ff????????40030000c744242400000000894424" },
         }},
     };

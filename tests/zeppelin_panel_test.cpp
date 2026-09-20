@@ -302,6 +302,8 @@ int main()
         assert(hs2->recordOwner + sizeof(uint32_t) <= hs2->recordStride);
         assert(hs2->recordCaptor < hs2->recordProgress);
         assert(hs2->recordProgress + sizeof(int) * 4 <= hs2->recordStride);
+        assert(hs2->playerStride == 0xB5);
+        assert(hs2->heldZeppelins + sizeof(uint32_t) * 4 <= hs2->records);
 
         int pinned = 0;
         for (const auto& signature : hs2->signatures)
@@ -327,6 +329,7 @@ int main()
 
         assert(hs2->signatures[0].pattern.find("2c150000") != std::string_view::npos);
         assert(hs2->signatures[1].pattern.find("24150000") != std::string_view::npos);
+        assert(hs2->signatures[2].pattern.find("8a9488d42f") != std::string_view::npos);
         assert(hs2->signatures[3].pattern.find("4c010000") != std::string_view::npos);
         assert(hs2->signatures[3].pattern.find("44010000") != std::string_view::npos);
     }

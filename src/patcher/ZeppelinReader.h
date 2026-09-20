@@ -19,7 +19,8 @@ class ZeppelinReader
 public:
     static constexpr uint32_t kRefreshMs = 100;
     static constexpr int kMaxGroups = 12;
-    static constexpr int kPlayers = 4;
+    static constexpr int kTeams = 4;
+    static constexpr int kMaxPlayers = 12;
     static constexpr int kTicksPerSecond = 25;
     static constexpr uint16_t kFallbackColor = 0x8410;
 
@@ -85,7 +86,16 @@ private:
             return;
 
         const int player = *playerSlot;
-        if (player < 0 || player >= kPlayers)
+        if (player < 0 || player >= kMaxPlayers)
+            return;
+
+        const auto* const teamSlot = globals_->getPtr<uint8_t>(at.playerTeam) +
+            at.playerStride * static_cast<size_t>(player);
+        if (!MemoryProbe::IsReadable(teamSlot, sizeof(uint8_t)))
+            return;
+
+        const int team = *teamSlot;
+        if (team >= kTeams)
             return;
 
         auto* const objectSlot = globals_->getPtr<uint8_t*>(at.objectPtr);
@@ -107,20 +117,20 @@ private:
         const int target = seconds * kTicksPerSecond;
         const uint16_t* const colors = colorTable(object, at);
         const uint32_t held =
-            read<uint32_t>(object + at.heldZeppelins + sizeof(uint32_t) * player);
+            read<uint32_t>(object + at.heldZeppelins + sizeof(uint32_t) * team);
 
         for (int index = 0; index < groups; ++index)
         {
             const uint8_t* const record = object + at.records + at.recordStride * index;
             const uint32_t owner = read<uint32_t>(record + at.recordOwner);
-            if ((owner & (1u << player)) == 0)
+            if ((owner & (1u << team)) == 0)
                 continue;
 
             const uint32_t mask = read<uint32_t>(record + at.recordMask);
             if (mask == 0)
                 continue;
 
-            const int raw = read<int>(record + at.recordProgress + sizeof(int) * player);
+            const int raw = read<int>(record + at.recordProgress + sizeof(int) * team);
             const int progress = std::clamp(raw, 0, target);
 
             rows_[static_cast<size_t>(rowCount_)] =
