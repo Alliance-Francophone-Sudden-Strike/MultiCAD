@@ -13,15 +13,11 @@ It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) â
 > An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.
 
 > [!WARNING]
-> This fork also provides 2 new features: the ability to zoom and the control-group panel.
->
+> This fork also provides 3 new features: the ability to zoom and the control-group panel.
 > **Verified in game:** Sudden Strike 2, Hidden Stroke 2, Sudden Strike: Resource War 2.4, Europe 2015, Sudden Strike Gold HD v1.2 (de, en, fr, ru).
->
 > **Supported but not yet played through:** Sudden Strike: Resource War 2.3, Black Sea, Black Gold, Sudden Strike Gold (en).
->
 > **Not supported:** Sudden Strike 1.0 and 1.2, Sudden Strike Gold de/fr/ru, Sudden Strike HD v1.1. They run with resolution support only.
->
-> **Note regarding performance:** Be aware that the zoom feature may impact performance, especially at higher resolutions.
+> A 3rd new feature is the ability to display information about zeppelins capture timing in multiplayer games but only for SS2/HS2.
 
 ## Supported Games
 
