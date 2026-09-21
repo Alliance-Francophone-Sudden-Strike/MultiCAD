@@ -2,6 +2,16 @@
 
 **An extension of [MultiCAD](https://github.com/IvanishinV/MultiCAD) by [Vladislav Ivanishin (@IvanishinV)](https://github.com/IvanishinV)**, maintained by the [Alliance Francophone Sudden Strike](https://github.com/Alliance-Francophone-Sudden-Strike).
 
+## How to play
+
+[![Fusion banner](./images/fusion-banner.png)](https://discord.gg/3r2dVBGt7A?utm_source=github)
+
+**Hidden Stroke 2 Fusion** but sharper. Zoom in mid-battle, track your groups, time every zeppelin capture. Bring your friends. :)
+
+**[Join us on Discord!](https://discord.gg/3r2dVBGt7A?utm_source=github)**
+
+## Notice
+
 Upstream **MultiCAD** is a universal graphics DLL replacement for **Sudden Strike**, **Sudden Strike Forever** and related games. It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) and carries a long list of bug fixes across game versions. Everything that makes that possible — the reverse engineering, the per-version profiles, the renderer — is IvanishinV's work.
 
 **This repository builds a layer on top of it.** It adds optional in-game features the base library does not set out to provide: a **battlefield zoom**, a **control-group panel** and a **zeppelin capture panel**, plus a few fixes found along the way.
