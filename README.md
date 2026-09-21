@@ -12,6 +12,8 @@ With HS2 Fusion, you'll also get improved historical accuracy and resilience for
 
 **[Join us on Discord!](https://discord.gg/3r2dVBGt7A?utm_source=github)**
 
+_You can also directly download the latest build from our [releases page](./releases) and follow the installation instructions there._
+
 ## Notice
 
 Upstream **MultiCAD** is a universal graphics DLL replacement for **Sudden Strike**, **Sudden Strike Forever** and related games. It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) and carries a long list of bug fixes across game versions. Everything that makes that possible — the reverse engineering, the per-version profiles, the renderer — is IvanishinV's work.
