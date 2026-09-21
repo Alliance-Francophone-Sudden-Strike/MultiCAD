@@ -8,7 +8,7 @@
 
 **Hidden Stroke 2 Fusion** but sharper. Zoom in mid-battle, track your groups, time every zeppelin capture. Bring your friends. :)
 
-With HS2 Fusion, you'll also get improved historical accuracy and resilience for all units, better-tuned firing preferences, and other enhancements that make the gameplay experience more realistic and enjoyable.
+With HS2 Fusion, you'll also get improved historical accuracy and resilience for all units, better-tuned targeting priorities, and other enhancements that make the gameplay experience more realistic and enjoyable.
 
 **[Join us on Discord!](https://discord.gg/3r2dVBGt7A?utm_source=github)**
 
