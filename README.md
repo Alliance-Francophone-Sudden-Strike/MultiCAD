@@ -12,7 +12,7 @@ With HS2 Fusion, you'll also get improved historical accuracy and resilience for
 
 **[Join us on Discord!](https://discord.gg/3r2dVBGt7A?utm_source=github)**
 
-_You can also directly download the latest build from our [releases page](../../releases) and follow the installation instructions there._
+_You can also directly download the latest build from our [releases page](../../releases) and follow the installation instructions there. It should allow you to activate the zoom feature in almost any other Sudden Strike related mod._
 
 ## Notice
 
