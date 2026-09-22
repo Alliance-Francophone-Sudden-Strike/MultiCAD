@@ -21,18 +21,18 @@ Upstream **MultiCAD** is a universal graphics DLL replacement for **Sudden Strik
 **This repository builds a layer on top of it.** It adds optional in-game features the base library does not set out to provide: a **battlefield zoom**, a **control-group panel** and a **zeppelin capture panel**, plus a few fixes found along the way.
 
 > [!IMPORTANT]
-> **Everything this fork adds is off by default.** With no extra line in the game ini, the DLL built here behaves like the upstream one: resolution support and nothing else. Each feature is opted into explicitly, and the game must be restarted after editing the ini.
+> **Everything this AF version of the MultiCAD adds is off by default.** With no extra line in the game ini, the DLL built here behaves like the upstream one: resolution support and nothing else. Each feature is opted into explicitly, and the game must be restarted after editing the ini.
 
 > **An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.**
 
 ## Relationship to the upstream project
 
-|                   |                                                                                                                                                                                                                                                                                                                                        |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **From upstream** | Arbitrary resolutions, game/menu version detection and profiles, the per-version bug fixes listed in [Games Supported by MultiCAD](#games-supported-by-multicad), the renderer itself                                                                                                                                                  |
-| **Added here**    | [Battlefield zoom](#battlefield-zoom), [control-group panel](#control-group-panel), [zeppelin capture panel](#zeppelin-capture-panel), [module name override](#replacement-menu-or-game-modules), [profile forcing](#forcing-a-profile), the [fixes](#fixes-added-by-this-fork) below, and a [MinGW cross-build](mingw/README.md) path |
+|                   |                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **From upstream** | Arbitrary resolutions, game/menu version detection and profiles, the per-version bug fixes listed in [Games Supported by MultiCAD](#games-supported-by-multicad), the renderer itself                                                                                                                                                                        |
+| **Added here**    | [Battlefield zoom](#battlefield-zoom), [control-group panel](#control-group-panel), [zeppelin capture panel](#zeppelin-capture-panel), [module name override](#replacement-menu-or-game-modules), [profile forcing](#forcing-a-profile), the [fixes](#fixes-added-by-this-af-version-of-the-multicad) below, and a [MinGW cross-build](mingw/README.md) path |
 
-This fork tracks upstream rather than diverging from it. **Bug fixes made here that also affect the base library are proposed upstream as pull requests**, so they benefit every MultiCAD user instead of staying in the fork.
+This version of the MultiCAD tracks upstream rather than diverging from it. **Bug fixes made here that also affect the base library are proposed upstream as pull requests**, so they benefit every MultiCAD user instead of staying only in this version.
 
 Where to report a problem:
 
@@ -41,7 +41,7 @@ Where to report a problem:
 
 If you are unsure, open it here; it will be forwarded upstream if it belongs there.
 
-## Fork feature support
+## AF MultiCAD feature support
 
 The new features hook version-specific game code, so they are enabled per game version.
 
@@ -55,7 +55,7 @@ The new features hook version-specific game code, so they are enabled per game v
 Versions listed as "resolution support only" behave exactly like upstream: the options below are read and stay inactive. If you need one of these features on a version that does not have it yet, [open an issue](../../issues).
 
 > [!NOTE]
-> At very high resolutions, zoom costs some performance. A large part of this fork's work went into rendering optimisations to keep it smooth.
+> At very high resolutions, zoom costs some performance. A large part of this version of MultiCAD's work went into rendering optimisations to keep it smooth.
 
 ## Games Supported by MultiCAD
 
@@ -99,7 +99,7 @@ To set a specific resolution, add a `Resolution` line **anywhere after** the `[G
 
 ### Battlefield Zoom
 
-_Added by this fork. Disabled by default._
+_Added by this AF version of the MultiCAD. Disabled by default._
 
 Zoom into the battlefield with the **mouse wheel**, from 1x up to 2x in four steps.
 
@@ -138,7 +138,7 @@ Zoom into the battlefield with the **mouse wheel**, from 1x up to 2x in four ste
 
 ### Control-Group Panel
 
-_Added by this fork. Disabled by default. **Hidden Stroke 2 only** for now._
+_Added by this AF version of the MultiCAD. Disabled by default. **Hidden Stroke 2 only** for now._
 
 A row of ten cells labelled `1`–`9` and `0` in the screen's **top-right corner**, showing the state of your control groups at a glance. Groups holding units light up; empty ones stay dim.
 
@@ -170,7 +170,7 @@ A row of ten cells labelled `1`–`9` and `0` in the screen's **top-right corner
 
 ### Zeppelin Capture Panel
 
-_Added by this fork. Disabled by default. **Hidden Stroke 2 only** for now._
+_Added by this AF version of the MultiCAD. Disabled by default. **Hidden Stroke 2 only** for now._
 
 On multiplayer maps built around capturing zeppelins, a list in the **bottom-right corner** of the groups you have not captured yet — one colour swatch per group, with its state to the left of it.
 
@@ -202,7 +202,7 @@ With the default `temp` behaviour the panel stays up for five seconds then fades
 
 ### Replacement Menu or Game Modules
 
-_Added by this fork._
+_Added by this AF version of the MultiCAD._
 
 The game binds its two modules by name, from the ini it boots with:
 
@@ -217,7 +217,7 @@ No configuration is needed; the usual `menu*.dll` / `game*.dll` names remain the
 
 ### Forcing a Profile
 
-_Added by this fork. For advanced users._
+_Added by this AF version of the MultiCAD. For advanced users._
 
 MultiCAD identifies your game by hashing the code section of its `game*.dll` and `menu*.dll`. A dll it doesn't recognise, like a custom or repacked build, is simply left unpatched: the menu is skipped silently, and the game falls back to 1024x768 with a message naming the hash it computed.
 
@@ -246,9 +246,9 @@ You can temporarily disable or enable the in-game UI overlay by pressing:
 
 **Alt + Y**
 
-This can be useful when taking screenshots or when the UI interferes with gameplay. In this fork it also hides the zoom indicator, for clean screenshots.
+This can be useful when taking screenshots or when the UI interferes with gameplay. In this AF version of the MultiCAD it also hides the zoom indicator, for clean screenshots.
 
-## Fixes Added by This Fork
+## Fixes Added by This AF Version of the MultiCAD
 
 These are on top of the upstream fix list. The ones that apply to the base library are offered upstream as pull requests.
 
@@ -277,7 +277,7 @@ Steps:
 
 ### MinGW-w64 cross build (Linux)
 
-_Added by this fork._ The Visual Studio project stays the source of truth; `make` in [mingw/](mingw/) produces the same DLLs on a Linux box with no MSVC. See [mingw/README.md](mingw/README.md).
+_Added by this AF version of the MultiCAD._ The Visual Studio project stays the source of truth; `make` in [mingw/](mingw/) produces the same DLLs on a Linux box with no MSVC. See [mingw/README.md](mingw/README.md).
 
 ## License
 
