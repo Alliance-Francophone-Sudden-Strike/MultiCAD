@@ -4,6 +4,13 @@
 #include "version.h"
 #include "SplashTextRenderer.h"
 #include "ScreenConfig.h"
+#include "ModInfo.h"
+#include "MatchStatsReader.h"
+#include "OutcomeHook.h"
+#include "StatsReporter.h"
+
+#include <cstdio>
+#include <cstring>
 
 struct SplashLayout
 {
@@ -330,6 +337,104 @@ void __fastcall MenuDllHooks::sub_1001AC60_hs(void* self)
     };
 
     renderGameVersion(self, layout);
+}
+
+void __fastcall MenuDllHooks::sub_1001AC60_fmrm(void* self)
+{
+    // FMRM_GAME_STR is whatever version this dll was built against, so prefer
+    // what the mod declares about itself.
+    static const std::string title = []
+        {
+            std::string name, version;
+
+            return ModInfo::FromLauncher(name, version) ? name + " v" + version
+                                                        : std::string(FMRM_GAME_STR);
+        }();
+
+    static const SplashLayout layout
+    {
+        780,
+        498,
+        title.c_str(),
+        nullptr,
+        SplashVariant::SS_2,
+        0xA06A0,
+        0xB6F3C,
+        0xB6F40,
+        0x75F80,
+        0xD1B0,
+        0x2C00,
+        0x2FA0,
+        0xB4B48,
+        750,
+        30,
+    };
+
+    renderGameVersion(self, layout);
+}
+
+// Vtable of the multiplayer results screen, the same RVA in both menu builds.
+constexpr uintptr_t kMultiplayerResultsVtableRva = 0x000905DC;
+
+// No-op unless StatsUrl is set.
+static void TryReportMatch(GameGlobals& globals, const Stats::StatsLayout& layout)
+{
+    if (!Stats::IsReportingEnabled())
+        return;
+
+    MatchStats match;
+    if (Stats::ReadMatch(globals, layout, match))
+        Stats::Submit(match);
+}
+
+// Stands in for the generic "hide" composite screens use, transcribed from the
+// original (0xD190 v2.2, 0xD390 RW2.4): base teardown, then fan slot 2 to each
+// child. The additions are the lobby snapshot and the match report.
+void MenuDllHooks::hideAndReport(void* self, const uintptr_t baseTeardownRva,
+                                 const Stats::StatsLayout& layout)
+{
+    auto* g = globals_;
+
+    g->getFn<void(__fastcall)(void*)>(baseTeardownRva)(self);
+
+    const auto moduleBase = reinterpret_cast<uintptr_t>(g->getPtr<const void>(0));
+    const auto screen = *reinterpret_cast<uintptr_t*>(self) - moduleBase;
+
+    // Leaving a screen is the last chance to read the lobby before the match
+    // unloads this dll and takes the table with it.
+    Stats::CaptureLobby(*g, layout);
+
+    // The results screen closes through here. Its own slot 2 is a shared thunk
+    // that cannot be hooked without catching other screens, hence the vtable
+    // test. The session outlives the base teardown above; the read only has
+    // to come before the children are hidden below.
+    if (screen == kMultiplayerResultsVtableRva)
+        TryReportMatch(*g, layout);
+
+    // The original's own work: walk the child list and fan slot 2 to each child.
+    // Unaligned by design - the list head is at +5, each node's successor at +4.
+    auto* node = *reinterpret_cast<U8**>(static_cast<U8*>(self) + 5);
+
+    for (; node != nullptr; node = *reinterpret_cast<U8**>(node + 4))
+    {
+        void* child = *reinterpret_cast<void**>(node);
+        if (child == nullptr)
+            continue;
+
+        const auto vtable = *reinterpret_cast<uintptr_t*>(child);
+
+        (*reinterpret_cast<void(__fastcall**)(void*)>(vtable + 8))(child);
+    }
+}
+
+void __fastcall MenuDllHooks::sub_1000D190(void* self)
+{
+    hideAndReport(self, 0x0000BC20, Stats::kLayoutSs2V22);
+}
+
+void __fastcall MenuDllHooks::sub_1000D390(void* self)
+{
+    hideAndReport(self, 0x0000BDF0, Stats::kLayoutRwV24);
 }
 
 void __fastcall MenuDllHooks::sub_1001AC60_bs_eu_2015(void* self)

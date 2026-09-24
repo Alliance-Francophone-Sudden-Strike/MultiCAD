@@ -31,6 +31,12 @@
     <Filter Include="Source Files\Core">
       <UniqueIdentifier>{0cf1d228-9040-4102-bbc1-54637f1feaa3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\Stats">
+      <UniqueIdentifier>{832260f6-9d38-42c1-bb2f-1916a4303eea}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Stats">
+      <UniqueIdentifier>{236e768d-f760-43ef-9afe-a0a01f29bd23}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\UI">
       <UniqueIdentifier>{dcd70d81-5d4d-4c72-bd00-058230d9f722}</UniqueIdentifier>
     </Filter>
@@ -49,6 +55,15 @@
       <Filter>Header Files\Core</Filter>
     </ClInclude>
     <ClInclude Include="core\cad.h">
+      <Filter>Header Files\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\ModInfo.h">
+      <Filter>Header Files\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\PanelScale.h">
+      <Filter>Header Files\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\CursorMapping.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
     <ClInclude Include="core\pch.h">
@@ -75,6 +90,18 @@
     <ClInclude Include="ui\ResolutionVerifier.h">
       <Filter>Header Files\UI</Filter>
     </ClInclude>
+    <ClInclude Include="stats\OutcomeHook.h">
+      <Filter>Header Files\Stats</Filter>
+    </ClInclude>
+    <ClInclude Include="stats\MatchStats.h">
+      <Filter>Header Files\Stats</Filter>
+    </ClInclude>
+    <ClInclude Include="stats\MatchStatsReader.h">
+      <Filter>Header Files\Stats</Filter>
+    </ClInclude>
+    <ClInclude Include="stats\StatsReporter.h">
+      <Filter>Header Files\Stats</Filter>
+    </ClInclude>
     <ClInclude Include="ui\SplashConfig.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
@@ -94,6 +121,9 @@
       <Filter>Header Files\Patcher</Filter>
     </ClInclude>
     <ClInclude Include="patcher\CodePatcher.h">
+      <Filter>Header Files\Patcher</Filter>
+    </ClInclude>
+    <ClInclude Include="patcher\ImportHooks.h">
       <Filter>Header Files\Patcher</Filter>
     </ClInclude>
     <ClInclude Include="patcher\DllHooksBase.h">
@@ -157,6 +187,15 @@
     </ClCompile>
     <ClCompile Include="core\renderer.cpp">
       <Filter>Source Files\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="stats\OutcomeHook.cpp">
+      <Filter>Source Files\Stats</Filter>
+    </ClCompile>
+    <ClCompile Include="stats\MatchStatsReader.cpp">
+      <Filter>Source Files\Stats</Filter>
+    </ClCompile>
+    <ClCompile Include="stats\StatsReporter.cpp">
+      <Filter>Source Files\Stats</Filter>
     </ClCompile>
     <ClCompile Include="ui\UIFilter.cpp">
       <Filter>Source Files\UI</Filter>

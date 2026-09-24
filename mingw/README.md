@@ -62,8 +62,13 @@ set of MSVC→GCC adjustments (never touching `../src`), then compiles that copy
 | What | Why | Impact |
 |------|-----|--------|
 | `__try` / `__except` → plain scope | GCC has no SEH keywords | 5 sites (`SplashTextRenderer.h`, `GameDllHooks.cpp`). Handlers become dead code — **a fault inside those blocks now crashes instead of being swallowed.** They guard reverse-engineered heap-free reimplementations and splash-text callbacks. |
-| `getFn<RET(__thiscall)(ARGS)>` → `getFn<mscc::thiscall_<RET(ARGS)>::type>` | MSVC's bare calling-convention token in an abstract declarator doesn't parse in GCC | 169 call sites; `mscc::` aliases in `msvc_compat.h` carry the convention as a trailing `__attribute__`. Pointer forms `RET(__thiscall* f)(ARGS)` already parse and are left alone. |
+| `getFn<RET(__thiscall)(ARGS)>` → `getFn<mscc::thiscall_<RET(ARGS)>::type>` | MSVC's bare calling-convention token in an abstract declarator doesn't parse in GCC | 177 call sites; `mscc::` aliases in `msvc_compat.h` carry the convention as a trailing `__attribute__`. Pointer forms `RET(__thiscall* f)(ARGS)` already parse and are left alone. |
+| `using F = RET(__fastcall)(ARGS);` → `using F = mscc::fastcall_<RET(ARGS)>::type;` | GCC *does* parse this one, but silently drops the convention: the call compiles as cdecl and crashes at runtime | 4 aliases (`OutcomeHook.cpp`, `GroupPanelReader.h`). |
 | `#include "UiFilter.h"` → `"UIFilter.h"` | case-sensitive FS | `GameDllHooks.cpp`, `UIFilter.cpp` |
+
+Both calling-convention rewrites run over every staged file, and `prep.py` fails
+the build if a bare `(__thiscall)`-style token survives anywhere - a missed
+site is a wrong-ABI call, not a compile error.
 
 ### Other pieces
 

@@ -24,13 +24,16 @@ GEN     := obj/gen
 CXXFLAGS := -std=gnu++2b -m32 -Os -pipe -fno-strict-aliasing -fpermissive -w \
            -include $(HERE)msvc_compat.h \
            -I $(HERE)shim \
-           -I $(GEN)/core -I $(GEN)/ui -I $(GEN)/patcher -I $(GEN)/profiles -I $(GEN) \
+           -I $(GEN)/core -I $(GEN)/ui -I $(GEN)/patcher -I $(GEN)/profiles -I $(GEN)/stats -I $(GEN) \
            -DWIN32 -DNDEBUG -DMULTICAD_EXPORTS -D_WINDOWS -D_USRDLL \
            -DUNICODE -D_UNICODE \
            -D_WIN32_WINNT=0x0601 -DWINVER=0x0601 -DNTDDI_VERSION=0x06010000
 
+# winhttp/bcrypt: StatsReporter.cpp names them with #pragma comment(lib), which
+# GCC ignores.
 LDLIBS  := -ldxguid -lddraw -lwinmm -lole32 -loleaut32 -luuid \
-           -lgdi32 -luser32 -ladvapi32 -lshell32 -lshlwapi -lversion
+           -lgdi32 -luser32 -ladvapi32 -lshell32 -lshlwapi -lversion \
+           -lwinhttp -lbcrypt
 LDFLAGS := -m32 -shared -Wl,--subsystem,windows -Wl,--enable-stdcall-fixup \
            -Wl,--exclude-all-symbols $(HERE)cadMulti.def
 
@@ -38,6 +41,7 @@ SRCS := main.cpp mingw_export.cpp \
         core/pch.cpp core/cad.cpp core/renderer.cpp core/ScreenConfig.cpp core/util.cpp \
         patcher/DllMonitor.cpp patcher/DllVersionDetector.cpp patcher/GameDllHooks.cpp \
         patcher/MenuDllHooks.cpp patcher/PatchInstallers.cpp \
+        stats/MatchStatsReader.cpp stats/OutcomeHook.cpp stats/StatsReporter.cpp \
         ui/UIFilter.cpp ui/ResolutionVerifier.cpp ui/ResolutionDialog.cpp
 OBJS := $(addprefix obj/,$(SRCS:.cpp=.o))
 RES  := obj/version.res

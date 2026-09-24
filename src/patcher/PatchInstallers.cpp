@@ -4,6 +4,9 @@
 #include "GameModuleNames.h"
 #include "ProfileOverride.h"
 #include "UIFilter.h"
+#include "CursorMapping.h"
+#include "StatsReporter.h"
+#include "OutcomeHook.h"
 
 bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const std::wstring& path)
 {
@@ -64,11 +67,21 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     }
     }
 
+    // The game dll loading is the match starting: the map is only named now,
+    // the previous match's verdicts must not survive into this one, and a queued
+    // report has been waiting for a live process.
+    Stats::CaptureMapName();
+    Stats::ResetOutcomes();
+    Stats::MarkMatchStart();
+    Stats::FlushPending();
+
     // Apply the game resolution now - must not happen during the menu (fixed size).
     Screen::ApplyGameResolution();
 
     ModuleInfo module = detector.GetModuleInfo(DllType::Game);
     module.version = version;   // may be the forced one; ModuleInfo::valid() checks it
+
+    CursorMapping::Install(module.base);
 
     GameDllHooks::init(module.base);
     state.patchEngine.emplace(
@@ -110,6 +123,12 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
         Screen::GetZeppelinPanel() ? version : GameVersion::UNKNOWN,
         Screen::GetZeppelinPanelBehaviour(),
         Screen::GetZeppelinPanelScale());
+
+    // None of the addresses it needs lie in a relocated gap, so the module base
+    // is the whole of the mapping.
+    GameGlobals statsGlobals(module.base);
+    Stats::InstallOutcomeHook(statsGlobals, version);
+
     return true;
 }
 
@@ -173,6 +192,8 @@ bool InstallMenuPatches(TargetState& state, uintptr_t base, size_t size, const s
 
     ModuleInfo module = detector.GetModuleInfo(DllType::Menu);
     module.version = version;   // may be the forced one; ModuleInfo::valid() checks it
+
+    CursorMapping::Install(module.base);
 
     MenuDllHooks::init(module.base);
     state.patchEngine.emplace(

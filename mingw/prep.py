@@ -57,13 +57,36 @@ def fix_calling_conv(src: str) -> str:
     return _CONV_RE.sub(repl, src)
 
 
+_USING_CONV_RE = re.compile(
+    r'\busing(\s+\w+\s*=\s*)'                            # alias name
+    r'([A-Za-z_][\w:\s]*(?:\s*\*)*)\s*'                  # return type
+    r'\(\s*__(cdecl|stdcall|thiscall|fastcall)\s*\)\s*'    # calling convention
+    r'\(([^()]*)\)\s*;'                                    # parameter list
+)
+
+
+def fix_using_conv(src: str) -> str:
+    """using F = RET(__fastcall)(ARGS); -> using F = mscc::fastcall_<RET(ARGS)>::type;"""
+    def repl(m):
+        alias, ret, conv, args = (m.group(1), m.group(2).strip(),
+                                  m.group(3), m.group(4).strip())
+        return f'using{alias}mscc::{conv}_<{ret}({args})>::type;'
+    return _USING_CONV_RE.sub(repl, src)
+
+
 PATCHES = {
     "ui/SplashTextRenderer.h":        [drop_seh],
-    "patcher/GameDllHooks.cpp":       [drop_seh, fix_uifilter_case, fix_calling_conv],
-    "patcher/GameDllHooks.h":         [fix_calling_conv],
-    "patcher/MenuDllHooks.cpp":       [fix_calling_conv],
+    "patcher/GameDllHooks.cpp":       [drop_seh, fix_uifilter_case],
     "ui/UIFilter.cpp":               [fix_uifilter_case],
 }
+
+# Run over every staged .cpp/.h rather than a per-file list. GCC parses a bare
+# convention in an abstract declarator - `RET(__thiscall)(ARGS)` - but silently
+# drops it, so a site nobody listed is a wrong-ABI call at runtime, not a build
+# error. The guard in main() fails the build on any form these don't cover.
+CONV_FIXES = [fix_calling_conv, fix_using_conv]
+
+_BARE_CONV_RE = re.compile(r'\(\s*__(cdecl|stdcall|thiscall|fastcall)\s*\)')
 
 EXPORT_WRAPPER = os.path.join(HERE, "mingw_export.cpp")
 
@@ -113,20 +136,38 @@ def main() -> int:
 
     shutil.copy2(EXPORT_WRAPPER, os.path.join(GEN, "mingw_export.cpp"))
 
-    # guard: no SEH keywords left in real code
-    bad = []
+    sources = []
     for dp, _, fns in os.walk(GEN):
-        for name in fns:
-            if not name.endswith((".cpp", ".h")):
-                continue
-            fp = os.path.join(dp, name)
-            with open(fp, "r", encoding="utf-8", errors="surrogateescape") as f:
-                for i, line in enumerate(f, 1):
-                    code = re.sub(r'/\*.*?\*/', '', line.split("//", 1)[0])
-                    if re.search(r'(?<![\w"])__(try|except|finally|leave)\b', code):
-                        bad.append(f"{os.path.relpath(fp, GEN)}:{i}")
-    if bad:
-        print("prep: SEH keywords still present:\n  " + "\n  ".join(bad), file=sys.stderr)
+        sources += [os.path.join(dp, n) for n in sorted(fns) if n.endswith((".cpp", ".h"))]
+
+    for fp in sources:
+        with open(fp, "r", encoding="utf-8", errors="surrogateescape") as f:
+            text = f.read()
+        original = text
+        for fn in CONV_FIXES:
+            text = fn(text)
+        if text != original:
+            with open(fp, "w", encoding="utf-8", errors="surrogateescape") as f:
+                f.write(text)
+            print(f"prep: calling conventions in {os.path.relpath(fp, GEN)}")
+
+    # guards: no SEH keywords, and no bare calling convention GCC would drop
+    bad_seh, bad_conv = [], []
+    for fp in sources:
+        with open(fp, "r", encoding="utf-8", errors="surrogateescape") as f:
+            for i, line in enumerate(f, 1):
+                code = re.sub(r'/\*.*?\*/', '', line.split("//", 1)[0])
+                where = f"{os.path.relpath(fp, GEN)}:{i}"
+                if re.search(r'(?<![\w"])__(try|except|finally|leave)\b', code):
+                    bad_seh.append(where)
+                if _BARE_CONV_RE.search(code):
+                    bad_conv.append(where)
+    if bad_seh:
+        print("prep: SEH keywords still present:\n  " + "\n  ".join(bad_seh), file=sys.stderr)
+        return 1
+    if bad_conv:
+        print("prep: bare calling convention GCC would silently drop:\n  "
+              + "\n  ".join(bad_conv), file=sys.stderr)
         return 1
 
     os.makedirs(os.path.dirname(STAMP), exist_ok=True)
