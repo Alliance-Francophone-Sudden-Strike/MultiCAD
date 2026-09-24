@@ -45,6 +45,7 @@ namespace ProfileOverride
         { "SS_GOLD_HD_1_2_RU",  GameVersion::SS_GOLD_HD_1_2_RU },
         { "SS_GOLD_HD_1_2_INT", GameVersion::SS_GOLD_HD_1_2_INT },
         { "HS_2",               GameVersion::HS_2 },
+        { "FMRM_2_1_5_3",       GameVersion::FMRM_2_1_5_3 },
     };
 
     // "SS_2" -> GameVersion::SS_2. Case-insensitive, surrounding blanks ignored.

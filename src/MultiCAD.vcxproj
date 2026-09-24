@@ -29,7 +29,7 @@
     <TargetName>cadMulti</TargetName>
     <OutDir>$(SolutionDir)\bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)\obj\$(Platform)\$(Configuration)\</IntDir>
-    <IncludePath>$(ProjectDir)core;$(ProjectDir)ui;$(ProjectDir)patcher;$(ProjectDir)profiles;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)core;$(ProjectDir)ui;$(ProjectDir)patcher;$(ProjectDir)profiles;$(ProjectDir)stats;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <UseDebugLibraries>true</UseDebugLibraries>
@@ -88,7 +88,9 @@
   <ItemGroup>
     <ClInclude Include="core\assets.h" />
     <ClInclude Include="core\AudioHelper.h" />
+    <ClInclude Include="core\CursorMapping.h" />
     <ClInclude Include="core\cad.h" />
+    <ClInclude Include="core\ModInfo.h" />
     <ClInclude Include="core\PanelScale.h" />
     <ClInclude Include="core\pch.h" />
     <ClInclude Include="core\renderer.h" />
@@ -99,6 +101,7 @@
     <ClInclude Include="core\version.h" />
     <ClInclude Include="core\Zoom.h" />
     <ClInclude Include="patcher\CodePatcher.h" />
+    <ClInclude Include="patcher\ImportHooks.h" />
     <ClInclude Include="patcher\DllHooksBase.h" />
     <ClInclude Include="patcher\DllMonitor.h" />
     <ClInclude Include="patcher\DllVersionDetector.h" />
@@ -116,6 +119,10 @@
     <ClInclude Include="profiles\ProfileFactory.h" />
     <ClInclude Include="profiles\Profiles.h" />
     <ClInclude Include="profiles\ProfileSpecs.h" />
+    <ClInclude Include="stats\MatchStats.h" />
+    <ClInclude Include="stats\OutcomeHook.h" />
+    <ClInclude Include="stats\MatchStatsReader.h" />
+    <ClInclude Include="stats\StatsReporter.h" />
     <ClInclude Include="ui\UIFilter.h" />
     <ClInclude Include="ui\ResolutionDialog.h" />
     <ClInclude Include="ui\ResolutionVerifier.h" />
@@ -136,6 +143,9 @@
     <ClCompile Include="patcher\GameDllHooks.cpp" />
     <ClCompile Include="patcher\MenuDllHooks.cpp" />
     <ClCompile Include="patcher\PatchInstallers.cpp" />
+    <ClCompile Include="stats\MatchStatsReader.cpp" />
+    <ClCompile Include="stats\OutcomeHook.cpp" />
+    <ClCompile Include="stats\StatsReporter.cpp" />
     <ClCompile Include="ui\UIFilter.cpp" />
     <ClCompile Include="ui\ResolutionDialog.cpp" />
     <ClCompile Include="ui\ResolutionVerifier.cpp" />

@@ -4,10 +4,16 @@
 #define STR(x) STR_HELPER(x)
 
 // MultiCAD version
+//
+// MAJOR.MINOR.PATCH is the upstream MultiCAD release this fork is synced to and
+// only changes when upstream is merged in. MULTICAD_AF_BUILD counts AF releases
+// on top of it and goes back to 1 on each sync, so the full version - 1.1.0+af.1,
+// tagged v1.1.0+af.1 - can never collide with an upstream one.
 #define MULTICAD_VERSION_MAJOR 1
 #define MULTICAD_VERSION_MINOR 1
 #define MULTICAD_VERSION_PATCH 0
-#define MULTICAD_VERSION_STR STR(MULTICAD_VERSION_MAJOR) "." STR(MULTICAD_VERSION_MINOR) "." STR(MULTICAD_VERSION_PATCH)
+#define MULTICAD_AF_BUILD 1
+#define MULTICAD_VERSION_STR STR(MULTICAD_VERSION_MAJOR) "." STR(MULTICAD_VERSION_MINOR) "." STR(MULTICAD_VERSION_PATCH) "+af." STR(MULTICAD_AF_BUILD)
 
 // Sudden Strike (v1.0)
 #define SS_VERSION_MAJOR 1
@@ -44,6 +50,15 @@
 #define SS_2_V2_2_VERSION_MINOR 2
 #define SS_2_V2_2_VERSION_STR STR(SS_2_V2_2_VERSION_MAJOR) "." STR(SS_2_V2_2_VERSION_MINOR)
 #define SS_2_V2_2_GAME_STR "Sudden Strike 2 v" SS_2_V2_2_VERSION_STR
+
+// Real War Game FMRM (v2.1.5.3)
+#define FMRM_VERSION_MAJOR 2
+#define FMRM_VERSION_MINOR 1
+#define FMRM_VERSION_PATCH 5
+#define FMRM_VERSION_BUILD 3
+#define FMRM_VERSION_STR STR(FMRM_VERSION_MAJOR) "." STR(FMRM_VERSION_MINOR) "." \
+                         STR(FMRM_VERSION_PATCH) "." STR(FMRM_VERSION_BUILD)
+#define FMRM_GAME_STR "FMRM v" FMRM_VERSION_STR
 
 // Sudden Strike: Resource War (v2.3)
 #define SS_RW_V2_3_VERSION_MAJOR 2
