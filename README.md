@@ -49,7 +49,10 @@ The new features hook version-specific game code, so they are enabled per game v
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | **Zoom — verified in game**                  | Sudden Strike 2, Hidden Stroke 2, Resource War 2.4, Europe 2015, Sudden Strike Gold HD v1.2 (de, en, fr, ru) |
 | **Zoom — supported, not yet played through** | Resource War 2.3, Black Sea, Black Gold, Sudden Strike Gold (en)                                             |
-| **Control-group and zeppelin panels**        | Hidden Stroke 2 only, for now                                                                                |
+| **Control-group panel — verified in game**   | Sudden Strike 2, Hidden Stroke 2                                                                             |
+| **Control-group panel — incompatible**       | Resource War 2.4 (including HS2 RW), Sudden Strike Gold HD v1.2, Sudden Strike Gold (en)                     |
+| **Control-group panel — untested**           | Resource War 2.3, Europe 2015, Black Sea                                                                     |
+| **Zeppelin panel**                           | Hidden Stroke 2 only                                                                                         |
 | **Resolution support only**                  | Sudden Strike 1.0 and 1.2, Sudden Strike Gold de/fr/ru, Sudden Strike HD v1.1                                |
 
 Versions listed as "resolution support only" behave exactly like upstream: the options below are read and stay inactive. If you need one of these features on a version that does not have it yet, [open an issue](../../issues).
@@ -138,9 +141,11 @@ Zoom into the battlefield with the **mouse wheel**, from 1x up to 2x in four ste
 
 ### Control-Group Panel
 
-_Added by this AF version of the MultiCAD. Disabled by default. **Hidden Stroke 2 only** for now._
+_Added by this AF version of the MultiCAD. Disabled by default. Available only for Sudden Strike 2 and Hidden Stroke 2._
 
 A row of ten cells labelled `1`–`9` and `0` in the screen's **top-right corner**, showing the state of your control groups at a glance. Groups holding units light up; empty ones stay dim.
+
+In-game tests found false active groups and incorrect counts in Resource War 2.4 (including HS2 RW). The panel also failed in Sudden Strike Gold HD v1.2. Sudden Strike Gold (en) shares the Gold binding and is also classified incompatible. Resource War 2.3, Europe 2015 and Black Sea remain untested. The panel is disabled for all of these profiles even if `GroupPanel=on`; zoom support is unaffected.
 
 > ```ini
 > [Game]

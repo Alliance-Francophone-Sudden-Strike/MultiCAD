@@ -79,6 +79,9 @@ struct GroupPanelTraits<GameVersion::SS_2>
 template<>
 struct GroupPanelTraits<GameVersion::HS_2> : GroupPanelTraits<GameVersion::SS_2> {};
 
+// Candidate addresses are retained for investigation. RW 2.4 showed false
+// groups/counts; Gold HD 1.2 also failed. Gold EN shares the Gold candidate.
+// RW 2.3, Europe 2015 and Black Sea remain untested. None are enabled below.
 template<>
 struct GroupPanelTraits<GameVersion::SS_RW_V2_4>
 {
@@ -88,7 +91,7 @@ struct GroupPanelTraits<GameVersion::SS_RW_V2_4>
         0xA,
         0x38,
         0x1C,
-        0x44,
+        0x46,
 
         0xB0250,
         0x10AE848,
@@ -97,7 +100,7 @@ struct GroupPanelTraits<GameVersion::SS_RW_V2_4>
         std::array<GroupPanelSignature, 4>
         {{
             { 0xB0250, "83ec08????????5355565750894c2418e8????????8b35????????33db33ed3bf3????????74678b" },
-            { 0xB0380, "8b015683f802753d8b35????????85f67433538b5c240c8b068b????????85c074098acbfec1884e44" },
+            { 0xB0380, "8b015683f802753d8b35????????85f67433538b5c240c8b068b????????85c074098acbfec1884e46" },
             { 0x48EC0, "8a511ab80100000084d075158b15????????538a59238a92????????84d35b750233c0c390909090" },
             { 0xAE213, "33d2b9????????8b3181c6000000013bc6747083c1144281f9????????7ce8" },
         }},
@@ -144,27 +147,13 @@ struct GroupPanelTraits<GameVersion::SS_EUROPE_2015> : GroupPanelTraits<GameVers
 template<>
 struct GroupPanelTraits<GameVersion::SS_BLACK_SEA> : GroupPanelTraits<GameVersion::SS_RW_V2_4> {};
 
-// Runtime lookup: nullptr for every version the panel is not proved against,
-// so an unsupported hash or a forced profile simply has no panel.
+// Only SS2 and HS2 have gameplay-verified group membership. Matching code
+// signatures alone cannot establish that the panel reads the right groups.
 inline const GroupPanelAddresses* TryGetGroupPanelAddresses(GameVersion version)
 {
     if (version == GameVersion::SS_2)
         return &GroupPanelTraits<GameVersion::SS_2>::addresses;
     if (version == GameVersion::HS_2)
         return &GroupPanelTraits<GameVersion::HS_2>::addresses;
-    if (version == GameVersion::SS_RW_V2_4)
-        return &GroupPanelTraits<GameVersion::SS_RW_V2_4>::addresses;
-    if (version == GameVersion::SS_RW_V2_3)
-        return &GroupPanelTraits<GameVersion::SS_RW_V2_3>::addresses;
-    if (version == GameVersion::SS_EUROPE_2015)
-        return &GroupPanelTraits<GameVersion::SS_EUROPE_2015>::addresses;
-    if (version == GameVersion::SS_BLACK_SEA)
-        return &GroupPanelTraits<GameVersion::SS_BLACK_SEA>::addresses;
-    if (version == GameVersion::SS_GOLD_HD_1_2_INT)
-        return &GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_INT>::addresses;
-    if (version == GameVersion::SS_GOLD_HD_1_2_RU)
-        return &GroupPanelTraits<GameVersion::SS_GOLD_HD_1_2_RU>::addresses;
-    if (version == GameVersion::SS_GOLD_EN)
-        return &GroupPanelTraits<GameVersion::SS_GOLD_EN>::addresses;
     return nullptr;
 }

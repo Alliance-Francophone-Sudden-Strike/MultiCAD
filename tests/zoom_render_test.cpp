@@ -727,8 +727,9 @@ int main(int argc, char** argv)
         [](const HookSpec& hook) { return hook.targetRva == 0x6AC80; });
     assert(ss1LoopHook != hooks_game_ss_gold_hd_v1_2<GameVersion::SS_GOLD_HD_1_2_INT>.end());
     assert(ss1LoopHook->overwriteSize == 30);
-    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT) != nullptr);
-    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_EN) != nullptr);
+    assert(TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_4) == nullptr);
+    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT) == nullptr);
+    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_EN) == nullptr);
     assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_DE) == nullptr);
 
     Hooks::UiEventArea battlefield{};

@@ -246,6 +246,7 @@ namespace
             {
                 if (stateX >= 0)
                     destination[(markerY + y) * pitch + stateX + x] =
+                        !g_groupPanel.bound() ? 0x8410 :
                         g_groupPanelOpacity == 16 ? 0x07E0 : (g_groupPanelOpacity > 0 ? 0xFFE0 : 0xF800);
                 if (frameX >= 0)
                     destination[(markerY + y) * pitch + frameX + x] = 0x001F;

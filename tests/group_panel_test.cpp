@@ -432,13 +432,6 @@ int main()
         assert(TryGetGroupPanelAddresses(GameVersion::SS_2) != nullptr);
         assert(TryGetGroupPanelAddresses(GameVersion::HS_2) != nullptr);
         assert(TryGetGroupPanelAddresses(GameVersion::SS_V1_0) == nullptr);
-        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_EN) ==
-               TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT));
-        assert(TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_3) ==
-               TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_4));
-        assert(TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_4)->unitAliveVtableOffset == 0x38);
-        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT)->unitAliveVtableOffset == 0x74);
-        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT)->unitGroupVtableOffset == 0xC);
 
         const GroupPanelAddresses& bound = *TryGetGroupPanelAddresses(GameVersion::SS_2);
         assert(TryGetGroupPanelAddresses(GameVersion::HS_2) == &bound);
@@ -506,8 +499,7 @@ int main()
         const GameVersion families[]
         {
             GameVersion::SS_2,
-            GameVersion::SS_RW_V2_4,
-            GameVersion::SS_GOLD_HD_1_2_INT,
+            GameVersion::HS_2,
         };
 
         for (GameVersion version : families)
@@ -706,8 +698,7 @@ int main()
         const GameVersion bound[]
         {
             GameVersion::SS_2,
-            GameVersion::SS_RW_V2_4,
-            GameVersion::SS_GOLD_HD_1_2_INT,
+            GameVersion::HS_2,
         };
 
         for (GameVersion version : bound)
@@ -725,8 +716,15 @@ int main()
         }
     }
 
-    // --- profiles the panel is deliberately not bound against ---------------
+    // --- incompatible or untested profiles stay disabled --------------------
     {
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_3) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_4) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_EUROPE_2015) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_BLACK_SEA) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_RU) == nullptr);
+        assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_EN) == nullptr);
         assert(TryGetGroupPanelAddresses(GameVersion::SS_BLACK_GOLD) == nullptr);
         assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_DE) == nullptr);
         assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_FR) == nullptr);
