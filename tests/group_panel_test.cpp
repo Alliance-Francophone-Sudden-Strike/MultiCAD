@@ -8,6 +8,115 @@
 #include <limits>
 #include <string_view>
 
+namespace
+{
+    // Group predicates exactly as they sit in the SS2 v2.2 Game_Dll, read from
+    // an unpacked dump. Absolute addresses are those of the dump.
+
+    // vehicle: rva 0x48ef0, container at +0x6d
+    constexpr std::array<uint8_t, 47> kSs2Vehicle
+    {
+        0x8b, 0x44, 0x24, 0x04, 0x33, 0xd2, 0x8a, 0x51, 0x44, 0x3b, 0xd0, 0x74, 0x1a, 0x8b, 0x54, 0x24,
+        0x08, 0x85, 0xd2, 0x74, 0x0d, 0x50, 0x83, 0xc1, 0x6d, 0xe8, 0x42, 0x8a, 0xfb, 0xff, 0x85, 0xc0,
+        0x75, 0x05, 0x33, 0xc0, 0xc2, 0x08, 0x00, 0xb8, 0x01, 0x00, 0x00, 0x00, 0xc2, 0x08, 0x00,
+    };
+
+    // gun: rva 0x28b60, two seats 0x17 apart, seat 0's group byte at +0xfa
+    constexpr std::array<uint8_t, 69> kSs2Gun
+    {
+        0x33, 0xc0, 0x56, 0x8a, 0x41, 0x44, 0x8b, 0x74, 0x24, 0x08, 0x3b, 0xc6, 0x75, 0x09, 0xb8, 0x01,
+        0x00, 0x00, 0x00, 0x5e, 0xc2, 0x08, 0x00, 0x8b, 0x44, 0x24, 0x0c, 0x85, 0xc0, 0x74, 0x20, 0x33,
+        0xd2, 0x8d, 0x81, 0xfa, 0x00, 0x00, 0x00, 0x8b, 0x48, 0xf2, 0x85, 0xc9, 0x74, 0x08, 0x33, 0xc9,
+        0x8a, 0x08, 0x3b, 0xce, 0x74, 0xd8, 0x42, 0x83, 0xc0, 0x17, 0x83, 0xfa, 0x02, 0x7c, 0xe8, 0x33,
+        0xc0, 0x5e, 0xc2, 0x08, 0x00,
+    };
+
+    // building: rva 0x3da20, type dword at +0x26e, seats 0x15 apart from +0xaa
+    constexpr std::array<uint8_t, 105> kSs2Building
+    {
+        0x56, 0x33, 0xc0, 0x8a, 0x41, 0x44, 0x57, 0x8b, 0x7c, 0x24, 0x0c, 0x3b, 0xc7, 0x75, 0x0a, 0x5f,
+        0xb8, 0x01, 0x00, 0x00, 0x00, 0x5e, 0xc2, 0x08, 0x00, 0x8b, 0x81, 0x6e, 0x02, 0x00, 0x00, 0x33,
+        0xf6, 0x8d, 0x14, 0x80, 0x8d, 0x04, 0x50, 0x8b, 0x04, 0x45, 0x2c, 0x49, 0x89, 0x10, 0x8d, 0x14,
+        0xc0, 0x8d, 0x14, 0x50, 0x8d, 0x14, 0x52, 0x8d, 0x04, 0xd0, 0x8b, 0x14, 0x85, 0xad, 0xa3, 0x89,
+        0x10, 0x85, 0xd2, 0x7e, 0x1d, 0x8d, 0x81, 0xaa, 0x00, 0x00, 0x00, 0x8b, 0x48, 0xf2, 0x85, 0xc9,
+        0x74, 0x08, 0x33, 0xc9, 0x8a, 0x08, 0x3b, 0xcf, 0x74, 0xb5, 0x46, 0x83, 0xc0, 0x15, 0x3b, 0xf2,
+        0x7c, 0xe9, 0x5f, 0x33, 0xc0, 0x5e, 0xc2, 0x08, 0x00,
+    };
+
+    // The Gold gun predicate: the SS2 bytes with `push esi` moved after the
+    // group-byte load, which is the only difference between the two patterns.
+    constexpr std::array<uint8_t, 69> GoldGun()
+    {
+        std::array<uint8_t, 69> code = kSs2Gun;
+        code[2] = 0x8a;
+        code[3] = 0x41;
+        code[4] = 0x44;
+        code[5] = 0x56;
+        return code;
+    }
+    constexpr std::array<uint8_t, 69> kGoldGun = GoldGun();
+
+    // Writes one occupant record, as the game lays it out.
+    template<size_t N>
+    void PutRecord(std::array<uint8_t, N>& object, size_t at, bool occupied, int slot)
+    {
+        object[at] = occupied ? 0x5a : 0;       // any non-zero occupancy dword
+        object[at + GroupPanel::kOccupantGroupOffset] =
+            slot < 0 ? 0 : GroupPanel::StoredValueForSlot(slot);
+    }
+
+    template<size_t N>
+    void PutSeat(std::array<uint8_t, N>& object, const GroupPanel::Seats& seats, int index,
+                 bool occupied, int slot)
+    {
+        PutRecord(object, static_cast<size_t>(GroupPanel::SeatRecords(seats)) +
+                          static_cast<size_t>(index) * seats.stride, occupied, slot);
+    }
+
+    // The same tally GroupPanelReader::refresh keeps for one list entry.
+    void CountSeats(const uint8_t* object, const GroupPanel::Seats& seats, int count,
+                    GroupPanel::Counts& counts)
+    {
+        const uint8_t* records = object + GroupPanel::SeatRecords(seats);
+        for (int i = 0; i < count; ++i)
+        {
+            const int slot = GroupPanel::OccupantSlot(records + static_cast<size_t>(i) * seats.stride, true);
+            if (slot >= 0)
+                ++counts[static_cast<size_t>(slot)];
+        }
+    }
+
+    void CountList(const uint8_t* records, int count, GroupPanel::Counts& counts)
+    {
+        for (int i = 0; i < count; ++i)
+        {
+            const int slot = GroupPanel::OccupantSlot(
+                records + static_cast<size_t>(i) * GroupPanel::kVehicleRecordSize, false);
+            if (slot >= 0)
+                ++counts[static_cast<size_t>(slot)];
+        }
+    }
+
+    void CountEntry(int ownSlot, const GroupPanel::Slots& predicate, bool occupantsCounted,
+                    GroupPanel::Counts& counts)
+    {
+        for (int slot = 0; slot < GroupPanel::kCount; ++slot)
+        {
+            const bool own = slot == ownSlot;
+            if ((own || predicate[static_cast<size_t>(slot)]) &&
+                GroupPanel::CountsItself(own, occupantsCounted))
+                ++counts[static_cast<size_t>(slot)];
+        }
+    }
+
+    GroupPanel::Slots Only(int slot)
+    {
+        GroupPanel::Slots slots{};
+        slots[static_cast<size_t>(slot)] = true;
+        return slots;
+    }
+}
+
 int main()
 {
     using namespace GroupPanel;
@@ -699,6 +808,216 @@ int main()
         assert(falling > 0 && falling < 16);
         const int back = fade.update(active, none, none, t1 + fadeMs / 4);
         assert(back >= falling - 1 && back <= falling + 1);
+    }
+
+    // --- predicate decoders, against the game's own bytes ---------------------
+    {
+        static_assert(VehicleContainerOffset(kSs2Vehicle.data()) == 0x6d);
+        static_assert(VehicleContainerOffset(kSs2Gun.data()) == 0);
+        static_assert(VehicleContainerOffset(kSs2Building.data()) == 0);
+
+        constexpr GunCrew gun = DecodeGunCrew(kSs2Gun.data());
+        static_assert(gun.count == 2 && gun.seats.groupOffset == 0xfa && gun.seats.stride == 0x17);
+        constexpr GunCrew gold = DecodeGunCrew(kGoldGun.data());
+        static_assert(gold.count == 2 && gold.seats.groupOffset == 0xfa && gold.seats.stride == 0x17);
+        static_assert(DecodeGunCrew(kSs2Vehicle.data()).count == 0);
+        static_assert(DecodeGunCrew(kSs2Building.data()).count == 0);
+
+        constexpr BuildingSeats building = DecodeBuildingSeats(kSs2Building.data());
+        static_assert(building.typeOffset == 0x26e);
+        static_assert(building.typeTable == 0x1089492c);
+        static_assert(building.capacityTable == 0x1089a3ad);
+        static_assert(building.seats.groupOffset == 0xaa && building.seats.stride == 0x15);
+        static_assert(DecodeBuildingSeats(kSs2Vehicle.data()).typeTable == 0);
+        static_assert(DecodeBuildingSeats(kSs2Gun.data()).typeTable == 0);
+
+        // Seat 0's record starts at the occupancy dword the predicates test.
+        static_assert(SeatRecords(gun.seats) == 0xec);
+        static_assert(SeatRecords(building.seats) == 0x9c);
+        static_assert(SeatBytes(gun.seats, 0) == 0);
+        static_assert(SeatBytes(gun.seats, 2) == 0x17 + 0xf);
+        static_assert(SeatBytes(building.seats, 6) == 5 * 0x15 + 0xf);
+
+        // capacity = capacityTable[typeTable[type * 22] * 1828], wrapping as
+        // the game's 32-bit arithmetic does
+        static_assert(BuildingTypeRow(building, 0) == 0x1089492c);
+        static_assert(BuildingTypeRow(building, 3) == 0x1089492c + 3 * 22);
+        static_assert(BuildingCapacityRow(building, 2) == 0x1089a3ad + 2 * 1828);
+        static_assert(BuildingTypeRow(building, -1) == 0x1089492c - 22);
+
+        // a single wrong byte outside the wildcards is rejected
+        std::array<uint8_t, 105> broken = kSs2Building;
+        broken[40] = 0x0c;              // scale 1 instead of 2 on the type row
+        assert(DecodeBuildingSeats(broken.data()).typeTable == 0);
+        std::array<uint8_t, 69> brokenGun = kSs2Gun;
+        brokenGun[60] = 0x03;           // three seats is not the gun this reads
+        assert(DecodeGunCrew(brokenGun.data()).count == 0);
+    }
+
+    // --- occupant records ------------------------------------------------------
+    {
+        std::array<uint8_t, 0x20> record{};
+        PutRecord(record, 0, true, 0);
+        assert(OccupantSlot(record.data(), true) == 0);
+        assert(OccupantSlot(record.data(), false) == 0);
+
+        // an empty seat keeps its stale group byte: only a seat walk sees
+        // through it, a packed list never holds one
+        PutRecord(record, 0, false, 0);
+        assert(OccupantSlot(record.data(), true) == -1);
+        assert(OccupantSlot(record.data(), false) == 0);
+
+        // any byte of the occupancy dword marks the seat taken
+        record[3] = 1;
+        assert(OccupantSlot(record.data(), true) == 0);
+
+        PutRecord(record, 0, true, -1);
+        assert(OccupantSlot(record.data(), true) == -1);
+        record[kOccupantGroupOffset] = kCount + 1;
+        assert(OccupantSlot(record.data(), true) == -1);
+    }
+
+    // --- the counting rule -------------------------------------------------------
+    // One rule for every container: occupants always count, from their
+    // records. The container itself counts only when its own group byte names
+    // the slot - it was assigned the group, like any unit. Answering the slot
+    // through its predicate alone adds nothing once its occupants were read.
+    static_assert(CountsItself(true, false));      // loose unit
+    static_assert(CountsItself(true, true));       // assigned container
+    static_assert(!CountsItself(false, true));     // container standing in for occupants
+    static_assert(CountsItself(false, false));     // container nothing decodes
+
+    {
+        constexpr int one = 0;      // slot of key '1'
+        constexpr int two = 1;      // slot of key '2'
+        constexpr GunCrew gunCrew = DecodeGunCrew(kSs2Gun.data());
+        constexpr BuildingSeats house = DecodeBuildingSeats(kSs2Building.data());
+        constexpr int houseCapacity = 6;
+        const Slots none{};
+
+        const auto loose = [&](Counts& counts, int count, int slot)
+        {
+            for (int i = 0; i < count; ++i)
+                CountEntry(slot, none, false, counts);
+        };
+
+        // Fills a house with `inside` men of `slot`; the rest of its seats are
+        // empty but keep the stale group byte of whoever left them.
+        const auto garrison = [&](Counts& counts, int inside, int slot)
+        {
+            std::array<uint8_t, 0x200> building{};
+            for (int seat = 0; seat < houseCapacity; ++seat)
+                PutSeat(building, house.seats, seat, seat < inside, slot);
+            CountSeats(building.data(), house.seats, houseCapacity, counts);
+            CountEntry(-1, Only(slot), true, counts);
+        };
+
+        // 3 riflemen of group 1: on open ground, inside a house, and out again
+        {
+            Counts counts{};
+            loose(counts, 3, one);
+            assert(counts[one] == 3);
+        }
+        {
+            Counts counts{};
+            garrison(counts, 3, one);
+            assert(counts[one] == 3);
+        }
+
+        // split 2 inside / 1 outside
+        {
+            Counts counts{};
+            garrison(counts, 2, one);
+            loose(counts, 1, one);
+            assert(counts[one] == 3);
+        }
+
+        // two houses, 2 men of the same group in each
+        {
+            Counts counts{};
+            garrison(counts, 2, one);
+            garrison(counts, 2, one);
+            assert(counts[one] == 4);
+        }
+
+        // a house mixing two groups counts each man in his own group
+        {
+            Counts counts{};
+            std::array<uint8_t, 0x200> building{};
+            PutSeat(building, house.seats, 0, true, one);
+            PutSeat(building, house.seats, 1, true, two);
+            PutSeat(building, house.seats, 2, true, two);
+            CountSeats(building.data(), house.seats, houseCapacity, counts);
+            Slots both = Only(one);
+            both[two] = true;
+            CountEntry(-1, both, true, counts);
+            assert(counts[one] == 1 && counts[two] == 2);
+        }
+
+        // 2 men of group 2 on a mortar; then only one left, the other seat
+        // still holding his group byte
+        {
+            Counts counts{};
+            std::array<uint8_t, 0x200> mortar{};
+            PutSeat(mortar, gunCrew.seats, 0, true, two);
+            PutSeat(mortar, gunCrew.seats, 1, true, two);
+            CountSeats(mortar.data(), gunCrew.seats, gunCrew.count, counts);
+            CountEntry(-1, Only(two), true, counts);
+            assert(counts[two] == 2);
+
+            Counts after{};
+            PutSeat(mortar, gunCrew.seats, 1, false, two);
+            CountSeats(mortar.data(), gunCrew.seats, gunCrew.count, after);
+            CountEntry(-1, Only(two), true, after);
+            assert(after[two] == 1);
+        }
+
+        // two mortars of the same group, 2 servants each
+        {
+            Counts counts{};
+            for (int gun = 0; gun < 2; ++gun)
+            {
+                std::array<uint8_t, 0x200> mortar{};
+                PutSeat(mortar, gunCrew.seats, 0, true, two);
+                PutSeat(mortar, gunCrew.seats, 1, true, two);
+                CountSeats(mortar.data(), gunCrew.seats, gunCrew.count, counts);
+                CountEntry(-1, Only(two), true, counts);
+            }
+            assert(counts[two] == 4);
+        }
+
+        // a truck with 2 crew and 1 passenger of group 1: unchanged
+        {
+            Counts counts{};
+            std::array<uint8_t, 3 * kVehicleRecordSize> records{};
+            for (size_t i = 0; i < 3; ++i)
+                PutRecord(records, i * kVehicleRecordSize, false, one);   // packed: no occupancy test
+            CountList(records.data(), 2, counts);
+            CountList(records.data() + 2 * kVehicleRecordSize, 1, counts);
+            CountEntry(-1, Only(one), true, counts);
+            assert(counts[one] == 3);
+        }
+
+        // an empty vehicle assigned group 1 still reads 1, and an assigned
+        // vehicle counts once on top of any crew of the same group
+        {
+            Counts counts{};
+            CountEntry(one, none, true, counts);
+            assert(counts[one] == 1);
+
+            std::array<uint8_t, 2 * kVehicleRecordSize> crew{};
+            PutRecord(crew, 0, false, one);
+            PutRecord(crew, kVehicleRecordSize, false, two);
+            CountList(crew.data(), 2, counts);
+            assert(counts[one] == 2 && counts[two] == 1);
+        }
+
+        // a container kind nothing decodes still lights and counts once
+        {
+            Counts counts{};
+            CountEntry(-1, Only(one), false, counts);
+            assert(counts[one] == 1);
+        }
     }
 
     // --- assign is reachable through the runtime lookup ----------------------
