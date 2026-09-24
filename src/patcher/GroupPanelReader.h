@@ -11,8 +11,12 @@
 // fnGroupSelect uses them. Vehicle crew is the one exception: the common-unit
 // predicate only searches its passenger list, so its adjacent crew list is
 // read directly - both to light the panel and, in select(), to make the game's
-// own walk find a vehicle it would otherwise never reach. All pointers are
-// validated before use.
+// own walk find a vehicle it would otherwise never reach.
+//
+// Counts are per unit, not per list entry: occupants of a vehicle, a gun or a
+// building have left the list, so each one is counted from the container's
+// records, found by decoding the container's own predicate (see GroupPanel.h).
+// All pointers are validated before use.
 
 #include "GameGlobals.h"
 #include "GroupPanel.h"
@@ -49,6 +53,7 @@ public:
     // stop a corrupt or cyclic list from spinning forever.
     static constexpr int kMaxUnits = 8192;
     static constexpr int kMaxVehicleSlots = 64;
+    static constexpr int kMaxSeats = 255;   // a building's capacity comes from a game table
 
     static constexpr int kMaxCrewPatches = 32;
 
@@ -167,12 +172,25 @@ private:
         uint8_t previous;
     };
 
+    // What a unit's vtable says about it, decoded once per vtable.
+    struct VtableEntry
+    {
+        const void* vtable{ nullptr };
+        AliveFn* alive{ nullptr };
+        InGroupFn* inGroup{ nullptr };
+        uint8_t vehicleContainer{ 0 };
+        GroupPanel::GunCrew gun{};
+        GroupPanel::BuildingSeats building{};
+    };
+
     void refresh()
     {
         units_ = {};
         vtables_ = {};
         code_ = {};
         occupants_ = {};
+        typeTable_ = {};
+        capacityTable_ = {};
         vtableCount_ = 0;
 
         auto* headSlot = globals_->getPtr<uint8_t*>(addresses_->unitListHead);
@@ -196,42 +214,42 @@ private:
             if (!isReadableCached(units_, unit, probe))
                 return;                       // corrupt list: keep what we have
 
-            AliveFn* alive = nullptr;
-            InGroupFn* inGroup = nullptr;
-            bool gunCrew = false;
-            uint8_t vehicleContainer = 0;
-
-            if (resolveUnit(unit, alive, inGroup, gunCrew, vehicleContainer) && alive(unit))
+            VtableEntry entry;
+            if (resolveUnit(unit, entry) && entry.alive(unit))
             {
-                if (vehicleContainer &&
-                    !scanVehicleGroups(unit + vehicleContainer, wheel, transport, active, counts))
+                // Occupants first, from their records; badges stay with the
+                // predicate below, which already reports them correctly.
+                if (entry.vehicleContainer &&
+                    !scanVehicleGroups(unit + entry.vehicleContainer, wheel, transport, active, counts))
+                    return;
+                if (entry.gun.count &&
+                    !scanSeats(unit, entry.gun.seats, entry.gun.count, counts))
+                    return;
+                if (entry.building.typeTable && !scanBuilding(unit, entry.building, counts))
                     return;
 
+                const bool occupantsCounted =
+                    entry.vehicleContainer || entry.gun.count || entry.building.typeTable;
                 const int ownSlot = GroupPanel::SlotForStoredValue(unit[addresses_->unitGroupOffset]);
-                if (ownSlot >= 0)
-                {
-                    active[static_cast<size_t>(ownSlot)] = true;
-                    ++counts[static_cast<size_t>(ownSlot)];
-                }
 
                 for (int slot = 0; slot < GroupPanel::kCount; ++slot)
                 {
                     const auto index = static_cast<size_t>(slot);
-
-                    if (slot == ownSlot)
-                        continue;
-
+                    const bool own = slot == ownSlot;
                     const uint8_t stored = GroupPanel::StoredValueForSlot(slot);
-                    if (!inGroup(unit, stored, kAltModifier))
+
+                    if (!own && !entry.inGroup(unit, stored, kAltModifier))
                         continue;
 
                     active[index] = true;
-                    if (!vehicleContainer) // vehicle occupants were counted from their records
+                    if (GroupPanel::CountsItself(own, occupantsCounted))
                         ++counts[index];
 
-                    if (inGroup(unit, stored, 0))
+                    if (own)
+                        continue;
+                    if (entry.inGroup(unit, stored, 0))
                         house[index] = true;
-                    else if (gunCrew)
+                    else if (entry.gun.count)
                         gun[index] = true;
                     else
                         transport[index] = true;
@@ -267,15 +285,12 @@ private:
             if (!isReadableCached(units_, unit, probe))
                 return patched;
 
-            AliveFn* alive = nullptr;
-            InGroupFn* inGroup = nullptr;
-            bool gunCrew = false;
-            uint8_t vehicleContainer = 0;
+            VtableEntry entry;
 
             uint8_t* const groupByte = unit + addresses_->unitGroupOffset;
-            if (resolveUnit(unit, alive, inGroup, gunCrew, vehicleContainer) && alive(unit) &&
-                vehicleContainer && *groupByte != stored &&
-                crewHoldsSlot(unit + vehicleContainer, slot) &&
+            if (resolveUnit(unit, entry) && entry.alive(unit) &&
+                entry.vehicleContainer && *groupByte != stored &&
+                crewHoldsSlot(unit + entry.vehicleContainer, slot) &&
                 isReadable(groupByte, 1, nullptr, nullptr, kWritable))
             {
                 patches[static_cast<size_t>(patched++)] = { groupByte, *groupByte };
@@ -303,8 +318,8 @@ private:
         return crew[static_cast<size_t>(slot)];
     }
 
-    bool resolveUnit(uint8_t* unit, AliveFn*& alive, InGroupFn*& inGroup,
-                     bool& gun, uint8_t& vehicleContainer)
+    // Cached per vtable, so each unit costs one lookup.
+    bool resolveUnit(uint8_t* unit, VtableEntry& entry)
     {
         auto* const vtable = *reinterpret_cast<uint8_t**>(unit);
 
@@ -312,54 +327,39 @@ private:
         {
             if (vtableCache_[static_cast<size_t>(i)].vtable == vtable)
             {
-                alive = vtableCache_[static_cast<size_t>(i)].alive;
-                inGroup = vtableCache_[static_cast<size_t>(i)].inGroup;
-                gun = vtableCache_[static_cast<size_t>(i)].gun;
-                vehicleContainer = vtableCache_[static_cast<size_t>(i)].vehicleContainer;
-                return alive && inGroup;
+                entry = vtableCache_[static_cast<size_t>(i)];
+                return entry.alive && entry.inGroup;
             }
         }
 
-        alive = vtableFn<AliveFn>(vtable, addresses_->unitAliveVtableOffset);
-        inGroup = vtableFn<InGroupFn>(vtable, addresses_->unitGroupVtableOffset);
-        gun = isGunPredicate(inGroup);
-        vehicleContainer = vehicleContainerOffset(inGroup);
+        entry = { vtable };
+        entry.alive = vtableFn<AliveFn>(vtable, addresses_->unitAliveVtableOffset);
+        entry.inGroup = vtableFn<InGroupFn>(vtable, addresses_->unitGroupVtableOffset);
+        if (const uint8_t* code = predicateCode(entry.inGroup))
+        {
+            entry.vehicleContainer = GroupPanel::VehicleContainerOffset(code);
+            entry.gun = GroupPanel::DecodeGunCrew(code);
+            entry.building = GroupPanel::DecodeBuildingSeats(code);
+        }
 
         if (vtableCount_ < kVtableCacheSize)
-            vtableCache_[static_cast<size_t>(vtableCount_++)] =
-                { vtable, alive, inGroup, gun, vehicleContainer };
+            vtableCache_[static_cast<size_t>(vtableCount_++)] = entry;
 
-        return alive && inGroup;
+        return entry.alive && entry.inGroup;
     }
 
-    bool isGunPredicate(InGroupFn* fn)
+    // The predicate's code, readable for as long as the longest pattern it is
+    // decoded against; nullptr otherwise.
+    const uint8_t* predicateCode(InGroupFn* fn)
     {
-        constexpr std::string_view ss2Pattern =
-            "33c0568a41??8b7424083bc67509b8010000005ec208008b44240c85c0742033d2"
-            "8d81????????8b48f285c9740833c98a083bce74d84283c0??83fa027ce833c05ec20800";
-        constexpr std::string_view goldPattern =
-            "33c08a41??568b7424083bc67509b8010000005ec208008b44240c85c0742033d2"
-            "8d81????????8b48f285c9740833c98a083bce74d84283c0??83fa027ce833c05ec20800";
-        if (!fn || !isReadableCached(code_, fn, GroupPanel::SignatureLength(ss2Pattern)))
-            return false;
-
-        const auto* code = reinterpret_cast<const uint8_t*>(fn);
-        return GroupPanel::Matches(code, ss2Pattern) || GroupPanel::Matches(code, goldPattern);
-    }
-
-    uint8_t vehicleContainerOffset(InGroupFn* fn)
-    {
-        // The common-unit predicate adds this container offset before calling
-        // the game's passenger-list search. The same container holds crew at
-        // +4/+0xc and passengers at +0x10/+0x18.
-        constexpr std::string_view pattern =
-            "8b44240433d28a51??3bd0741a8b54240885d2740d5083c1??e8????????"
-            "85c0750533c0c20800b801000000c20800";
-        if (!fn || !isReadableCached(code_, fn, GroupPanel::SignatureLength(pattern)))
-            return 0;
-
-        const auto* code = reinterpret_cast<const uint8_t*>(fn);
-        return GroupPanel::Matches(code, pattern) ? code[24] : 0;
+        constexpr size_t kLongest = static_cast<size_t>(std::max({
+            GroupPanel::SignatureLength(GroupPanel::kVehiclePredicate),
+            GroupPanel::SignatureLength(GroupPanel::kGunPredicateSs2),
+            GroupPanel::SignatureLength(GroupPanel::kGunPredicateGold),
+            GroupPanel::SignatureLength(GroupPanel::kBuildingPredicate) }));
+        if (!fn || !isReadableCached(code_, fn, kLongest))
+            return nullptr;
+        return reinterpret_cast<const uint8_t*>(fn);
     }
 
     bool scanVehicleGroups(uint8_t* container,
@@ -384,8 +384,7 @@ private:
                             std::array<bool, GroupPanel::kCount>& active,
                             GroupPanel::Counts& counts)
     {
-        constexpr size_t kRecordSize = 0x15;
-        constexpr size_t kGroupOffset = 0xE;
+        constexpr size_t kRecordSize = GroupPanel::kVehicleRecordSize;
         if (count < 0 || count > kMaxVehicleSlots)
             return false;
         if (count == 0)
@@ -395,8 +394,7 @@ private:
 
         for (int i = 0; i < count; ++i)
         {
-            const int slot = GroupPanel::SlotForStoredValue(
-                records[static_cast<size_t>(i) * kRecordSize + kGroupOffset]);
+            const int slot = GroupPanel::OccupantSlot(records + static_cast<size_t>(i) * kRecordSize, false);
             if (slot >= 0)
             {
                 badges[static_cast<size_t>(slot)] = true;
@@ -405,6 +403,53 @@ private:
             }
         }
         return true;
+    }
+
+    // Counts the occupied seats inlined into a gun or a building. Seats live
+    // inside the container itself, so they share the unit's region probe.
+    // Counts only: cell lighting and badges keep coming from the predicate.
+    bool scanSeats(uint8_t* container, const GroupPanel::Seats& seats, int count,
+                   GroupPanel::Counts& counts)
+    {
+        if (count < 0 || count > kMaxSeats)
+            return false;
+        if (count == 0)
+            return true;
+
+        const uint8_t* records = container + GroupPanel::SeatRecords(seats);
+        if (!isReadableCached(units_, records, GroupPanel::SeatBytes(seats, count)))
+            return false;
+
+        for (int i = 0; i < count; ++i)
+        {
+            const int slot = GroupPanel::OccupantSlot(records + static_cast<size_t>(i) * seats.stride, true);
+            if (slot >= 0)
+                ++counts[static_cast<size_t>(slot)];
+        }
+        return true;
+    }
+
+    // A building's seat count is its type's capacity, looked up exactly as
+    // its predicate does before walking the same seats.
+    bool scanBuilding(uint8_t* building, const GroupPanel::BuildingSeats& decoded,
+                      GroupPanel::Counts& counts)
+    {
+        const uint8_t* type = building + decoded.typeOffset;
+        if (!isReadableCached(units_, type, sizeof(int32_t)))
+            return false;
+
+        const auto* row = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(
+            GroupPanel::BuildingTypeRow(decoded, GroupPanel::ReadInt32(type))));
+        if (!isReadableCached(typeTable_, row, sizeof(int32_t)))
+            return false;
+
+        const auto* capacity = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(
+            GroupPanel::BuildingCapacityRow(decoded, GroupPanel::ReadInt32(row))));
+        if (!isReadableCached(capacityTable_, capacity, sizeof(int32_t)))
+            return false;
+
+        const int32_t seats = GroupPanel::ReadInt32(capacity);
+        return scanSeats(building, decoded.seats, seats > 0 ? seats : 0, counts);
     }
 
     template<typename Fn>
@@ -483,15 +528,6 @@ private:
     std::array<bool, GroupPanel::kCount> gun_{};
     GroupPanel::Counts counts_{};
 
-    struct VtableEntry
-    {
-        const void* vtable;
-        AliveFn* alive;
-        InGroupFn* inGroup;
-        bool gun;
-        uint8_t vehicleContainer;
-    };
-
     static constexpr int kVtableCacheSize = 64;
     std::array<VtableEntry, kVtableCacheSize> vtableCache_{};
     int vtableCount_{ 0 };
@@ -500,6 +536,8 @@ private:
     Region vtables_{};
     Region code_{};
     Region occupants_{};
+    Region typeTable_{};
+    Region capacityTable_{};
     uint32_t lastTick_{ 0 };
     bool primed_{ false };
 };
