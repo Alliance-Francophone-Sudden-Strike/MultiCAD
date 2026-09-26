@@ -50,32 +50,16 @@ namespace CursorMapping
         return g_originalClipCursor(&onScreen);
     }
 
-    // By name where the import table has one, by address where a packer rebuilt
-    // it. Null when the function is not reachable from this module.
-    inline void* Redirect(const uintptr_t moduleBase, const char* function, void* replacement)
-    {
-        if (void* const previous = ImportHooks::Replace(moduleBase, "user32.dll", function, replacement))
-            return previous;
-
-        void* real = reinterpret_cast<void*>(
-            GetProcAddress(GetModuleHandleA("user32.dll"), function));
-        if (real == nullptr)
-            return nullptr;
-
-        // Matching the real export means this never chains onto our own hook.
-        return ImportHooks::ReplaceByAddress(moduleBase, real, replacement) != 0 ? real : nullptr;
-    }
-
     inline void Install(const uintptr_t moduleBase)
     {
         // Capture once: a table already patched would chain the hook to itself.
-        if (void* const previous = Redirect(moduleBase, "GetCursorPos", &GetCursorPosHook))
+        if (void* const previous = ImportHooks::Redirect(moduleBase, "user32.dll", "GetCursorPos", &GetCursorPosHook))
         {
             if (g_originalGetCursorPos == nullptr)
                 g_originalGetCursorPos = reinterpret_cast<BOOL(WINAPI*)(LPPOINT)>(previous);
         }
 
-        if (void* const previous = Redirect(moduleBase, "ClipCursor", &ClipCursorHook))
+        if (void* const previous = ImportHooks::Redirect(moduleBase, "user32.dll", "ClipCursor", &ClipCursorHook))
         {
             if (g_originalClipCursor == nullptr)
                 g_originalClipCursor = reinterpret_cast<BOOL(WINAPI*)(const RECT*)>(previous);

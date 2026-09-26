@@ -116,6 +116,7 @@
     <ClInclude Include="profiles\ProfileFactory.h" />
     <ClInclude Include="profiles\Profiles.h" />
     <ClInclude Include="profiles\ProfileSpecs.h" />
+    <ClInclude Include="stats\MapFile.h" />
     <ClInclude Include="stats\MatchStats.h" />
     <ClInclude Include="stats\OutcomeHook.h" />
     <ClInclude Include="stats\MatchStatsReader.h" />

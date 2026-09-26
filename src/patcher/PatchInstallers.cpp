@@ -3,6 +3,7 @@
 #include "AudioHelper.h"
 #include "UIFilter.h"
 #include "CursorMapping.h"
+#include "MapFile.h"
 #include "StatsReporter.h"
 #include "OutcomeHook.h"
 
@@ -145,6 +146,7 @@ bool InstallMenuPatches(TargetState& state, uintptr_t base, size_t size, const s
     const auto& module = detector.GetModuleInfo(DllType::Menu);
 
     CursorMapping::Install(module.base);
+    MapFile::Install(module.base);
 
     MenuDllHooks::init(module.base);
     state.patchEngine.emplace(

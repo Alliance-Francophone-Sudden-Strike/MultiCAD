@@ -87,6 +87,9 @@
     <ClInclude Include="stats\OutcomeHook.h">
       <Filter>Header Files\Stats</Filter>
     </ClInclude>
+    <ClInclude Include="stats\MapFile.h">
+      <Filter>Header Files\Stats</Filter>
+    </ClInclude>
     <ClInclude Include="stats\MatchStats.h">
       <Filter>Header Files\Stats</Filter>
     </ClInclude>

@@ -147,4 +147,23 @@ namespace ImportHooks
 
         return replaced;
     }
+
+    // By name where the import table has one, by address where a packer rebuilt
+    // it. Null when the function is not reachable from this module.
+    inline void* Redirect(const uintptr_t moduleBase,
+                          const char* importedDll,
+                          const char* function,
+                          void* replacement)
+    {
+        if (void* const previous = Replace(moduleBase, importedDll, function, replacement))
+            return previous;
+
+        void* real = reinterpret_cast<void*>(
+            GetProcAddress(GetModuleHandleA(importedDll), function));
+        if (real == nullptr)
+            return nullptr;
+
+        // Matching the real export means this never chains onto our own hook.
+        return ReplaceByAddress(moduleBase, real, replacement) != 0 ? real : nullptr;
+    }
 }

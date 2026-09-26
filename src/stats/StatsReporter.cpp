@@ -2,6 +2,7 @@
 #include "StatsReporter.h"
 
 #include "GameIni.h"
+#include "MapFile.h"
 #include "ModInfo.h"
 #include "version.h"
 
@@ -511,31 +512,8 @@ namespace Stats
             g_mapName.clear();
         }
 
-        const std::string dir = GameIni::Dir();
-        if (dir.empty())
-            return;
-
-        const std::string path = dir + "\\XCHNG\\ToGame\\mis_desc";
-
-        FILE* file = nullptr;
-        if (fopen_s(&file, path.c_str(), "rb") != 0 || file == nullptr)
-        {
-            // The menu writes this when the match starts and empties the folder
-            // when it ends, so a miss here means we looked too early - and there
-            // is no second attempt, the name is gone for the whole match.
-            return;
-        }
-
-        char line[256] = { 0 };
-        const size_t read = std::fread(line, 1, sizeof(line) - 1, file);
-        std::fclose(file);
-
-        // The first line names the map; the rest is the briefing.
-        std::string name(line, read);
-        const size_t end = name.find_first_of("\r\n");
-        if (end != std::string::npos)
-            name.resize(end);
-
+        // A file name, so in the local code page; stored as UTF-8 for ToJson.
+        std::string name = ToUtf8(MapFile::TakeLastOpened());
         if (name.empty())
         {
             return;

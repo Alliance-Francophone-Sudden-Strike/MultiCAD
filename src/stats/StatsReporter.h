@@ -14,10 +14,8 @@ namespace Stats
     constexpr size_t kMaxNameLength = 64;
     constexpr size_t kMaxBodyBytes  = 64 * 1024;
 
-    // The map is named only in XCHNG\ToGame\mis_desc, which the menu deletes at
-    // match end, so it has to be read while the match runs - from this dll,
-    // which outlives the menu dll. Already UTF-8, unlike anything read from
-    // memory.
+    // The map is named only by the .smm the menu opened last (see MapFile.h).
+    // Taken when the game dll loads, before the next match can open another.
     void CaptureMapName();
     std::string MapName();
 
