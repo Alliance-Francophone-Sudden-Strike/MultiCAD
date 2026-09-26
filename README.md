@@ -41,6 +41,10 @@ Where to report a problem:
 
 If you are unsure, open it here; it will be forwarded upstream if it belongs there.
 
+## Requirements
+
+The newly added zoom feature requires the CNC DDRAW (attached to the release). Without it, the zoom functionality can be subject to extreme performance degradation.
+
 ## AF MultiCAD feature support
 
 The new features hook version-specific game code, so they are enabled per game version.
