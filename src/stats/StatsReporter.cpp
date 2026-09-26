@@ -1,8 +1,8 @@
 #include "pch.h"
 #include "StatsReporter.h"
 
+#include "GameIni.h"
 #include "ModInfo.h"
-#include "ScreenConfig.h"
 #include "version.h"
 
 #include <winhttp.h>
@@ -27,19 +27,6 @@ namespace
     constexpr int kSendTimeoutMs    = 5000;
     constexpr int kReceiveTimeoutMs = 5000;
 
-    std::string ReadIniValue(const char* section, const char* key)
-    {
-        const std::string iniPath = Screen::IniPath();
-        if (iniPath.empty())
-            return {};
-
-        char buffer[512] = { 0 };
-        const DWORD length = GetPrivateProfileStringA(
-            section, key, "", buffer, sizeof(buffer), iniPath.c_str());
-
-        return std::string(buffer, length);
-    }
-
     std::string Trim(const std::string& raw)
     {
         const size_t first = raw.find_first_not_of(" \t\r\n");
@@ -55,7 +42,7 @@ namespace
     // setting and drops the report rather than queueing it.
     std::string ReadStatsUrl()
     {
-        return Trim(ReadIniValue("Game", "StatsUrl"));
+        return Trim(GameIni::Read("Game", "StatsUrl"));
     }
 
     std::wstring Widen(const std::string& text, UINT codePage)
@@ -223,15 +210,6 @@ namespace
         return text;
     }
 
-    bool WriteInstallIdIni(const std::string& id)
-    {
-        const std::string iniPath = Screen::IniPath();
-        if (iniPath.empty())
-            return false;
-
-        return WritePrivateProfileStringA("Game", "InstallId", id.c_str(), iniPath.c_str()) != FALSE;
-    }
-
     // `retryable` separates "could not reach the endpoint" from "the endpoint
     // refused this body" - the first is what the spool exists for, the second
     // would pile up in it forever.
@@ -375,12 +353,11 @@ namespace
 
     std::string PendingDir()
     {
-        const std::string iniPath = Screen::IniPath();
-        const size_t slash = iniPath.find_last_of('\\');
-        if (slash == std::string::npos)
+        const std::string dir = GameIni::Dir();
+        if (dir.empty())
             return {};
 
-        return iniPath.substr(0, slash) + "\\multicad_pending";
+        return dir + "\\multicad_pending";
     }
 
     std::vector<std::string> PendingFiles(const std::string& dir)
@@ -534,12 +511,11 @@ namespace Stats
             g_mapName.clear();
         }
 
-        const std::string iniPath = Screen::IniPath();
-        const size_t slash = iniPath.find_last_of('\\');
-        if (slash == std::string::npos)
+        const std::string dir = GameIni::Dir();
+        if (dir.empty())
             return;
 
-        const std::string path = iniPath.substr(0, slash) + "\\XCHNG\\ToGame\\mis_desc";
+        const std::string path = dir + "\\XCHNG\\ToGame\\mis_desc";
 
         FILE* file = nullptr;
         if (fopen_s(&file, path.c_str(), "rb") != 0 || file == nullptr)
@@ -603,7 +579,7 @@ namespace Stats
 
         // The ini is the only store, so an id written by an earlier run is the
         // one that keeps being used rather than a second appearing beside it.
-        if (const std::string found = Trim(ReadIniValue("Game", "InstallId"));
+        if (const std::string found = Trim(GameIni::Read("Game", "InstallId"));
             PlausibleInstallId(found))
         {
             cached = found;
@@ -616,7 +592,7 @@ namespace Stats
             return {};
         }
 
-        if (!WriteInstallIdIni(fresh))
+        if (!GameIni::Write("Game", "InstallId", fresh))
         {
             // Not cached, so this is a new id per report, not per launch - the
             // server sees one install as a stream of them. A read-only game
@@ -653,7 +629,7 @@ namespace Stats
         if (ModInfo::FromLauncher(launcherName, launcherVersion))
             return launcherName + " " + launcherVersion;
 
-        std::string name = ReadIniValue("StartUp", "ProcessName");
+        std::string name = GameIni::Read("StartUp", "ProcessName");
 
         // Mods tend to prefix the base game they run on - FMRM ships
         // "SS2: FMRM 2.1" - and only the mod half is worth reporting. Names

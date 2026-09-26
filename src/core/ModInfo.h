@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "ScreenConfig.h"
+#include "GameIni.h"
 
 // A mod declares its own name and version here:
 //
@@ -18,21 +18,9 @@ namespace ModInfo
     // default.
     inline bool FromLauncher(std::string& name, std::string& version)
     {
-        const std::string iniPath = Screen::IniPath();
-        if (iniPath.empty())
-            return false;
+        name = GameIni::Read("Launcher", "ModName");
+        version = GameIni::Read("Launcher", "ModVer");
 
-        const auto read = [&iniPath](const char* key, std::string& out)
-            {
-                char buffer[64] = { 0 };
-                const DWORD length = GetPrivateProfileStringA(
-                    "Launcher", key, "", buffer, sizeof(buffer), iniPath.c_str());
-
-                out.assign(buffer, length);
-
-                return !out.empty();
-            };
-
-        return read("ModName", name) && read("ModVer", version);
+        return !name.empty() && !version.empty();
     }
 }

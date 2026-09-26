@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "DllVersionDetector.h"
-#include "ScreenConfig.h"
+#include "GameIni.h"
 
 #include <filesystem>
 #include <fstream>
@@ -203,7 +203,7 @@ static std::wstring FindStartUpModule(const std::wstring& root, const std::wstri
 {
     namespace fs = std::filesystem;
 
-    const std::string iniPath = Screen::IniPath();
+    const std::string iniPath = GameIni::Path();
     if (iniPath.empty() || partLower.empty())
         return {};
 

@@ -90,6 +90,7 @@
     <ClInclude Include="core\AudioHelper.h" />
     <ClInclude Include="core\CursorMapping.h" />
     <ClInclude Include="core\cad.h" />
+    <ClInclude Include="core\GameIni.h" />
     <ClInclude Include="core\ModInfo.h" />
     <ClInclude Include="core\pch.h" />
     <ClInclude Include="core\renderer.h" />
@@ -127,6 +128,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="core\cad.cpp" />
+    <ClCompile Include="core\GameIni.cpp" />
     <ClCompile Include="core\pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
