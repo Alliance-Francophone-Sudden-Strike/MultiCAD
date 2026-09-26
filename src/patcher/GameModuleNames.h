@@ -54,4 +54,36 @@ namespace GameModules
 
         return Widen(buffer, static_cast<int>(len));
     }
+
+    // HS2Engine's hybrid game dll hosts the original rather than being it: its ini
+    // section names the original, which the host loads itself,
+    //
+    //   [HS2Engine]
+    //   OriginalDll=Game_Dll.orig.dll
+    //
+    // so the module the game loads as Module2 is not the one to patch. True for a game
+    // module whose file is not that original; the original, loaded next, still matches
+    // the "game" name part and is identified and patched as usual. Only asked about a
+    // dll whose hash no profile knows (InstallGamePatches): a stock dll left as Module2
+    // with the section still in the ini is patched.
+    inline bool IsHs2EngineHost(const std::wstring& modulePath)
+    {
+        const std::string iniPath = Screen::GetIniPath();
+        if (iniPath.empty())
+            return false;
+
+        char buffer[MAX_PATH] = { 0 };
+        const DWORD len = GetPrivateProfileStringA("HS2Engine", "OriginalDll", "", buffer, sizeof(buffer), iniPath.c_str());
+        if (len == 0)
+            return false;
+
+        const auto fileName = [](std::wstring_view path) {
+            const size_t slash = path.find_last_of(L"\\/");
+            return slash == std::wstring_view::npos ? path : path.substr(slash + 1);
+        };
+        const std::wstring original = Widen(buffer, static_cast<int>(len));
+        const std::wstring_view module = fileName(modulePath);
+        const std::wstring_view wanted = fileName(original);
+        return module.size() != wanted.size() || _wcsnicmp(module.data(), wanted.data(), module.size()) != 0;
+    }
 }

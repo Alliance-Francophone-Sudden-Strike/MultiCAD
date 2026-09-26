@@ -10,13 +10,19 @@
 
 bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const std::wstring& path)
 {
-    Zoom::GetState().setMode(Zoom::Mode::Off);
-    std::thread([] { AudioHelper::EnsureMaxVolume(); }).detach();
-
     DllVersionDetector& detector = DllVersionDetector::GetInstance();
     GameVersion version = detector.GetOrDetectGameVersion(DllType::Game, path, base, size);
     DetectionStatus status = detector.GetDetectionStatus(DllType::Game);
     GameVersion forced = GameVersion::UNKNOWN;
+
+    // HS2Engine's host: nothing to patch and nothing to report. The original it loads
+    // next is patched instead (see GameModules::IsHs2EngineHost). A dll we recognise is
+    // never the host, whatever the ini says: a stock dll is patched as usual.
+    if (status == DetectionStatus::UnsupportedHash && GameModules::IsHs2EngineHost(path))
+        return false;
+
+    Zoom::GetState().setMode(Zoom::Mode::Off);
+    std::thread([] { AudioHelper::EnsureMaxVolume(); }).detach();
 
     // "[Game] GameProfile=" forces a profile onto a dll we couldn't identify. Only once the
     // file was read and hashed, otherwise ModuleInfo has nothing to patch against.
