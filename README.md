@@ -79,7 +79,8 @@ See all the games supported by MultiCAD (HD resolution and various bug fixes onl
    > SSDraw2=cad1024.dll
    > SSDraw3=cadMulti_mt.dll
    > ```
-4. Launch the game.
+4. Also download the CNC DDRAW file attached to the release and place it in the same folder as the game's executable.
+5. Launch the game.
 
 ## Configuration
 
