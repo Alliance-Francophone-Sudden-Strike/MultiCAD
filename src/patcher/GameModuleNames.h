@@ -63,7 +63,9 @@ namespace GameModules
     //
     // so the module the game loads as Module2 is not the one to patch. True for a game
     // module whose file is not that original; the original, loaded next, still matches
-    // the "game" name part and is identified and patched as usual.
+    // the "game" name part and is identified and patched as usual. Only asked about a
+    // dll whose hash no profile knows (InstallGamePatches): a stock dll left as Module2
+    // with the section still in the ini is patched.
     inline bool IsHs2EngineHost(const std::wstring& modulePath)
     {
         const std::string iniPath = Screen::GetIniPath();
