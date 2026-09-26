@@ -305,7 +305,7 @@ and rosters that never corroborate elsewhere.
 
 | version | behaviour |
 |---|---|
-| Sudden Strike: Resource War v2.4, incl. RWG 3.6 | full report |
+| Sudden Strike: Resource War v2.4, incl. RWG 1.0-3.6 and RWG Truth of War | full report |
 | Sudden Strike 2 v2.2, Hidden Stroke 2, FMRM 2.1.5.3 | full report |
 | everything else | nothing sent |
 

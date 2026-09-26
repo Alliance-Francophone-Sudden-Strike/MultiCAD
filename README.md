@@ -49,7 +49,7 @@ It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) �
 | **RCM**                          |   ✔   | 2.7                   | 6 bug fixes |
 | **RWM 6.x**                      |   ✔   | 6.5, 6.6, 6.71, 6.8   | 6 bug fixes |
 | **RWM 8.x**                      |   ✔   | 8.0, 8.5              | 6 bug fixes |
-| **RWG**                          |   ✔   | 3.6                   | 6 bug fixes |
+| **RWG**                          |   ✔   | 1.0-3.6               | 6 bug fixes |
 | **RWG Truth of War**             |   ✔   | en, de, fr, ru        | 6 bug fixes |
 | **Vietnam Project**              |   ✔   | 1.0, 1.1, 1.2         | 6 bug fixes |
 | **Warzone 2**                    |   ✔   |                       | 6 bug fixes |
