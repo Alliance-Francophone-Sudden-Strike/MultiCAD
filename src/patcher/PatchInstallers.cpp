@@ -10,6 +10,11 @@
 
 bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const std::wstring& path)
 {
+    // HS2Engine's host: nothing to patch and nothing to report. The original it loads
+    // next is patched instead (see GameModules::IsHs2EngineHost).
+    if (GameModules::IsHs2EngineHost(path))
+        return false;
+
     Zoom::GetState().setMode(Zoom::Mode::Off);
     std::thread([] { AudioHelper::EnsureMaxVolume(); }).detach();
 

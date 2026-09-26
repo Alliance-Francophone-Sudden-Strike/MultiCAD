@@ -1,3 +1,13 @@
+## HS2Engine
+
+HS2Engine (`../HS2Engine`) is a hybrid Game_Dll for Hidden Stroke 2: its `Game_Dll.dll`
+loads the original (`[HS2Engine] OriginalDll=`) and replaces functions of it after MultiCAD
+has patched it. MultiCAD skips the host (`GameModules::IsHs2EngineHost`) and patches the
+original as the HS_2 profile. After changing anything HS_2 uses (the SS_2 v2.2 game hooks,
+patches and relocations, the group or zeppelin panel signatures, the redirected imports),
+run `../HS2Engine/tests/check_multicad.py`: it fails when an HS2Engine replacement would
+bypass one of them.
+
 <!-- CODEGRAPH_START -->
 ## CodeGraph
 
