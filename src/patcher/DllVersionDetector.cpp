@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "DllVersionDetector.h"
+#include "GameIni.h"
 
+#include <filesystem>
 #include <wincrypt.h>
 #include <cwctype>
 #include <queue>
@@ -263,15 +265,75 @@ static std::wstring GetProcessDirectory()
     return path;
 }
 
+// Finds the dll listed as [StartUp] ModuleN whose name contains partLower.
+// Returns an empty path if there is none.
+//
+// Some mods keep their dlls in a subfolder (RWG 1.0.1 uses Engine\), and
+// the directory walk below searches only the exe's folder.
+static std::wstring FindStartUpModule(const std::wstring& root, const std::wstring& partLower)
+{
+    namespace fs = std::filesystem;
+
+    const std::string iniPath = GameIni::Path();
+    if (iniPath.empty() || partLower.empty())
+        return {};
+
+    const std::wstring ini = fs::path(iniPath).wstring();
+
+    // LoadLibrary looks for a bare name in the exe's folder first, but
+    // resolves a path with a folder in it (Engine\...) against the working
+    // folder. The two differ only if a launcher starts the exe elsewhere.
+    std::error_code ec;
+    const fs::path dirs[] = { root, fs::current_path(ec) };
+
+    for (int i = 1; i <= 9; ++i)
+    {
+        const std::wstring key = L"Module" + std::to_wstring(i);
+
+        wchar_t value[MAX_PATH] = { 0 };
+        if (GetPrivateProfileStringW(L"StartUp", key.c_str(), L"", value, MAX_PATH, ini.c_str()) == 0)
+            continue;
+
+        const fs::path module(value);
+
+        std::wstring name = module.filename().wstring();
+        std::transform(name.begin(), name.end(), name.begin(), ::towlower);
+
+        if (name.find(partLower) == std::wstring::npos)
+            continue;
+
+        for (const fs::path& dir : dirs)
+        {
+            if (dir.empty())
+                continue;
+
+            // An absolute module path replaces dir entirely.
+            const fs::path path = dir / module;
+            if (fs::is_regular_file(path, ec))
+                return path.wstring();
+        }
+    }
+
+    return {};
+}
+
 bool DllVersionDetector::DetectFileDllVersion(const DllType type, const std::wstring_view& part)
 {
     const std::wstring root = GetProcessDirectory();
-    std::queue<std::wstring> q;
-    q.push(root);
 
     std::wstring partLower(part.size(), L'\0');
     std::transform(part.begin(), part.end(), partLower.begin(), ::towlower);
     std::wstring_view partView(partLower);
+
+    const std::wstring declared = FindStartUpModule(root, partLower);
+    if (!declared.empty())
+    {
+        DetectDllVersion(type, declared, 0, 0);
+        return true;
+    }
+
+    std::queue<std::wstring> q;
+    q.push(root);
 
     while (!q.empty())
     {

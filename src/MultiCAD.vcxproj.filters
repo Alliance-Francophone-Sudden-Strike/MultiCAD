@@ -57,6 +57,9 @@
     <ClInclude Include="core\cad.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
+    <ClInclude Include="core\GameIni.h">
+      <Filter>Header Files\Core</Filter>
+    </ClInclude>
     <ClInclude Include="core\ModInfo.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
@@ -91,6 +94,9 @@
       <Filter>Header Files\UI</Filter>
     </ClInclude>
     <ClInclude Include="stats\OutcomeHook.h">
+      <Filter>Header Files\Stats</Filter>
+    </ClInclude>
+    <ClInclude Include="stats\MapFile.h">
       <Filter>Header Files\Stats</Filter>
     </ClInclude>
     <ClInclude Include="stats\MatchStats.h">
@@ -172,6 +178,9 @@
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="core\GameIni.cpp">
+      <Filter>Source Files\Core</Filter>
     </ClCompile>
     <ClCompile Include="core\ScreenConfig.cpp">
       <Filter>Source Files\Core</Filter>

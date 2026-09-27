@@ -90,6 +90,7 @@
     <ClInclude Include="core\AudioHelper.h" />
     <ClInclude Include="core\CursorMapping.h" />
     <ClInclude Include="core\cad.h" />
+    <ClInclude Include="core\GameIni.h" />
     <ClInclude Include="core\ModInfo.h" />
     <ClInclude Include="core\PanelScale.h" />
     <ClInclude Include="core\pch.h" />
@@ -119,6 +120,7 @@
     <ClInclude Include="profiles\ProfileFactory.h" />
     <ClInclude Include="profiles\Profiles.h" />
     <ClInclude Include="profiles\ProfileSpecs.h" />
+    <ClInclude Include="stats\MapFile.h" />
     <ClInclude Include="stats\MatchStats.h" />
     <ClInclude Include="stats\OutcomeHook.h" />
     <ClInclude Include="stats\MatchStatsReader.h" />
@@ -131,6 +133,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="core\cad.cpp" />
+    <ClCompile Include="core\GameIni.cpp" />
     <ClCompile Include="core\pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>

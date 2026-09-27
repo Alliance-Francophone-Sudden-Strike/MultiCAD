@@ -76,7 +76,7 @@ Expect them; deduplicate on `(fingerprint, reporter.netId)`.
   "mod": "RWG3.6",
   "date": "2026-09-19T16:32:16.332Z",
   "startedAt": "2026-09-19T16:31:19.263Z",
-  "map": "(RWG3FE) Граница ver 1.1 (5x5)",
+  "map": "(RWG3.43b) Granica 1x1 (tren) 1.0",
   "mapScheme": 0,
   "durationSeconds": 45,
   "reporter": { "netId": 49249 },
@@ -127,7 +127,7 @@ value. Read it together with section 7.
 | `mod` | string | `""` | **usually** | free text, see below |
 | `date` | ISO-8601 UTC | `""` | **no** | when *this client* sent it |
 | `startedAt` | ISO-8601 UTC | `""` | **no** | match start on *this machine*, see 5 |
-| `map` | string | `""` | yes when set | UTF-8, ≤64 bytes |
+| `map` | string | `""` | yes when set | map file name without `.smm`, UTF-8, ≤64 bytes |
 | `mapScheme` | int | `-1` | yes when set | `0` summer, `1` winter, `2` sea, `3` desert |
 | `durationSeconds` | int | `0` | **no** | `0` means unread, not a zero-length match |
 | `reporter.netId` | int | `-1` | no - by design | which player sent this, see 8 |
@@ -216,7 +216,7 @@ fingerprint, and keep a group open for late arrivals.
 
 ## 6. Names and ids
 
-`map` is UTF-8 read straight from a game file, unconverted.
+`map` is the map's file name, converted from the local code page to UTF-8.
 
 `name` is different, in two ways that both matter.
 
@@ -247,7 +247,7 @@ time.
   4-row report from the host and a 2-row report from the client of the same match.
 - `country` — from a per-client lobby snapshot; `-1` when it was missed.
 - `map`, `mapScheme` — normally identical, but either can be empty on a client
-  that missed its capture window.
+  that missed its capture window, and `map` differs if a player renamed the file.
 - `mod` — free text from each install's ini.
 - `date`, `startedAt`, `durationSeconds` — by design.
 - `name` bytes, across locales (6).
@@ -305,7 +305,7 @@ and rosters that never corroborate elsewhere.
 
 | version | behaviour |
 |---|---|
-| Sudden Strike: Resource War v2.4, incl. RWG 3.6 | full report |
+| Sudden Strike: Resource War v2.4, incl. RWG 1.0-3.6 and RWG Truth of War | full report |
 | Sudden Strike 2 v2.2, Hidden Stroke 2, FMRM 2.1.5.3 | full report |
 | everything else | nothing sent |
 

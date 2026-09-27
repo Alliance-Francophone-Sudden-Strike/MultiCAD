@@ -5,6 +5,7 @@
 #include "PanelScale.h"
 #include "Zoom.h"
 #include "ZeppelinPanel.h"
+#include "GameIni.h"
 
 #include <cstdlib>
 
@@ -32,9 +33,7 @@ namespace Graphics
 class Screen
 {
 public:
-    static std::string IniPath() { return GetIniPath(); }
-
-    static S32 width_;              // Width in pixels
+    static S32 width_;             // Width in pixels
     static S32 height_;             // Height in pixels
     static S32 widthInBytes_;       // Width in bytes
     static S32 heightInBytes_;      // Height in bytes
@@ -139,17 +138,12 @@ public:
 
     static void SaveResolutionToIni(S32 width, S32 height)
     {
-        const std::string iniPath = GetIniPath();
-        if (iniPath.empty())
-            return;
-
-        const std::string value = std::to_string(width) + "x" + std::to_string(height);
-        WritePrivateProfileStringA("Game", "Resolution", value.c_str(), iniPath.c_str());
+        GameIni::Write("Game", "Resolution", std::to_string(width) + "x" + std::to_string(height));
     }
 
     static Zoom::Mode GetZoom()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return Zoom::Mode::Off;
 
@@ -160,7 +154,7 @@ public:
 
     static Zoom::IndicatorAnchor GetZoomIndicator()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return Zoom::IndicatorAnchor::Left;
 
@@ -174,7 +168,7 @@ public:
 
     static Zoom::IndicatorShape GetZoomIndicatorShape()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return Zoom::IndicatorShape::Squares;
 
@@ -188,7 +182,7 @@ public:
 
     static bool GetPersistentZoomIndicator()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return false;
 
@@ -199,7 +193,7 @@ public:
 
     static bool GetInvertZoom()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return false;
 
@@ -210,7 +204,7 @@ public:
 
     static bool GetZoomOnCursor()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return false;
 
@@ -221,7 +215,7 @@ public:
 
     static bool GetGroupPanel()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return false;
 
@@ -232,7 +226,7 @@ public:
 
     static bool GetGroupPanelDebug()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return false;
 
@@ -243,7 +237,7 @@ public:
 
     static bool GetGroupPanelCount()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return true;
 
@@ -254,7 +248,7 @@ public:
 
     static bool GetPersistentGroupPanel()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return false;
 
@@ -265,7 +259,7 @@ public:
 
     static bool GetZeppelinPanel()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return false;
 
@@ -276,7 +270,7 @@ public:
 
     static ZeppelinPanel::Behaviour GetZeppelinPanelBehaviour()
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return ZeppelinPanel::Behaviour::Temp;
 
@@ -290,7 +284,7 @@ public:
 
     static int GetPanelScale(const char* key)
     {
-        const std::string iniPath = GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return PanelScale::kMinQuarters;
 
@@ -342,20 +336,14 @@ private:
     // Reads "[Game] Resolution=WIDTHxHEIGHT" from the ini. True if a valid value was found.
     static bool ApplyIniResolution(S32& outWidth, S32& outHeight)
     {
-        std::string iniPath = GetIniPath();
-        if (iniPath.empty())
+        const std::string value = GameIni::Read("Game", "Resolution");
+
+        const size_t xPos = value.find('x');
+        if (xPos == std::string::npos)
             return false;
 
-        char buffer[64];
-        if (GetPrivateProfileStringA("Game", "Resolution", "", buffer, sizeof(buffer), iniPath.c_str()) == 0)
-            return false;
-
-        char* xPos = std::strchr(buffer, 'x');
-        if (xPos == nullptr)
-            return false;
-
-        S32 width = std::atol(buffer);
-        S32 height = std::atol(xPos + 1);
+        S32 width = std::atol(value.c_str());
+        S32 height = std::atol(value.c_str() + xPos + 1);
 
         if (width < static_cast<S32>(Graphics::kMinWidth) || height < static_cast<S32>(Graphics::kMinHeight))
         {
@@ -372,120 +360,5 @@ private:
         outWidth = width;
         outHeight = height;
         return true;
-    }
-
-    static std::string ToLowerAscii(std::string s)
-    {
-        for (char& c : s)
-            if (c >= 'A' && c <= 'Z')
-                c = static_cast<char>(c + ('a' - 'A'));
-        return s;
-    }
-
-    // True when [Game] has an SSDraw* entry referencing dllName, i.e. this ini loaded us.
-    static bool IniLoadsDll(const std::string& iniPath, const std::string& dllName)
-    {
-        char section[8192] = { 0 };
-        if (GetPrivateProfileSectionA("Game", section, sizeof(section), iniPath.c_str()) == 0)
-            return false;
-
-        const std::string needle = ToLowerAscii(dllName);
-
-        // section is a run of "key=value\0" entries ending with an extra '\0'.
-        for (const char* entry = section; *entry; entry += std::strlen(entry) + 1)
-        {
-            if (_strnicmp(entry, "SSDraw", 6) != 0)
-                continue;
-
-            if (ToLowerAscii(entry).find(needle) != std::string::npos)
-                return true;
-        }
-
-        return false;
-    }
-
-    // Directory of the given module (nullptr = the game exe), without trailing slash.
-    static std::string ModuleDir(HMODULE mod)
-    {
-        char path[MAX_PATH] = { 0 };
-        if (GetModuleFileNameA(mod, path, MAX_PATH) == 0)
-            return {};
-
-        char* lastSlash = strrchr(path, '\\');
-        if (!lastSlash)
-            return {};
-
-        *lastSlash = '\0';
-        return path;
-    }
-
-    static std::string WorkingDir()
-    {
-        char path[MAX_PATH] = { 0 };
-        DWORD n = GetCurrentDirectoryA(MAX_PATH, path);
-        if (n == 0 || n >= MAX_PATH)
-            return {};
-
-        return path; // no trailing slash
-    }
-
-public:
-
-    // Public: ProfileOverride reads its own keys from the same ini.
-    static std::string GetIniPath()
-    {
-        // Resolve our own module from an in-module address (name-agnostic).
-        HMODULE self = nullptr;
-        if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            reinterpret_cast<LPCSTR>(&WorkingDir),
-            &self))
-            return {};
-
-        char selfPath[MAX_PATH] = { 0 };
-        if (GetModuleFileNameA(self, selfPath, MAX_PATH) == 0)
-            return {};
-
-        const char* slash = strrchr(selfPath, '\\');
-        const std::string dllName = slash ? std::string(slash + 1) : std::string(selfPath);
-
-        // The ini lives next to the exe, which may not be the dll's folder.
-        const std::string searchDirs[] = { ModuleDir(nullptr), ModuleDir(self), WorkingDir() };
-
-        // Ini name differs per game version; pick the one that references us.
-        static constexpr const char* kCandidateInis[] = {
-            "sudtest.ini",   // base Sudden Strike
-            "sudfmrm.ini",   // mods that ship their own ini
-            "aprmnew.ini",   // Hidden Stroke 2 / APRM
-            "gulfwar.ini",   // addons
-            "blackgold.ini",
-            "blacksea.ini",
-            "euro2015.ini",
-        };
-
-        std::string firstExisting;
-
-        for (const std::string& dir : searchDirs)
-        {
-            if (dir.empty())
-                continue;
-
-            for (const char* name : kCandidateInis)
-            {
-                std::string path = dir + "\\" + name;
-
-                if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES)
-                    continue;
-
-                if (firstExisting.empty())
-                    firstExisting = path;
-
-                if (!dllName.empty() && IniLoadsDll(path, dllName))
-                    return path;
-            }
-        }
-
-        // No SSDraw match: fall back to the first existing ini.
-        return firstExisting;
     }
 };

@@ -38,7 +38,7 @@ LDFLAGS := -m32 -shared -Wl,--subsystem,windows -Wl,--enable-stdcall-fixup \
            -Wl,--exclude-all-symbols $(HERE)cadMulti.def
 
 SRCS := main.cpp mingw_export.cpp \
-        core/pch.cpp core/cad.cpp core/renderer.cpp core/ScreenConfig.cpp core/util.cpp \
+        core/pch.cpp core/GameIni.cpp core/cad.cpp core/renderer.cpp core/ScreenConfig.cpp core/util.cpp \
         patcher/DllMonitor.cpp patcher/DllVersionDetector.cpp patcher/GameDllHooks.cpp \
         patcher/MenuDllHooks.cpp patcher/PatchInstallers.cpp \
         stats/MatchStatsReader.cpp stats/OutcomeHook.cpp stats/StatsReporter.cpp \
@@ -100,10 +100,10 @@ test: zoom-test group-panel-test zeppelin-panel-test world-isolation-test all an
 # AnalyzeDll fingerprints game DLLs by hashing their .text section; the Python
 # side re-derives the same hash independently. Feeds it real PEs plus a
 # truncated and a non-PE file to cover the reject paths.
-bin/analyze_dll_test.exe: ../tests/analyze_dll_test.cpp obj/patcher/DllVersionDetector.o obj/core/util.o
+bin/analyze_dll_test.exe: ../tests/analyze_dll_test.cpp obj/patcher/DllVersionDetector.o obj/core/util.o obj/core/GameIni.o
 	@mkdir -p bin
 	$(CXX) $(CXXFLAGS) -fno-access-control $< $(GEN)/patcher/DllVersionDetector.cpp \
-	    $(GEN)/core/util.cpp -o $@ -static -static-libgcc -static-libstdc++ \
+	    $(GEN)/core/util.cpp $(GEN)/core/GameIni.cpp -o $@ -static -static-libgcc -static-libstdc++ \
 	    -Wl,-Bstatic -lstdc++ -lpthread $(LDLIBS) -lcrypt32
 
 analyze-dll-test: bin/analyze_dll_test.exe bin/cadMulti.dll

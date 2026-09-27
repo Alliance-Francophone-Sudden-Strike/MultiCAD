@@ -4,7 +4,7 @@
 
 #include "types.h"
 #include "PatchTypes.h"
-#include "ScreenConfig.h"
+#include "GameIni.h"
 
 // The game names its own two modules in the ini it boots from, and binds them by name:
 //
@@ -36,7 +36,7 @@ namespace GameModules
 
     inline std::wstring GetConfiguredName(const DllType type)
     {
-        const std::string iniPath = Screen::GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return {};
 
@@ -68,7 +68,7 @@ namespace GameModules
     // with the section still in the ini is patched.
     inline bool IsHs2EngineHost(const std::wstring& modulePath)
     {
-        const std::string iniPath = Screen::GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return false;
 

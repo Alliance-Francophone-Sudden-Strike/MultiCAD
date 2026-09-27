@@ -5,7 +5,7 @@
 
 #include "types.h"
 #include "PatchTypes.h"
-#include "ScreenConfig.h"
+#include "GameIni.h"
 
 // Optional per-dll profile override, read from the same ini as [Game] Resolution:
 //
@@ -88,7 +88,7 @@ namespace ProfileOverride
     // UNKNOWN when the key is missing, empty or names a version with no profile.
     inline GameVersion GetProfileOverride(const DllType type)
     {
-        const std::string iniPath = Screen::GetIniPath();
+        const std::string iniPath = GameIni::Path();
         if (iniPath.empty())
             return GameVersion::UNKNOWN;
 

@@ -96,7 +96,7 @@ namespace
 //
 // Runs inline on purpose. The loader thread blocks until patching finishes
 // either way, so a worker buys no concurrency - and it turns the loader-lock
-// calls on the patch path (GetIniPath -> GetModuleHandleExA) from a safe
+// calls on the patch path (GameIni::Path -> GetModuleHandleExA) from a safe
 // recursive acquire into a cross-thread deadlock.
 extern "C" void __cdecl OnUnpacked(uintptr_t base)
 {
