@@ -23,6 +23,8 @@ The zoom feature has been confirmed to work in **Sudden Strike 2**, **Hidden Str
 > [!NOTE]
 > Zoom costs some performance, this is why the CNC DDRAW is required as it mitigates the impact on performance. **A CNC DDRAW version adapted for the Sudden Strike series is included in the release package**.
 
+> More about the CNC: cnc-ddraw can fix compatibility issues in older 2D games, such as black screen, bad performance, crashes or defective Alt+Tab. It does also add new features such as borderless mode, windowed mode and upscaling via shaders. For more information, visit the [cnc-ddraw GitHub page](https://github.com/FunkyFr3sh/cnc-ddraw).
+
 ## Installation
 
 1. Download the latest installation `.zip` in the [Releases](../../releases/latest) page. _It is possible that your browser may block the download as the `.zip` file contains `.dll` files, you should be able to bypass this by explicitly allowing the download_.
