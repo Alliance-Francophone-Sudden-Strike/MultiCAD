@@ -10,9 +10,9 @@
 // on top of it and goes back to 1 on each sync, so the full version - 1.1.0+af.1,
 // tagged v1.1.0+af.1 - can never collide with an upstream one.
 #define MULTICAD_VERSION_MAJOR 1
-#define MULTICAD_VERSION_MINOR 1
-#define MULTICAD_VERSION_PATCH 1
-#define MULTICAD_AF_BUILD 1
+#define MULTICAD_VERSION_MINOR 2
+#define MULTICAD_VERSION_PATCH 0
+#define MULTICAD_AF_BUILD 3
 #define MULTICAD_VERSION_STR STR(MULTICAD_VERSION_MAJOR) "." STR(MULTICAD_VERSION_MINOR) "." STR(MULTICAD_VERSION_PATCH) "+af." STR(MULTICAD_AF_BUILD)
 
 // Sudden Strike (v1.0)

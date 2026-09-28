@@ -1,6 +1,8 @@
-# MultiCAD — Zoom & Panels
+# MultiCAD with Zoom
 
 **An extension of [MultiCAD](https://github.com/IvanishinV/MultiCAD) by [Vladislav Ivanishin (@IvanishinV)](https://github.com/IvanishinV)**, maintained by the [Alliance Francophone Sudden Strike](https://github.com/Alliance-Francophone-Sudden-Strike).
+
+> **An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.**
 
 ## How to play
 
@@ -14,81 +16,31 @@ With HS2 Fusion, you'll also get improved historical accuracy and resilience for
 
 _You can also directly download the latest build from our [releases page](../../releases) and follow the installation instructions there. It should allow you to activate the zoom feature in almost any other Sudden Strike related mod._
 
-## Notice
-
-Upstream **MultiCAD** is a universal graphics DLL replacement for **Sudden Strike**, **Sudden Strike Forever** and related games. It supports **any custom screen resolution** from 640x480 up to 3840x2160 (4K) and carries a long list of bug fixes across game versions. Everything that makes that possible — the reverse engineering, the per-version profiles, the renderer — is IvanishinV's work.
-
-**This repository builds a layer on top of it.** It adds optional in-game features the base library does not set out to provide: a **battlefield zoom**, a **control-group panel** and a **zeppelin capture panel**, plus a few fixes found along the way.
-
-> [!IMPORTANT]
-> **Everything this AF version of the MultiCAD adds is off by default.** With no extra line in the game ini, the DLL built here behaves like the upstream one: resolution support and nothing else. Each feature is opted into explicitly, and the game must be restarted after editing the ini.
-
-> **An enormous thanks to @IvanishinV for all the work poured into the original MultiCAD project. It was a long wait of more than 20 years.**
-
-## Relationship to the upstream project
-
-|                   |                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **From upstream** | Arbitrary resolutions, game/menu version detection and profiles, the per-version bug fixes listed in [Games Supported by MultiCAD](#games-supported-by-multicad), the renderer itself                                                                                                                                                                        |
-| **Added here**    | [Battlefield zoom](#battlefield-zoom), [control-group panel](#control-group-panel), [zeppelin capture panel](#zeppelin-capture-panel), [module name override](#replacement-menu-or-game-modules), [profile forcing](#forcing-a-profile), the [fixes](#fixes-added-by-this-af-version-of-the-multicad) below, and a [MinGW cross-build](mingw/README.md) path |
-
-This version of the MultiCAD tracks upstream rather than diverging from it. **Bug fixes made here that also affect the base library are proposed upstream as pull requests**, so they benefit every MultiCAD user instead of staying only in this version.
-
-Where to report a problem:
-
-- Resolution support, game detection or anything else that also happens with the upstream DLL → [IvanishinV/MultiCAD](https://github.com/IvanishinV/MultiCAD/issues).
-- Zoom, the panels, or anything that only happens once one of the options below is enabled → [this repository's issues](../../issues).
-
-If you are unsure, open it here; it will be forwarded upstream if it belongs there.
-
-## Requirements
-
-The newly added zoom feature requires the CNC DDRAW (attached to the release). Without it, the zoom functionality can be subject to extreme performance degradation.
-
 ## AF MultiCAD feature support
 
-The new features hook version-specific game code, so they are enabled per game version.
-
-|                                              | Versions                                                                                                     |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Zoom — verified in game**                  | Sudden Strike 2, Hidden Stroke 2, Resource War 2.4, Europe 2015, Sudden Strike Gold HD v1.2 (de, en, fr, ru) |
-| **Zoom — supported, not yet played through** | Resource War 2.3, Black Sea, Black Gold, Sudden Strike Gold (en)                                             |
-| **Control-group panel — verified in game**   | Sudden Strike 2, Hidden Stroke 2                                                                             |
-| **Control-group panel — incompatible**       | Resource War 2.4 (including HS2 RW), Sudden Strike Gold HD v1.2, Sudden Strike Gold (en)                     |
-| **Control-group panel — untested**           | Resource War 2.3, Europe 2015, Black Sea                                                                     |
-| **Zeppelin panel**                           | Hidden Stroke 2 only                                                                                         |
-| **Resolution support only**                  | Sudden Strike 1.0 and 1.2, Sudden Strike Gold de/fr/ru, Sudden Strike HD v1.1                                |
-
-Versions listed as "resolution support only" behave exactly like upstream: the options below are read and stay inactive. If you need one of these features on a version that does not have it yet, [open an issue](../../issues).
+The zoom feature has been confirmed to work in **Sudden Strike 2**, **Hidden Stroke 2**, **Resource War 2.4**, **Europe 2015**, **Sudden Strike Gold HD v1.2** (de, en, fr, ru) with live testing. **Resource War 2.3**, **Black Sea**, **Black Gold**, **Sudden Strike Gold (en)** should also work, but have not been fully tested yet.
 
 > [!NOTE]
-> At very high resolutions, zoom costs some performance. A large part of this version of MultiCAD's work went into rendering optimisations to keep it smooth.
-
-## Games Supported by MultiCAD
-
-See all the games supported by MultiCAD (HD resolution and various bug fixes only) in the original [repository description](https://github.com/IvanishinV/MultiCAD#supported-games).
+> Zoom costs some performance, this is why the CNC DDRAW is required as it mitigates the impact on performance. **A CNC DDRAW version adapted for the Sudden Strike series is included in the release package**.
 
 ## Installation
 
-1. Download the latest precompiled `cadMulti_mt.dll` file from the [Releases](../../releases/latest) page. If your browser blocks the `.dll` download, take the `.zip` package containing it instead — the archive password is `zoom`.
-2. Place `cadMulti_mt.dll` into the folder containing the original `cad*.dll` files (typically the game directory).
-3. Open the game's ini in the game folder — `sudtest.ini` for Sudden Strike, or `gulfwar.ini`, `blackgold.ini`, `blacksea.ini`, `euro2015.ini` for the Confrontation titles — and set **at least one** `SSDraw` entry to `cadMulti_mt.dll`. Example:
+1. Download the latest installation `.zip` in the [Releases](../../releases/latest) page. _It is possible that your browser may block the download as the `.zip` file contains `.dll` files, you should be able to bypass this by explicitly allowing the download_.
+2. Extract the contents of the `.zip` file into the game's directory (where both the game `.exe` and `.ini` configuration files are located).
+3. Open the game's ini in the game folder (`sudtest.ini` for Sudden Strike, or `gulfwar.ini`, `blackgold.ini`, `blacksea.ini`, `euro2015.ini` for the Confrontation titles) and set **at least one** `SSDraw` entry to `cadMulti_mt.dll`. Example:
    > ```ini
    > [Game]
    > SSDraw1=cad640.dll
    > SSDraw2=cad1024.dll
    > SSDraw3=cadMulti_mt.dll
    > ```
-4. Also download the CNC DDRAW file attached to the release and place it in the same folder as the game's executable.
-5. Launch the game.
+4. Launch the game.
 
 ## Configuration
 
 ### Resolution Setup
 
-_Upstream feature._
-
-The game launches at your desktop resolution by default — no configuration needed.
+The game launches at your desktop resolution by default: no other configuration is needed.
 
 To set a specific resolution, add a `Resolution` line **anywhere after** the `[Game]` header in the game's ini:
 
@@ -102,8 +54,9 @@ To set a specific resolution, add a `Resolution` line **anywhere after** the `[G
 >
 > Restart the game to apply the change.
 
-> 💡 Note: `Resolution` must be between 640x480 and 3840x2160. Out-of-range values are ignored with a message.
-> Heights are rounded down to a multiple of 8 and widths to a multiple of 16 — the renderer and the fog-of-war blitter work in blocks of that size — so `1366x768` runs as `1360x768`. A mode your display then refuses brings up a picker listing the modes it does report, and saves your choice back to the ini. With no `Resolution` line set, the game uses your desktop resolution, rounded the same way.
+> [!NOTE]
+> `Resolution` must be between 640x480 and 3840x2160. Out-of-range values are ignored with a message.
+> Heights are rounded down to a multiple of 8 and widths to a multiple of 16 so `1366x768` runs as `1360x768`.
 
 ### Battlefield Zoom
 
@@ -116,11 +69,6 @@ Zoom into the battlefield with the **mouse wheel**, from 1x up to 2x in four ste
 > Zoom=on
 > ```
 
-- A small indicator shows the current zoom level.
-- Everything keeps working while zoomed: the minimap and strategic-map view rectangle follow the zoomed area immediately, you can still reach the four corners of the battlefield, and the game can be paused and unpaused as usual.
-- Map scrolling speed (edge scroll and keyboard) is scaled to the zoom level, so panning stays as precise as it feels at 1x. Minimap jumps and scripted camera moves are untouched.
-- The image is rescaled with a sharpening filter rather than a plain stretch, so units and text stay readable at 2x.
-
 | Setting                   | Values                      | Default   | What it does                                          |
 | ------------------------- | --------------------------- | --------- | ----------------------------------------------------- |
 | `Zoom`                    | `on` / `off`                | `off`     | Enables the feature                                   |
@@ -131,18 +79,23 @@ Zoom into the battlefield with the **mouse wheel**, from 1x up to 2x in four ste
 | `InvertZoom`              | `on` / `off`                | `off`     | Reverses the wheel direction                          |
 | `ZoomOnCursor`            | `on` / `off`                | `off`     | Zooms towards the cursor instead of the screen centre |
 
+Example configuration:
+
 > ```ini
 > [Game]
 > Zoom=on
 > ZoomIndicator=right
 > ZoomIndicatorShape=bars
-> ZoomIndicatorScale=1.5
+> ZoomIndicatorScale=1.25
 > PersistentZoomIndicator=on
 > InvertZoom=on
 > ZoomOnCursor=on
 > ```
 
-`ZoomIndicatorScale` accepts `1` to `3` in steps of `0.25`. Values outside that range are clamped to the nearest bound and values between steps round to the nearest step, so `1.3` behaves as `1.25`. An indicator too large for the current resolution is not drawn.
+`ZoomIndicatorScale` accepts `1` to `3` in steps of `0.25`. Values outside that range are clamped to the nearest bound and values between steps round to the nearest step, so `1.3` behaves as `1.25`. If your indicator disappears, it is likely that you used a too high value for your current resolution which causes it to be drawn off-screen.
+
+<details>
+<summary>Other Settings in testing phase only working with Sudden Strike 2 and Hidden Stroke 2</summary>
 
 ### Control-Group Panel
 
@@ -168,6 +121,8 @@ In-game tests found false active groups and incorrect counts in Resource War 2.4
 | `PersistentGroupPanel` | `on` / `off`             | `off`   | Keeps the panel on screen even when no group has units |
 | `GroupPanelScale`      | `1`–`3`, steps of `0.25` | `1`     | Bigger panel for high resolutions                      |
 
+Example configuration:
+
 > ```ini
 > [Game]
 > GroupPanel=on
@@ -176,13 +131,11 @@ In-game tests found false active groups and incorrect counts in Resource War 2.4
 > GroupPanelScale=2
 > ```
 
-`GroupPanelScale` uses the same clamping and rounding as `ZoomIndicatorScale`. The cells, glyphs, badges and counts all grow together, the panel stays anchored to the top-right corner, and the clickable area keeps matching what is drawn. A panel too large for the current resolution is not drawn at all.
-
 ### Zeppelin Capture Panel
 
 _Added by this AF version of the MultiCAD. Disabled by default. **Hidden Stroke 2 only** for now._
 
-On multiplayer maps built around capturing zeppelins, a list in the **bottom-right corner** of the groups you have not captured yet — one colour swatch per group, with its state to the left of it.
+On multiplayer maps built around capturing zeppelins, a list in the **bottom-right corner** of the groups you have not captured yet. One colour swatch per group, with its state to the left of it.
 
 > ```ini
 > [Game]
@@ -190,7 +143,7 @@ On multiplayer maps built around capturing zeppelins, a list in the **bottom-rig
 > ```
 
 - While you hold part of a group, the row shows how many you hold (`2/3`). Once you hold them all, it switches to a **live capture countdown**.
-- If a started capture is interrupted, the countdown freezes and the row alternates every two seconds between the held count and the frozen time, both greyed out — so a running capture and an abandoned one are told apart at a glance, including once you hold none of the group. If an enemy capture resets the group, the count comes back on its own.
+- If a started capture is interrupted, the countdown freezes and the row alternates every two seconds between the held count and the frozen time, both greyed out, so a running capture and an abandoned one are told apart at a glance, including once you hold none of the group. If an enemy capture resets the group, the count comes back on its own.
 - A group drops off the list as soon as you own it.
 - Press **`Alt` + `Z`** to show it. Either `Alt` key works, including `AltGr`.
 - The panel only appears on maps that actually define zeppelin groups, so it stays out of the way in single-player and on ordinary multiplayer maps.
@@ -201,6 +154,8 @@ On multiplayer maps built around capturing zeppelins, a list in the **bottom-rig
 | `ZeppelinPanelBehaviour` | `temp` / `toggle`        | `temp`  | `temp` fades the panel out after five seconds; `toggle` makes the shortcut open and close it |
 | `ZeppelinPanelScale`     | `1`–`3`, steps of `0.25` | `1`     | Bigger panel for high resolutions                                                            |
 
+Example configuration:
+
 > ```ini
 > [Game]
 > ZeppelinPanel=on
@@ -208,7 +163,7 @@ On multiplayer maps built around capturing zeppelins, a list in the **bottom-rig
 > ZeppelinPanelScale=1.5
 > ```
 
-With the default `temp` behaviour the panel stays up for five seconds then fades out, and pressing the shortcut again restarts those five seconds. `ZeppelinPanelScale` has its own value, independent of the control-group panel's, with the same clamping and rounding. The panel stays anchored to the bottom-right corner, and one too large for the current resolution is not drawn.
+With the default `temp` behaviour the panel stays up for five seconds then fades out, and pressing the shortcut again restarts those five seconds.
 
 ### Replacement Menu or Game Modules
 
@@ -250,22 +205,14 @@ Anything else is ignored and normal detection applies.
 
 > ⚠️ **At your own risk.** Forcing a profile writes jumps at fixed addresses into a dll whose contents haven't been verified. If the profile doesn't match the dll, the game will crash as soon as a patched function runs. Only use this when you know the build your dll came from, and remove the line if the game stops starting.
 
-### UI Toggle Hotkey
-
-You can temporarily disable or enable the in-game UI overlay by pressing:
-
-**Alt + Y**
-
-This can be useful when taking screenshots or when the UI interferes with gameplay. In this AF version of the MultiCAD it also hides the zoom indicator, for clean screenshots.
+</details>
 
 ## Fixes Added by This AF Version of the MultiCAD
 
 These are on top of the upstream fix list. The ones that apply to the base library are offered upstream as pull requests.
 
-- **Garbled characters in chat.** Typing accented or multi-byte characters no longer produces random or corrupted letters in the chat box.
-- **Crash when selecting a recon plane** that had reached its destination — a division by zero in the progress-bar drawing. Affects Sudden Strike 2 and Hidden Stroke 2.
+- **Crash when selecting a recon plane** that had reached its destination: a division by zero in the progress-bar drawing. Affects Sudden Strike 2 and Hidden Stroke 2.
 - **Crash when opening the strategic map on ultra-wide resolutions** has normally been addressed (needs further testing).
-- **Explicit resolution rounding**, described in [Resolution Setup](#resolution-setup), with a mode picker when the display refuses the requested mode.
 - Rendering was reorganised internally ("world isolation") to keep the frame rate up with the new overlays and zoom enabled.
 
 ## Compilation
@@ -291,7 +238,7 @@ _Added by this AF version of the MultiCAD._ The Visual Studio project stays the 
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details. Copyright on the original work remains with Vladislav Ivanishin.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details. Copyright on the original work remains with Vladislav Ivanishin.
 
 ## Contact
 
