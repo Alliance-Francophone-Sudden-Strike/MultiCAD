@@ -6,6 +6,16 @@
 // hooks this needs no per-version addresses.
 namespace ImportHooks
 {
+    // True when `address` lies inside a loaded module other than `self`.
+    inline bool PointsIntoOtherModule(const void* address, const uintptr_t self)
+    {
+        HMODULE owner = nullptr;
+        return address != nullptr
+            && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                  static_cast<LPCSTR>(address), &owner)
+            && reinterpret_cast<uintptr_t>(owner) != self;
+    }
+
     // Returns the original to forward to, or null if not imported.
     inline void* Replace(const uintptr_t moduleBase,
                          const char* importedDll,
@@ -56,6 +66,12 @@ namespace ImportHooks
 
                 void** slot = reinterpret_cast<void**>(&addresses->u1.Function);
 
+                // Windows 7 reports a load before binding the table: the slot still
+                // holds the RVA of the name, and the loader overwrites whatever is
+                // written here. Forwarding to that RVA crashed on the first call.
+                if (!PointsIntoOtherModule(*slot, moduleBase))
+                    return nullptr;
+
                 DWORD oldProtect{};
                 if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect))
                     return nullptr;
@@ -70,16 +86,6 @@ namespace ImportHooks
         }
 
         return nullptr;
-    }
-
-    // True when `address` lies inside a loaded module other than `self`.
-    inline bool PointsIntoOtherModule(const void* address, const uintptr_t self)
-    {
-        HMODULE owner = nullptr;
-        return address != nullptr
-            && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                  static_cast<LPCSTR>(address), &owner)
-            && reinterpret_cast<uintptr_t>(owner) != self;
     }
 
     // Redirects every slot holding `original`, for modules whose import table a
