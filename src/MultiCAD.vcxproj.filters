@@ -66,6 +66,9 @@
     <ClInclude Include="core\PanelScale.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
+    <ClInclude Include="core\Parallel.h">
+      <Filter>Header Files\Core</Filter>
+    </ClInclude>
     <ClInclude Include="core\CursorMapping.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
@@ -192,6 +195,9 @@
       <Filter>Source Files\Core</Filter>
     </ClCompile>
     <ClCompile Include="core\pch.cpp">
+      <Filter>Source Files\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="core\Parallel.cpp">
       <Filter>Source Files\Core</Filter>
     </ClCompile>
     <ClCompile Include="core\renderer.cpp">

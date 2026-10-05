@@ -27,6 +27,20 @@ enum SpriteType
     SPRITE_TYPE_ANIMATION = 0xA9,
 };
 
+enum FrameStatsPhase
+{
+    FRAME_STATS_WORLD,
+    FRAME_STATS_ZOOM,
+    FRAME_STATS_PRESENT,
+    FRAME_STATS_UNLOCK,
+    FRAME_STATS_FRAME,
+    FRAME_STATS_GAME
+};
+
+extern bool g_frameStats;
+LONGLONG frameStatsStart();
+void frameStatsAdd(FrameStatsPhase phase, LONGLONG start);
+
 extern void (*g_surfaceRegionRepair)(int left, int top, int right, int bottom);
 extern void (*g_surfacePresentRepair)();
 extern bool g_surfaceRepairSuppressed;
@@ -607,6 +621,9 @@ bool copyMainSurfaceToRenderer(S32 x, S32 y, S32 width, S32 height);
  * @return None.
  */
 void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 width, const S32 height);
+
+void scaleWorldToPresentation(const Pixel* world, int worldPitch, Pixel* destination, int destinationPitch,
+                              const Zoom::Transform& transform, Pixel* scratch);
 
 // 0x10002fb0
 /**

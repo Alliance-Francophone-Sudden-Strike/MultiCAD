@@ -1936,6 +1936,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     if (!zoom.ensureBuffers(pixels, width))
         return false;
 
+    const LONGLONG stats = frameStatsStart();
     Pixel* const world = zoom.worldBuffer();
 
     void* const renderer = g_moduleState->surface.renderer;
@@ -1955,7 +1956,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         width,
         height);
 
-    Zoom::ScaleSharp16(
+    scaleWorldToPresentation(
         world,
         width,
         static_cast<Pixel*>(g_moduleState->surface.renderer),
@@ -2010,6 +2011,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
                 ui->stride, ui->sprites);
     }
 
+    frameStatsAdd(FRAME_STATS_ZOOM, stats);
     return true;
 }
 
@@ -2212,6 +2214,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     auto cad_2A90 = *reinterpret_cast<void(__cdecl**)(int, int, int, int)>(data.cadPtr + off2);
 
     int* div16Ptr = data.closedAreaGameDataArray;
+    const LONGLONG presentStats = frameStatsStart();
     if (sub_100564F0(div16Ptr, &gd))
     {
         do
@@ -2225,6 +2228,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             }
         } while (sub_10056530(div16Ptr, &gd));
     }
+    frameStatsAdd(FRAME_STATS_PRESENT, presentStats);
     if (preserveWorld)
     {
         Zoom::GetState().finishWorldIsolation(

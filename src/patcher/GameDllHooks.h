@@ -2,6 +2,7 @@
 
 #include "types.h"
 #include "cad.h"
+#include "renderer.h"
 #include "Zoom.h"
 #include "ZeppelinPanel.h"
 #include "DllHooksBase.h"
@@ -1411,11 +1412,13 @@ public:
         static_assert(ValidateZoomTraits<V>(), "One or more zoom UiTraits addresses are zero");
         auto* const g = globals_;
         constexpr auto& A = UiTraits<V>::addresses;
+        const LONGLONG stats = frameStatsStart();
         withBattlefieldMouseCoordinates(
             g->getPtr<int>(A.mouseX),
             g->getPtr<int>(A.mouseY),
             g->getValue<UiEventArea*>(A.uiEventAreas),
             g->getFn<void(__cdecl)()>(A.fnRenderWorld));
+        frameStatsAdd(FRAME_STATS_WORLD, stats);
     }
     template<GameVersion V>
     static void __declspec(noinline) __stdcall prepareUiElements_ver()

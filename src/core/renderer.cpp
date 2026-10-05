@@ -2,6 +2,7 @@
 #include "cad.h"
 #include "renderer.h"
 #include "Zoom.h"
+#include "Parallel.h"
 #include "ResolutionVerifier.h"
 
 #include "DllVersionDetector.h"
@@ -10,6 +11,9 @@
 #include "MemoryRelocator.h"
 #include "CodePatcher.h"
 #include "UIFilter.h"
+
+#include <atomic>
+#include <cstdio>
 
 #ifdef _DEBUG
 #include <format>
@@ -111,6 +115,7 @@ void restoreDxInstance()
 // 0x10001110
 void releaseDxInstance()
 {
+    StopRenderThreads();
     releaseDxSurface();
 
     dxRelease(g_moduleState->directX.instance);
@@ -1575,9 +1580,95 @@ bool lockDxSurface()
 void (*g_surfaceRegionRepair)(int, int, int, int) = nullptr;
 void (*g_surfacePresentRepair)() = nullptr;
 bool g_surfaceRepairSuppressed = false;
+bool g_frameStats = false;
+
+namespace
+{
+    struct FrameStat
+    {
+        LONGLONG total;
+        LONGLONG max;
+        int count;
+    };
+
+    constexpr const char* kFrameStatNames[] = { "world", "zoom", "present", "unlock", "frame", "game" };
+    FrameStat g_frameStatValues[std::size(kFrameStatNames)]{};
+    LONGLONG g_frameStatsSpent = 0;
+    LONGLONG g_frameStatsLast = 0;
+    LONGLONG g_frameStatsReport = 0;
+
+    LONGLONG queryCounter()
+    {
+        LARGE_INTEGER counter;
+        QueryPerformanceCounter(&counter);
+        return counter.QuadPart;
+    }
+
+    void recordFrameStat(FrameStatsPhase phase, LONGLONG ticks)
+    {
+        FrameStat& stat = g_frameStatValues[phase];
+        stat.total += ticks;
+        stat.max = std::max(stat.max, ticks);
+        ++stat.count;
+    }
+
+    void frameStatsEndFrame(LONGLONG unlockStart)
+    {
+        if (!g_frameStats)
+            return;
+
+        frameStatsAdd(FRAME_STATS_UNLOCK, unlockStart);
+        const LONGLONG now = queryCounter();
+        if (g_frameStatsLast)
+        {
+            recordFrameStat(FRAME_STATS_FRAME, now - g_frameStatsLast);
+            recordFrameStat(FRAME_STATS_GAME, std::max<LONGLONG>(0, now - g_frameStatsLast - g_frameStatsSpent));
+        }
+        else
+            g_frameStatsReport = now;
+        g_frameStatsLast = now;
+        g_frameStatsSpent = 0;
+
+        LARGE_INTEGER frequency;
+        QueryPerformanceFrequency(&frequency);
+        if (now - g_frameStatsReport < 5 * frequency.QuadPart)
+            return;
+
+        g_frameStatsReport = now;
+        const double ms = 1000.0 / frequency.QuadPart;
+        char line[512];
+        int length = snprintf(line, sizeof(line), "MultiCAD frame stats, ms (count mean max):");
+        for (size_t i = 0; i < std::size(kFrameStatNames); ++i)
+        {
+            FrameStat& stat = g_frameStatValues[i];
+            length += snprintf(line + length, sizeof(line) - length, " %s %d %.2f %.2f", kFrameStatNames[i],
+                stat.count, stat.count ? stat.total * ms / stat.count : 0.0, stat.max * ms);
+            stat = {};
+        }
+        snprintf(line + length, sizeof(line) - length, "\n");
+        OutputDebugStringA(line);
+    }
+}
+
+LONGLONG frameStatsStart()
+{
+    return g_frameStats ? queryCounter() : 0;
+}
+
+void frameStatsAdd(FrameStatsPhase phase, LONGLONG start)
+{
+    if (!g_frameStats)
+        return;
+
+    const LONGLONG ticks = queryCounter() - start;
+    recordFrameStat(phase, ticks);
+    g_frameStatsSpent += ticks;
+}
 
 void unlockDxSurface()
 {
+    const LONGLONG stats = frameStatsStart();
+
     if (g_surfacePresentRepair && !g_surfaceRepairSuppressed)
         g_surfacePresentRepair();
 
@@ -1615,6 +1706,7 @@ void unlockDxSurface()
     }
 
     g_moduleState->surface.renderer = NULL;
+    frameStatsEndFrame(stats);
 }
 
 
@@ -1677,10 +1769,6 @@ bool copyMainSurfaceToRenderer(S32 x, S32 y, S32 width, S32 height)
 
         locked = true;
     }
-    Pixel* src = (Pixel*)((Addr)g_rendererState.surfaces.main + g_moduleState->surface.offset + (y * Screen::width_ + x) * sizeof(Pixel));
-    void* dst = (void*)((Addr)g_moduleState->surface.renderer + g_moduleState->pitch * y + x * sizeof(Pixel));
-    const Addr widthInBytes = Screen::widthInBytes_;
-
     S32 copyWidth = width * sizeof(Pixel);
     S32 copyHeight = height;
 
@@ -1692,39 +1780,24 @@ bool copyMainSurfaceToRenderer(S32 x, S32 y, S32 width, S32 height)
         copyHeight = g_moduleState->windowRect.height + 1;
     }
 
-    auto copyRows = [&](S32 rows)
+    const auto destination = [&](S32 row)
         {
-            for (S32 i = 0; i < rows; ++i)
-            {
-                Zoom::GetState().captureWorldWrite(dst, copyWidth);
-                std::memcpy(dst, src, copyWidth);
-                src = (Pixel*)((Addr)src + widthInBytes);
-                dst = (void*)((Addr)dst + g_moduleState->pitch);
-            }
+            return (void*)((Addr)g_moduleState->surface.renderer + g_moduleState->pitch * row + x * sizeof(Pixel));
         };
 
-    if (y < g_moduleState->surface.y)
-    {
-        const S32 delta = y + copyHeight - g_moduleState->surface.y;
-        if (delta <= 0)
+    if (Zoom::GetState().trackingWorldWrites())
+        for (S32 row = y; row < y + copyHeight; ++row)
+            Zoom::GetState().captureWorldWrite(destination(row), copyWidth);
+
+    ParallelRows(y, y + copyHeight, 1, [&](S32 first, S32 last)
         {
-            copyRows(copyHeight);
-        }
-        else
-        {
-            copyRows(copyHeight - delta);
-
-            src = (Pixel*)((Addr)src - Screen::sizeInBytes_);
-
-            copyRows(delta);
-        }
-    }
-    else
-    {
-        src = (Pixel*)((Addr)src - Screen::sizeInBytes_);
-
-        copyRows(copyHeight);
-    }
+            for (S32 row = first; row < last; ++row)
+            {
+                const Addr wrap = row < g_moduleState->surface.y ? 0 : Screen::sizeInBytes_;
+                const Pixel* src = (Pixel*)((Addr)g_rendererState.surfaces.main + g_moduleState->surface.offset + (row * Screen::width_ + x) * sizeof(Pixel) - wrap);
+                std::memcpy(destination(row), src, copyWidth);
+            }
+        });
 
     RepairSurfaceRegion(x, y, x + width - 1, y + height - 1);
 
@@ -1736,38 +1809,24 @@ bool copyMainSurfaceToRenderer(S32 x, S32 y, S32 width, S32 height)
     return locked;
 }
 
-// 0x10002b90
-void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 endX, const S32 endY)
+static void copyWarFogRows(const S32 x, const S32 y, const S32 endX, const S32 endY)
 {
-    bool locked = false;
-
-    if (g_moduleState->surface.renderer == NULL)
-    {
-        if (!lockDxSurface())
-        {
-            return;
-        }
-
-        locked = true;
-    }
+    FogRenderParams fogRenderParams{};
+    FogBlockParams fogBlockParams{};
+    FogBlockParams2 fogBlockParams2{};
 
     constexpr S32 blockSize = 8 * sizeof(DoublePixel);  // 32 bytes
     constexpr U32 blocksNumber = 8;
 
     S32 delta = (endY + 1) - y;
-    g_rendererState.fogBlockParams2.unk04 = 0;
-    g_rendererState.fogRenderParams.actualRgbMask = g_moduleState->initialRgbMask;
-    g_rendererState.fogRenderParams.dstRowStride = -8 * g_moduleState->pitch + blockSize;
-    g_rendererState.fogRenderParams.lineStep = -(S32)Screen::width_ * 16 + blockSize;
+    fogBlockParams2.unk04 = 0;
+    fogRenderParams.actualRgbMask = g_moduleState->initialRgbMask;
+    fogRenderParams.dstRowStride = -8 * g_moduleState->pitch + blockSize;
+    fogRenderParams.lineStep = -(S32)Screen::width_ * 16 + blockSize;
 
     U8* fogSrc = &g_moduleState->fogSprites[(y >> 3) + 8].unk[(x >> 4) + 8];
     DoublePixel* src = (DoublePixel*)((Addr)g_rendererState.surfaces.main + g_moduleState->surface.offset + (Screen::width_ * y + x) * sizeof(Pixel));
     DoublePixel* dst = (DoublePixel*)((Addr)g_moduleState->surface.renderer + x * sizeof(Pixel) + y * g_moduleState->pitch);
-    if (Zoom::GetState().trackingWorldWrites())
-        for (S32 row = y; row <= endY; ++row)
-            Zoom::GetState().captureWorldWrite(
-                static_cast<Pixel*>(g_moduleState->surface.renderer) + row * (g_moduleState->pitch / sizeof(Pixel)) + x,
-                static_cast<size_t>(endX - x + 1) * sizeof(Pixel));
     const Addr screenSizeInBytes = Screen::sizeInBytes_;
     const Addr screenWidthInBytes = Screen::widthInBytes_;
 
@@ -1776,29 +1835,29 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
 
     if (y >= g_moduleState->surface.y || y + delta <= g_moduleState->surface.y)
     {
-        g_rendererState.fogBlockParams.validRowsBlockCount = delta >> 3;
-        g_rendererState.fogBlockParams.tempBlocksCount = 0;
-        g_rendererState.fogBlockParams2.excessRowsBlockCount = 0;
+        fogBlockParams.validRowsBlockCount = delta >> 3;
+        fogBlockParams.tempBlocksCount = 0;
+        fogBlockParams2.excessRowsBlockCount = 0;
 
-        g_rendererState.fogRenderParams.blocksCount = blocksNumber;
+        fogRenderParams.blocksCount = blocksNumber;
     }
     else
     {
-        g_rendererState.fogBlockParams.validRowsBlockCount = (g_moduleState->surface.y - y) >> 3;
-        g_rendererState.fogBlockParams2.excessRowsBlockCount = (delta + y - g_moduleState->surface.y) >> 3;
+        fogBlockParams.validRowsBlockCount = (g_moduleState->surface.y - y) >> 3;
+        fogBlockParams2.excessRowsBlockCount = (delta + y - g_moduleState->surface.y) >> 3;
         U32 v7 = ((U8)g_moduleState->surface.y - (U8)y) & 7;
         v7 = v7 | ((8 - v7) << 8);      // v7 now is 0000 ' 0000 ' 8 - v7 ' v7, so the summ of all its bytes is always 8    
-        g_rendererState.fogBlockParams.tempBlocksCount = v7;
+        fogBlockParams.tempBlocksCount = v7;
 
-        if (g_rendererState.fogBlockParams.validRowsBlockCount == 0)
+        if (fogBlockParams.validRowsBlockCount == 0)
         {
-            g_rendererState.fogRenderParams.lineStep += screenSizeInBytes;
-            g_rendererState.fogRenderParams.blocksCount = v7;
-            g_rendererState.fogBlockParams.validRowsBlockCount = 1;
-            g_rendererState.fogBlockParams.tempBlocksCount = 0;
+            fogRenderParams.lineStep += screenSizeInBytes;
+            fogRenderParams.blocksCount = v7;
+            fogBlockParams.validRowsBlockCount = 1;
+            fogBlockParams.tempBlocksCount = 0;
         }
         else
-            g_rendererState.fogRenderParams.blocksCount = blocksNumber;
+            fogRenderParams.blocksCount = blocksNumber;
     }
 
     S32 remainingExcessRows;
@@ -1815,19 +1874,19 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
                 U8* someFog = fogSrc;
                 fogSrc = someFog + sizeof(Fog);
 
-                g_rendererState.fogRenderParams.fogPtr = someFog;
-                g_rendererState.fogBlockParams.unk04 = ((endX + 1) - x) >> 4;
+                fogRenderParams.fogPtr = someFog;
+                fogBlockParams.unk04 = ((endX + 1) - x) >> 4;
 
                 do {
-                    DoublePixel fogPixel = *(DoublePixel*)((Addr)g_rendererState.fogRenderParams.fogPtr - 2);
-                    fogPixel = (fogPixel & 0xFFFF'0000) | (*(Pixel*)((Addr)g_rendererState.fogRenderParams.fogPtr + sizeof(Fog)));
+                    DoublePixel fogPixel = *(DoublePixel*)((Addr)fogRenderParams.fogPtr - 2);
+                    fogPixel = (fogPixel & 0xFFFF'0000) | (*(Pixel*)((Addr)fogRenderParams.fogPtr + sizeof(Fog)));
 
                     if (fogPixel)
                     {
                         if (fogPixel == 0x80808080)
                         {
-                            U32 j = g_rendererState.fogRenderParams.blocksCount;
-                            ++g_rendererState.fogRenderParams.fogPtr;
+                            U32 j = fogRenderParams.blocksCount;
+                            ++fogRenderParams.fogPtr;
                             while (true)
                             {
                                 do
@@ -1867,13 +1926,13 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
                             // Final v27 computation
                             S32 v27 = carry + (-(S32)borrow1) - (S32)borrow2;
                             v27 = (v27 & 0xFFFF'FF00) | fogValueMidByte;
-                            g_rendererState.fogBlockParams.unk01 = v27 >> 2;
+                            fogBlockParams.unk01 = v27 >> 2;
 
                             // Compute v28 (difference between fogPixelTopByte and fogPixelHighByte)
                             S32 v28 = -(S32)(fogPixelTopByte < fogPixelHighByte);
                             fogPixelTopByte -= fogPixelHighByte;
                             v28 = (v28 & 0xFFFF'FF00) | fogPixelTopByte;
-                            g_rendererState.fogBlockParams2.unk01 = 2 * v28;
+                            fogBlockParams2.unk01 = 2 * v28;
 
                             // Compute v30 (difference between fogPixelLowByte and fogPixelLow)
                             S32 v30 = -(S32)(fogPixelLowByte < fogPixelHighByte);
@@ -1881,17 +1940,17 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
                             v30 = (v30 & 0xFFFF'FF00) | fogPixelLowByte;
 
                             S32 v31 = 4 * v30;
-                            g_rendererState.fogBlockParams2.unk02 = v31;
+                            fogBlockParams2.unk02 = v31;
 
                             U32 fogOffset = ((S32)fogPixelHighByte + 0x7F) << 5;
 
-                            const U32 mask = g_rendererState.fogRenderParams.actualRgbMask;
-                            U32 j = g_rendererState.fogRenderParams.blocksCount;
-                            ++g_rendererState.fogRenderParams.fogPtr;
+                            const U32 mask = fogRenderParams.actualRgbMask;
+                            U32 j = fogRenderParams.blocksCount;
+                            ++fogRenderParams.fogPtr;
 
                             while (true)
                             {
-                                g_rendererState.fogBlockParams2.unk04 = 0;
+                                fogBlockParams2.unk04 = 0;
                                 do {
                                     U8 k = 0x10;
                                     S32 v39 = fogOffset;
@@ -1899,11 +1958,11 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
                                         while ((U8)(fogOffset >> 8) != 0x20)
                                         {
                                             const U32 srcPixel = (*src & 0xFFFF) | (*src << 16);
-                                            const U32 v35 = g_rendererState.fogBlockParams2.unk04 + (mask & srcPixel) * (U8)(fogOffset >> 8);
-                                            fogOffset += g_rendererState.fogBlockParams2.unk01;
+                                            const U32 v35 = fogBlockParams2.unk04 + (mask & srcPixel) * (U8)(fogOffset >> 8);
+                                            fogOffset += fogBlockParams2.unk01;
 
                                             const U32 v37 = mask & (v35 >> 5);
-                                            g_rendererState.fogBlockParams2.unk04 = mask & v35;
+                                            fogBlockParams2.unk04 = mask & v35;
 
                                             v31 = v37 >> 16;
                                             *(Pixel*)dst = (Pixel)(v31 | v37);
@@ -1917,7 +1976,7 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
                                         if (k == 0)
                                             break;
 
-                                        fogOffset += g_rendererState.fogBlockParams2.unk01;
+                                        fogOffset += fogBlockParams2.unk01;
                                         *(Pixel*)dst = (Pixel)v31;
 
                                         dst = (DoublePixel*)((Addr)dst + sizeof(Pixel));
@@ -1925,10 +1984,10 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
                                         --k;
                                     } while (k);
 
-                                    fogOffset = g_rendererState.fogBlockParams2.unk02 + v39;
+                                    fogOffset = fogBlockParams2.unk02 + v39;
                                     src = (DoublePixel*)((Addr)src + screenWidthInBytes - blockSize);
                                     dst = (DoublePixel*)((Addr)dst + g_moduleState->pitch - blockSize);
-                                    g_rendererState.fogBlockParams2.unk01 += g_rendererState.fogBlockParams.unk01;
+                                    fogBlockParams2.unk01 += fogBlockParams.unk01;
 
                                     --j;
                                 } while (j & 0xFF);
@@ -1941,8 +2000,8 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
                     }
                     else
                     {
-                        U32 j = g_rendererState.fogRenderParams.blocksCount;
-                        ++g_rendererState.fogRenderParams.fogPtr;
+                        U32 j = fogRenderParams.blocksCount;
+                        ++fogRenderParams.fogPtr;
                         const DoublePixel mask = *(DoublePixel*)&g_moduleState->invActualColorBits;
                         while (true)
                         {
@@ -1968,32 +2027,57 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
                         }
                     }
 
-                    src = (DoublePixel*)((Addr)src + (Addr)g_rendererState.fogRenderParams.lineStep);
-                    dst = (DoublePixel*)((Addr)dst + (Addr)g_rendererState.fogRenderParams.dstRowStride);
-                    --g_rendererState.fogBlockParams.unk04;
-                } while (g_rendererState.fogBlockParams.unk04);
+                    src = (DoublePixel*)((Addr)src + (Addr)fogRenderParams.lineStep);
+                    dst = (DoublePixel*)((Addr)dst + (Addr)fogRenderParams.dstRowStride);
+                    --fogBlockParams.unk04;
+                } while (fogBlockParams.unk04);
 
                 src = (DoublePixel*)((Addr)srcTemp + screenWidthInBytes * 8);
                 dst = (DoublePixel*)((Addr)dstTemp + (Addr)g_moduleState->pitch * 8);
-                --g_rendererState.fogBlockParams.validRowsBlockCount;
-            } while (g_rendererState.fogBlockParams.validRowsBlockCount);
+                --fogBlockParams.validRowsBlockCount;
+            } while (fogBlockParams.validRowsBlockCount);
 
-            if ((g_rendererState.fogBlockParams.tempBlocksCount & 0xFF) == 0)
+            if ((fogBlockParams.tempBlocksCount & 0xFF) == 0)
                 break;
 
-            g_rendererState.fogRenderParams.blocksCount = g_rendererState.fogBlockParams.tempBlocksCount;
-            g_rendererState.fogRenderParams.lineStep = screenSizeInBytes - screenWidthInBytes * 8 + blockSize;
-            g_rendererState.fogBlockParams.validRowsBlockCount = 1;
-            g_rendererState.fogBlockParams.tempBlocksCount = 0;
+            fogRenderParams.blocksCount = fogBlockParams.tempBlocksCount;
+            fogRenderParams.lineStep = screenSizeInBytes - screenWidthInBytes * 8 + blockSize;
+            fogBlockParams.validRowsBlockCount = 1;
+            fogBlockParams.tempBlocksCount = 0;
         }
 
-        g_rendererState.fogRenderParams.lineStep = -(S32)screenWidthInBytes * 8 + blockSize;
-        remainingExcessRows = g_rendererState.fogBlockParams2.excessRowsBlockCount;
-        g_rendererState.fogBlockParams.validRowsBlockCount = remainingExcessRows;
-        g_rendererState.fogBlockParams2.excessRowsBlockCount = 0;
-        g_rendererState.fogRenderParams.blocksCount = blocksNumber;
+        fogRenderParams.lineStep = -(S32)screenWidthInBytes * 8 + blockSize;
+        remainingExcessRows = fogBlockParams2.excessRowsBlockCount;
+        fogBlockParams.validRowsBlockCount = remainingExcessRows;
+        fogBlockParams2.excessRowsBlockCount = 0;
+        fogRenderParams.blocksCount = blocksNumber;
         src = (DoublePixel*)((Addr)src - screenSizeInBytes);
     } while (remainingExcessRows);
+
+}
+
+// 0x10002b90
+void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 endX, const S32 endY)
+{
+    bool locked = false;
+
+    if (g_moduleState->surface.renderer == NULL)
+    {
+        if (!lockDxSurface())
+        {
+            return;
+        }
+
+        locked = true;
+    }
+
+    if (Zoom::GetState().trackingWorldWrites())
+        for (S32 row = y; row <= endY; ++row)
+            Zoom::GetState().captureWorldWrite(
+                static_cast<Pixel*>(g_moduleState->surface.renderer) + row * (g_moduleState->pitch / sizeof(Pixel)) + x,
+                static_cast<size_t>(endX - x + 1) * sizeof(Pixel));
+
+    ParallelRows(y, endY + 1, 8, [&](S32 first, S32 last) { copyWarFogRows(x, first, endX, last - 1); });
 
     RepairSurfaceRegion(x, y, endX, endY);
 
@@ -2001,6 +2085,18 @@ void copyMainSurfaceToRendererWithWarFog(const S32 x, const S32 y, const S32 end
     {
         unlockDxSurface();
     }
+}
+
+void scaleWorldToPresentation(const Pixel* world, int worldPitch, Pixel* destination, int destinationPitch,
+                              const Zoom::Transform& transform, Pixel* scratch)
+{
+    std::atomic<int> band{};
+    ParallelRows(transform.destination.y, transform.destination.y + transform.destination.height, 1,
+        [&](int first, int last)
+        {
+            Zoom::ScaleSharp16(world, worldPitch, destination, destinationPitch, transform,
+                scratch + Zoom::ScaleScratchSize(transform.destination.width) * band++, first, last);
+        });
 }
 
 // 0x10002fb0
