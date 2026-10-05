@@ -10,6 +10,9 @@
 #include <array>
 #include <cassert>
 #include <cstdio>
+#include <mutex>
+#include <set>
+#include <thread>
 
 using Hooks = GameDllHooks;
 constexpr int width = 32, height = 16, pitch = width + 4;
@@ -562,6 +565,138 @@ static void testNativeIsolation(uintptr_t game)
     Hooks::shutdown();
 }
 
+static void testParallelPasses()
+{
+    static ModuleStateShort module{};
+    g_moduleState = &module;
+    setPixelColorMasks(0xF800, 0x07E0, 0x001F);
+    auto& zoom = Zoom::GetState();
+    uint32_t seed = 1;
+    const auto random = [&seed] { seed = seed * 1664525 + 1013904223; return static_cast<Pixel>(seed >> 13); };
+    LARGE_INTEGER frequency{};
+    QueryPerformanceFrequency(&frequency);
+
+    for (const auto [w, h] : {std::pair{1920, 1080}, std::pair{2560, 1440}, std::pair{3840, 2160}})
+    {
+        const int stride = w + 8;
+        Screen::UpdateSize(w, h);
+        module.windowRect = {0, 0, w - 1, h - 1};
+        module.surface.stride = w * sizeof(Pixel);
+        module.surface.y = h - 301;
+        module.surface.offset = 301 * w * sizeof(Pixel);
+        std::generate_n(g_rendererState.surfaces.main, w * (h + 1), random);
+        for (size_t row = 0; row < std::size(module.fogSprites); ++row)
+            for (size_t column = 0; column < std::size(module.fogSprites[row].unk); ++column)
+            {
+                const int kind = static_cast<int>(row / 5 + column / 3) % 3;
+                module.fogSprites[row].unk[column] = kind == 0 ? 0x80 : kind == 1 ? 0 : static_cast<U8>(random());
+            }
+
+        std::vector<Pixel> world(static_cast<size_t>(w) * h), scratch(Zoom::ScaleScratchSize(w) * kMaxRenderThreads);
+        std::generate(world.begin(), world.end(), random);
+        assert(zoom.ensureBuffers(world.size(), w));
+
+        const auto run = [&](int threads, std::vector<Pixel>& output, const auto& pass)
+        {
+            StopRenderThreads();
+            SetRenderThreads(threads);
+            std::fill(output.begin(), output.end(), padding);
+            module.surface.renderer = output.data();
+            module.pitch = stride * sizeof(Pixel);
+            pass();
+            LARGE_INTEGER start{}, stop{};
+            QueryPerformanceCounter(&start);
+            for (int i = 0; i < 20; ++i)
+                pass();
+            QueryPerformanceCounter(&stop);
+            return 1000.0 * (stop.QuadPart - start.QuadPart) / frequency.QuadPart / 20;
+        };
+        const auto check = [&](const char* name, const auto& pass)
+        {
+            std::vector<Pixel> serial(static_cast<size_t>(stride) * h), parallel(serial.size());
+            const double one = run(1, serial, pass);
+            const double many = run(kMaxRenderThreads, parallel, pass);
+            assert(serial == parallel);
+            printf("%dx%d %s: 1 thread %.3f ms, %d threads %.3f ms\n", w, h, name, one, kMaxRenderThreads, many);
+            return serial;
+        };
+
+        check("fog copy", [&] { copyMainSurfaceToRendererWithWarFog(0, 0, w - 1, h - 1); });
+        check("plain copy", [&] { copyMainSurfaceToRenderer(0, 0, w, h); });
+
+        for (int scale : {5, 8})
+        {
+            const Zoom::Transform transform = Zoom::MakeTransform({16, 8, w - 32, h - 160}, scale, 7, -5);
+            const auto scaled = check(scale == 5 ? "scale 1.25x" : "scale 2x", [&]
+            {
+                scaleWorldToPresentation(world.data(), w, static_cast<Pixel*>(module.surface.renderer), stride,
+                    transform, scratch.data());
+            });
+            std::vector<Pixel> reference(scaled.size(), padding);
+            Zoom::ScaleSharp16(world.data(), w, reference.data(), stride, transform, scratch.data());
+            assert(scaled == reference);
+        }
+
+        std::vector<Pixel> source(static_cast<size_t>(stride) * h);
+        std::generate(source.begin(), source.end(), random);
+        const auto presented = check("presentation copies", [&]
+        {
+            void* renderer = source.data();
+            uint32_t pitch = module.pitch;
+            zoom.beginPresentation(renderer, pitch, w, h);
+            zoom.actualRenderer_ = module.surface.renderer;
+            zoom.finishPresentation(renderer, pitch, w, h);
+        });
+        for (int row = 0; row < h; ++row)
+            assert(std::equal(source.begin() + row * stride, source.begin() + row * stride + w,
+                presented.begin() + row * stride));
+
+        const size_t surface = static_cast<size_t>(w) * (h + 1);
+        std::generate_n(g_rendererState.surfaces.back, surface, random);
+        const std::vector<Pixel> backBefore(g_rendererState.surfaces.back, g_rendererState.surfaces.back + surface);
+        zoom.setMode(Zoom::Mode::On);
+        for (bool fog : {false, true})
+        {
+            std::vector<Pixel> written[2];
+            for (int threads : {1, kMaxRenderThreads})
+            {
+                StopRenderThreads();
+                SetRenderThreads(threads);
+                zoom.beginWorldIsolation(g_rendererState.surfaces.main, g_rendererState.surfaces.back, surface, w);
+                module.surface.renderer = g_rendererState.surfaces.back;
+                module.pitch = w * sizeof(Pixel);
+                if (fog)
+                    copyMainSurfaceToRendererWithWarFog(0, 0, w - 1, h - 1);
+                else
+                    copyMainSurfaceToRenderer(0, 0, w, h);
+                written[threads > 1].assign(g_rendererState.surfaces.back, g_rendererState.surfaces.back + surface);
+                zoom.finishWorldIsolation(g_rendererState.surfaces.main, g_rendererState.surfaces.back);
+                assert(std::equal(backBefore.begin(), backBefore.end(), g_rendererState.surfaces.back));
+            }
+            assert(written[0] == written[1] && written[0] != backBefore);
+        }
+        zoom.setMode(Zoom::Mode::Off);
+    }
+
+    StopRenderThreads();
+    SetRenderThreads(1);
+    ParallelRows(0, 1024, 1, [](int, int) {});
+    SetRenderThreads(kMaxRenderThreads);
+    std::mutex idsMutex;
+    std::set<DWORD> ids;
+    ParallelRows(0, 1024, 1, [&](int, int)
+    {
+        std::lock_guard lock(idsMutex);
+        ids.insert(GetCurrentThreadId());
+    });
+    assert(ids.size() > 1 || std::thread::hardware_concurrency() < 2);
+
+    StopRenderThreads();
+    SetRenderThreads(1);
+    zoom.setMode(Zoom::Mode::Off);
+    puts("Parallel passes: fog copy, plain copy, scaler and presentation copies match at 1 and N threads");
+}
+
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IONBF, 0);
@@ -925,6 +1060,7 @@ int main(int argc, char** argv)
 
     testTrackedRenderer();
     testPanelCursorIsolation();
+    testParallelPasses();
     if (nativeGame)
         testNativeIsolation(nativeGame);
 

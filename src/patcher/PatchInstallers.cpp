@@ -120,6 +120,8 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     Zoom::GetState().setPersistentIndicator(Screen::GetPersistentZoomIndicator());
     Zoom::GetState().setInvertZoom(Screen::GetInvertZoom());
     Zoom::GetState().setZoomOnCursor(Screen::GetZoomOnCursor());
+    SetRenderThreads(Screen::GetRenderThreads());
+    g_frameStats = Screen::GetFrameStats();
     GameDllHooks::configureGroupPanel(
         Screen::GetGroupPanel() ? version : GameVersion::UNKNOWN,
         Screen::GetGroupPanelCount(),

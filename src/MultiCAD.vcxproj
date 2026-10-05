@@ -93,6 +93,7 @@
     <ClInclude Include="core\GameIni.h" />
     <ClInclude Include="core\ModInfo.h" />
     <ClInclude Include="core\PanelScale.h" />
+    <ClInclude Include="core\Parallel.h" />
     <ClInclude Include="core\pch.h" />
     <ClInclude Include="core\renderer.h" />
     <ClInclude Include="core\resource.h" />
@@ -137,6 +138,7 @@
     <ClCompile Include="core\pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="core\Parallel.cpp" />
     <ClCompile Include="core\renderer.cpp" />
     <ClCompile Include="core\ScreenConfig.cpp" />
     <ClCompile Include="core\util.cpp" />

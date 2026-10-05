@@ -5,6 +5,11 @@
 #include <cassert>
 #include <vector>
 
+void ParallelRows(int begin, int end, int, const std::function<void(int, int)>& fn)
+{
+    fn(begin, end);
+}
+
 int main()
 {
     using namespace Zoom;

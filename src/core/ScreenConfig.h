@@ -213,6 +213,32 @@ public:
         return Zoom::ParseMode(buffer) == Zoom::Mode::On;
     }
 
+    static int GetRenderThreads()
+    {
+        const std::string iniPath = GameIni::Path();
+        if (iniPath.empty())
+            return kMaxRenderThreads;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "RenderThreads", "auto", buffer, sizeof(buffer), iniPath.c_str());
+        for (char& c : buffer)
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c + ('a' - 'A'));
+        return std::strcmp(buffer, "auto") == 0
+            ? kMaxRenderThreads : std::clamp(std::atoi(buffer), 1, kMaxRenderThreads);
+    }
+
+    static bool GetFrameStats()
+    {
+        const std::string iniPath = GameIni::Path();
+        if (iniPath.empty())
+            return false;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "FrameStats", "off", buffer, sizeof(buffer), iniPath.c_str());
+        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
+    }
+
     static bool GetGroupPanel()
     {
         const std::string iniPath = GameIni::Path();

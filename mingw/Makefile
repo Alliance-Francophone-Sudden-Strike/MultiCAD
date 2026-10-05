@@ -38,7 +38,7 @@ LDFLAGS := -m32 -shared -Wl,--subsystem,windows -Wl,--enable-stdcall-fixup \
            -Wl,--exclude-all-symbols $(HERE)cadMulti.def
 
 SRCS := main.cpp mingw_export.cpp \
-        core/pch.cpp core/GameIni.cpp core/cad.cpp core/renderer.cpp core/ScreenConfig.cpp core/util.cpp \
+        core/pch.cpp core/GameIni.cpp core/cad.cpp core/Parallel.cpp core/renderer.cpp core/ScreenConfig.cpp core/util.cpp \
         patcher/DllMonitor.cpp patcher/DllVersionDetector.cpp patcher/GameDllHooks.cpp \
         patcher/MenuDllHooks.cpp patcher/PatchInstallers.cpp \
         stats/MatchStatsReader.cpp stats/OutcomeHook.cpp stats/StatsReporter.cpp \
@@ -60,6 +60,9 @@ prep: ; @python3 $(HERE)prep.py
 # prep.py self-gates on a content signature and writes the stamp itself.
 obj/.prep-stamp: $(SRC_FILES) $(HERE)prep.py $(HERE)mingw_export.cpp
 	@python3 $(HERE)prep.py
+
+HOT_CXXFLAGS := -O2 -msse2 -mfpmath=387
+obj/core/renderer.o: CXXFLAGS += $(HOT_CXXFLAGS)
 
 obj/%.o: obj/.prep-stamp
 	@mkdir -p $(dir $@)
@@ -90,7 +93,7 @@ bin/cadMulti.dll: $(OBJS) $(RES)
 
 # LoadLibrary smoke test under Wine. Runs from bin/ so cadMulti.dll finds its
 # sidecar runtime DLLs (mirrors dropping everything into the game folder).
-test: zoom-test group-panel-test zeppelin-panel-test world-isolation-test import-hooks-test all analyze-dll-test
+test: zoom-test group-panel-test zeppelin-panel-test world-isolation-test import-hooks-test zoom-render-test all analyze-dll-test
 	@i686-w64-mingw32-gcc -m32 -O2 $(HERE)loadtest.c -o bin/loadtest.exe
 	@cd bin && for d in cadMulti_mt.dll cadMulti.dll; do \
 	    echo "== $$d =="; WINEDEBUG=-all wine loadtest.exe "$$d" || exit 1; \
@@ -141,6 +144,7 @@ import-hooks-test: bin/import_hooks_test.exe
 	WINEDEBUG=-all wine $<
 
 # Exercise the actual composition hook and sprite renderer under Wine.
+bin/zoom_render_test.exe: private CXXFLAGS += $(HOT_CXXFLAGS)
 bin/zoom_render_test.exe: ../tests/zoom_render_test.cpp $(OBJS)
 	@mkdir -p bin
 	$(CXX) $(CXXFLAGS) -UNDEBUG -fno-access-control -static -static-libgcc -static-libstdc++ \

@@ -96,6 +96,29 @@ Example configuration:
 
 `ZoomIndicatorScale` accepts `1` to `3` in steps of `0.25`. Values outside that range are clamped to the nearest bound and values between steps round to the nearest step, so `1.3` behaves as `1.25`. If your indicator disappears, it is likely that you used a too high value for your current resolution which causes it to be drawn off-screen.
 
+### Render Threads
+
+_Added by this AF version of the MultiCAD. Enabled by default._
+
+Spreads the full-screen copies (fog of war, zoom scaling, presentation) over several CPU cores. The game itself stays single-threaded, so this only helps when these copies are what slows a frame down: zoomed play and scrolling at high resolutions.
+
+Nothing needs to be added to the ini. To go back to a single thread:
+
+> ```ini
+> [Game]
+> RenderThreads=off
+> ```
+
+| Setting         | Values                   | Default | What it does                                                                   |
+| --------------- | ------------------------ | ------- | ------------------------------------------------------------------------------ |
+| `RenderThreads` | `off` / `auto` / `1`–`8` | `auto`  | Threads for the full-screen copies; `auto` uses every allowed core, up to 8    |
+| `FrameStats`    | `on` / `off`             | `off`   | Writes frame timings to the debug output every 5 seconds (see below)           |
+
+> [!IMPORTANT]
+> cnc-ddraw keeps the game on a single core while `singlecpu=true`, which leaves `RenderThreads` nothing to work with. Set `singlecpu=false` in the `[ddraw]` section of `ddraw.ini`.
+
+`FrameStats` lines can be read with [DebugView](https://learn.microsoft.com/sysinternals/downloads/debugview), or under Wine with `WINEDEBUG=+debugstr`. For `world` (world render), `zoom` (zoomed presentation), `present` (copy to the screen), `unlock` (final copy), `frame` (time between two frames) and `game` (the rest of the frame: simulation, game logic and the wait for the screen refresh), each line gives the count, the mean and the max, in milliseconds.
+
 <details>
 <summary>Other Settings in testing phase only working with Sudden Strike 2 and Hidden Stroke 2</summary>
 

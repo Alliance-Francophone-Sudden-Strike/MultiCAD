@@ -1,8 +1,10 @@
 #pragma once
 
 #include "PanelScale.h"
+#include "Parallel.h"
 
 #include <algorithm>
+#include <climits>
 #include <cstring>
 #include <cstdint>
 #include <string_view>
@@ -200,11 +202,12 @@ namespace Zoom
     inline void ScaleSharp16(
         const uint16_t* source, int sourcePitch,
         uint16_t* destination, int destinationPitch,
-        const Transform& transform, uint16_t* scratch)
+        const Transform& transform, uint16_t* scratch,
+        int first = INT_MIN, int last = INT_MAX)
     {
         const int left = transform.destination.x;
-        const int top = transform.destination.y;
-        const int bottom = top + transform.destination.height;
+        const int top = std::max(transform.destination.y, first);
+        const int bottom = std::min(transform.destination.y + transform.destination.height, last);
         const int width = transform.destination.width;
         const int lastColumn = transform.source.x + transform.source.width - 1;
         const int lastRow = transform.source.y + transform.source.height - 1;
@@ -590,7 +593,7 @@ namespace Zoom
                     presentationValid_ = false;
                 world_.resize(pixels);
                 presentation_.resize(pixels);
-                rowScratch_.resize(ScaleScratchSize(width));
+                rowScratch_.resize(ScaleScratchSize(width) * kMaxRenderThreads);
                 return true;
             }
             catch (...)
@@ -752,8 +755,11 @@ namespace Zoom
         void beginPresentation(void*& renderer, uint32_t& pitch, int width, int height)
         {
             const auto* source = static_cast<const uint8_t*>(renderer);
-            for (int y = 0; y < height; ++y)
-                std::memcpy(presentation_.data() + y * width, source + y * pitch, width * sizeof(uint16_t));
+            ParallelRows(0, height, 1, [&](int first, int last)
+            {
+                for (int y = first; y < last; ++y)
+                    std::memcpy(presentation_.data() + y * width, source + y * pitch, width * sizeof(uint16_t));
+            });
             presentationValid_ = true;
 
             actualRenderer_ = renderer;
@@ -769,8 +775,11 @@ namespace Zoom
                 return;
 
             auto* destination = static_cast<uint8_t*>(actualRenderer_);
-            for (int y = 0; y < height; ++y)
-                std::memcpy(destination + y * actualPitch_, presentation_.data() + y * width, width * sizeof(uint16_t));
+            ParallelRows(0, height, 1, [&](int first, int last)
+            {
+                for (int y = first; y < last; ++y)
+                    std::memcpy(destination + y * actualPitch_, presentation_.data() + y * width, width * sizeof(uint16_t));
+            });
             renderer = actualRenderer_;
             pitch = actualPitch_;
             routed_ = false;
