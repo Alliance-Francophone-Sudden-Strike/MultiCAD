@@ -109,13 +109,10 @@ Nothing needs to be added to the ini. To go back to a single thread:
 > RenderThreads=off
 > ```
 
-| Setting         | Values                   | Default | What it does                                                                   |
-| --------------- | ------------------------ | ------- | ------------------------------------------------------------------------------ |
-| `RenderThreads` | `off` / `auto` / `1`–`8` | `auto`  | Threads for the full-screen copies; `auto` uses every allowed core, up to 8    |
-| `FrameStats`    | `on` / `off`             | `off`   | Writes frame timings to the debug output every 5 seconds (see below)           |
-
-> [!IMPORTANT]
-> cnc-ddraw keeps the game on a single core while `singlecpu=true`, which leaves `RenderThreads` nothing to work with. Set `singlecpu=false` in the `[ddraw]` section of `ddraw.ini`.
+| Setting         | Values                   | Default | What it does                                                                |
+| --------------- | ------------------------ | ------- | --------------------------------------------------------------------------- |
+| `RenderThreads` | `off` / `auto` / `1`–`8` | `auto`  | Threads for the full-screen copies; `auto` uses every allowed core, up to 8 |
+| `FrameStats`    | `on` / `off`             | `off`   | Writes frame timings to the debug output every 5 seconds (see below)        |
 
 `FrameStats` lines can be read with [DebugView](https://learn.microsoft.com/sysinternals/downloads/debugview), or under Wine with `WINEDEBUG=+debugstr`. For `world` (world render), `zoom` (zoomed presentation), `present` (copy to the screen), `unlock` (final copy), `frame` (time between two frames) and `game` (the rest of the frame: simulation, game logic and the wait for the screen refresh), each line gives the count, the mean and the max, in milliseconds.
 

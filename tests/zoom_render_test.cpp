@@ -9,6 +9,7 @@
 #include "ZeppelinPanel.h"
 #include <array>
 #include <cassert>
+#include <bit>
 #include <cstdio>
 #include <mutex>
 #include <set>
@@ -690,6 +691,37 @@ static void testParallelPasses()
         ids.insert(GetCurrentThreadId());
     });
     assert(ids.size() > 1 || std::thread::hardware_concurrency() < 2);
+
+    DWORD_PTR process = 0, system = 0;
+    GetProcessAffinityMask(GetCurrentProcess(), &process, &system);
+    if (std::popcount(system) > 1)
+    {
+        const auto currentMask = [system]
+        {
+            const DWORD_PTR mask = SetThreadAffinityMask(GetCurrentThread(), system);
+            SetThreadAffinityMask(GetCurrentThread(), mask);
+            return mask;
+        };
+        StopRenderThreads();
+        assert(SetProcessAffinityMask(GetCurrentProcess(), 1));
+        std::set<DWORD_PTR> masks;
+        ParallelRows(0, 1024, 1, [&](int, int)
+        {
+            std::lock_guard lock(idsMutex);
+            masks.insert(currentMask());
+        });
+        assert((masks == std::set<DWORD_PTR>{ 1, system & ~DWORD_PTR{ 1 } }));
+        DWORD_PTR widened = 0;
+        GetProcessAffinityMask(GetCurrentProcess(), &widened, &system);
+        assert(widened == system);
+        DWORD_PTR created = 0;
+        std::thread([&] { PinNewThread(); created = currentMask(); }).join();
+        assert(created == 1);
+        StopRenderThreads();
+        GetProcessAffinityMask(GetCurrentProcess(), &widened, &system);
+        assert(widened == 1);
+        SetProcessAffinityMask(GetCurrentProcess(), process);
+    }
 
     StopRenderThreads();
     SetRenderThreads(1);

@@ -3,6 +3,7 @@
 #include "ResolutionVerifier.h"
 #include "DllMonitor.h"
 #include "PatchInstallers.h"
+#include "Parallel.h"
 
 static std::unique_ptr<DllMonitor> g_dllMonitor;
 
@@ -26,6 +27,9 @@ bool APIENTRY DllMain(HMODULE hModule, DWORD fwdReason, LPVOID lpvReserved)
 
         break;
     }
+    case DLL_THREAD_ATTACH:
+        PinNewThread();
+        break;
     case DLL_PROCESS_DETACH:
     {
         monitor.Shutdown();

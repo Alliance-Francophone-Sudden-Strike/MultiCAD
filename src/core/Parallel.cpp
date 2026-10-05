@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "Parallel.h"
 
+#include <tlhelp32.h>
+
+#include <atomic>
 #include <bit>
 #include <condition_variable>
 #include <mutex>
@@ -29,9 +32,34 @@ namespace
     };
 
     Pool& g_pool = *new Pool;
+    std::atomic<DWORD_PTR> g_gameMask{};
 
-    void Work(int index, unsigned seen)
+    void PinThreads(DWORD_PTR mask)
     {
+        const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        if (snapshot == INVALID_HANDLE_VALUE)
+            return;
+
+        THREADENTRY32 entry{};
+        entry.dwSize = sizeof(entry);
+        for (BOOL more = Thread32First(snapshot, &entry); more; more = Thread32Next(snapshot, &entry))
+        {
+            if (entry.th32OwnerProcessID != GetCurrentProcessId())
+                continue;
+            if (const HANDLE thread = OpenThread(THREAD_SET_INFORMATION | THREAD_QUERY_INFORMATION, FALSE, entry.th32ThreadID))
+            {
+                SetThreadAffinityMask(thread, mask);
+                CloseHandle(thread);
+            }
+        }
+        CloseHandle(snapshot);
+    }
+
+    void Work(int index, unsigned seen, DWORD_PTR mask)
+    {
+        if (mask)
+            SetThreadAffinityMask(GetCurrentThread(), mask);
+
         std::unique_lock lock(g_pool.mutex);
         for (;;)
         {
@@ -58,12 +86,19 @@ namespace
         {
             StopRenderThreads();
             g_pool.startedWith = g_pool.requested;
-            DWORD_PTR process = 0, system = 0;
-            const int cores = GetProcessAffinityMask(GetCurrentProcess(), &process, &system)
-                ? std::popcount(process) : 1;
-            const int threads = std::min({ cores, g_pool.requested, kMaxRenderThreads });
+            DWORD_PTR process = 1, system = 1;
+            GetProcessAffinityMask(GetCurrentProcess(), &process, &system);
+            const int threads = std::min({ std::popcount(system), g_pool.requested, kMaxRenderThreads });
+            DWORD_PTR workerMask = 0;
+            if (threads > 1 && process != system)
+            {
+                g_gameMask = process;
+                SetProcessAffinityMask(GetCurrentProcess(), system);
+                PinThreads(process);
+                workerMask = system & ~process ? system & ~process : system;
+            }
             for (int index = 1; index < threads; ++index)
-                g_pool.workers.emplace_back(Work, index, g_pool.generation);
+                g_pool.workers.emplace_back(Work, index, g_pool.generation, workerMask);
         }
         return static_cast<int>(g_pool.workers.size()) + 1;
     }
@@ -86,6 +121,14 @@ void StopRenderThreads()
     g_pool.workers.clear();
     g_pool.stopping = false;
     g_pool.startedWith = 0;
+    if (const DWORD_PTR mask = g_gameMask.exchange(0))
+        SetProcessAffinityMask(GetCurrentProcess(), mask);
+}
+
+void PinNewThread()
+{
+    if (const DWORD_PTR mask = g_gameMask.load())
+        SetThreadAffinityMask(GetCurrentThread(), mask);
 }
 
 void ParallelRows(int begin, int end, int grain, const std::function<void(int first, int last)>& fn)

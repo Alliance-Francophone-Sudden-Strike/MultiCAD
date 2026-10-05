@@ -67,6 +67,7 @@ void initValues()
 // 0x10001050
 bool initDxInstance(const HWND hwnd, const bool fullscreen)
 {
+    StopRenderThreads();
     restoreDxInstance();
 
     if (FAILED(DirectDrawCreate(NULL, &g_moduleState->directX.instance, NULL)))
