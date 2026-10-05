@@ -304,6 +304,32 @@ int main()
         movement.addWheelDelta(120);
     }
 
+    const auto scrollOneSecond = [](int frameUs)
+        {
+            State timed;
+            int moved = 0;
+            for (int elapsed = 0; elapsed + frameUs <= 1'000'000; elapsed += frameUs)
+            {
+                int dx = 10;
+                int dy = 0;
+                timed.scaleCameraMovement(dx, dy, frameUs);
+                moved += dx;
+            }
+            return moved;
+        };
+    assert(scrollOneSecond(kReferenceFrameUs) == 600);
+    for (const int hz : { 75, 120, 144, 165, 240 })
+    {
+        const int moved = scrollOneSecond(1'000'000 / hz);
+        assert(moved >= 598 && moved <= 600);
+    }
+
+    State stalled;
+    int stalledX = 10;
+    int stalledY = 0;
+    stalled.scaleCameraMovement(stalledX, stalledY, 5'000'000);
+    assert(stalledX == 30);
+
     static_assert(ParseIndicatorShape("bars") == IndicatorShape::Bars);
     static_assert(ParseIndicatorShape("unknown") == IndicatorShape::Squares);
 

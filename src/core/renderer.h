@@ -40,6 +40,7 @@ enum FrameStatsPhase
 extern bool g_frameStats;
 LONGLONG frameStatsStart();
 void frameStatsAdd(FrameStatsPhase phase, LONGLONG start);
+int framePeriodUs();
 
 extern void (*g_surfaceRegionRepair)(int left, int top, int right, int bottom);
 extern void (*g_surfacePresentRepair)();

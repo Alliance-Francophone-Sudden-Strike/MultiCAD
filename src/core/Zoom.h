@@ -167,6 +167,7 @@ namespace Zoom
 
     constexpr int kMinScale = 4; // quarter units: 4 == 1x
     constexpr int kMaxScale = 8; // 8 == 2x
+    constexpr int kReferenceFrameUs = 1'000'000 / 60;
     constexpr uint32_t kIndicatorHoldMs = 1500;
     constexpr uint32_t kIndicatorFadeMs = 250;
     constexpr uint32_t kIndicatorAnimMs = 1;
@@ -486,7 +487,7 @@ namespace Zoom
             return hasPresented_ ? presented_.sourceY(physicalY) : physicalY;
         }
 
-        void scaleCameraMovement(int& dx, int& dy)
+        void scaleCameraMovement(int& dx, int& dy, int frameUs = kReferenceFrameUs)
         {
             const int movementScale = mode_ == Mode::Off ? kMinScale : presentedScale_;
             if (movementScale != cameraMovementScale_)
@@ -496,11 +497,13 @@ namespace Zoom
                 cameraRemainderY_ = 0;
             }
 
-            const auto scaleDelta = [movementScale](int delta, int& remainder)
+            const int64_t elapsed = std::clamp(frameUs, 1'000, 50'000);
+            const int64_t divisor = int64_t{ movementScale } * kReferenceFrameUs;
+            const auto scaleDelta = [elapsed, divisor](int delta, int& remainder)
             {
-                const int total = delta * kMinScale + remainder;
-                remainder = total % movementScale;
-                return total / movementScale;
+                const int64_t total = delta * kMinScale * elapsed + remainder;
+                remainder = static_cast<int>(total % divisor);
+                return static_cast<int>(total / divisor);
             };
             dx = scaleDelta(dx, cameraRemainderX_);
             dy = scaleDelta(dy, cameraRemainderY_);

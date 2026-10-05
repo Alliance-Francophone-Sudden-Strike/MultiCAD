@@ -1369,7 +1369,7 @@ public:
     static void __declspec(noinline) __cdecl    moveCameraAtZoom_ver(int dx, int dy)
     {
         static_assert(ValidateZoomTraits<V>(), "One or more zoom UiTraits addresses are zero");
-        Zoom::GetState().scaleCameraMovement(dx, dy);
+        Zoom::GetState().scaleCameraMovement(dx, dy, framePeriodUs());
         globals_->getFn<void(__cdecl)(int, int)>(UiTraits<V>::addresses.fnMoveCamera)(dx, dy);
     }
     template<GameVersion V>

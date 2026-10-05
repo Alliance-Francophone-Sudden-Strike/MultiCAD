@@ -1596,12 +1596,34 @@ namespace
     LONGLONG g_frameStatsSpent = 0;
     LONGLONG g_frameStatsLast = 0;
     LONGLONG g_frameStatsReport = 0;
+    LONGLONG g_lastUnlock = 0;
+    std::array<int, 15> g_framePeriods{};
+    size_t g_framePeriodNext = 0;
 
     LONGLONG queryCounter()
     {
         LARGE_INTEGER counter;
         QueryPerformanceCounter(&counter);
         return counter.QuadPart;
+    }
+
+    void recordFramePeriod()
+    {
+        static const LONGLONG frequency = []
+            {
+                LARGE_INTEGER value;
+                QueryPerformanceFrequency(&value);
+                return value.QuadPart;
+            }();
+
+        const LONGLONG now = queryCounter();
+        if (g_lastUnlock)
+        {
+            g_framePeriods[g_framePeriodNext] = static_cast<int>(
+                std::min<LONGLONG>((now - g_lastUnlock) * 1'000'000 / frequency, 1'000'000));
+            g_framePeriodNext = (g_framePeriodNext + 1) % g_framePeriods.size();
+        }
+        g_lastUnlock = now;
     }
 
     void recordFrameStat(FrameStatsPhase phase, LONGLONG ticks)
@@ -1665,8 +1687,17 @@ void frameStatsAdd(FrameStatsPhase phase, LONGLONG start)
     g_frameStatsSpent += ticks;
 }
 
+int framePeriodUs()
+{
+    auto periods = g_framePeriods;
+    const auto median = periods.begin() + periods.size() / 2;
+    std::nth_element(periods.begin(), median, periods.end());
+    return *median ? *median : Zoom::kReferenceFrameUs;
+}
+
 void unlockDxSurface()
 {
+    recordFramePeriod();
     const LONGLONG stats = frameStatsStart();
 
     if (g_surfacePresentRepair && !g_surfaceRepairSuppressed)
