@@ -93,7 +93,7 @@ bin/cadMulti.dll: $(OBJS) $(RES)
 
 # LoadLibrary smoke test under Wine. Runs from bin/ so cadMulti.dll finds its
 # sidecar runtime DLLs (mirrors dropping everything into the game folder).
-test: zoom-test group-panel-test zeppelin-panel-test world-isolation-test import-hooks-test zoom-render-test all analyze-dll-test
+test: zoom-test uiscale-test group-panel-test zeppelin-panel-test world-isolation-test import-hooks-test zoom-render-test all analyze-dll-test
 	@i686-w64-mingw32-gcc -m32 -O2 $(HERE)loadtest.c -o bin/loadtest.exe
 	@cd bin && for d in cadMulti_mt.dll cadMulti.dll; do \
 	    echo "== $$d =="; WINEDEBUG=-all wine loadtest.exe "$$d" || exit 1; \
@@ -119,6 +119,11 @@ zoom-test:
 	@mkdir -p obj
 	$(HOST_CXX) -std=c++20 -Wall -Wextra -pedantic -I$(SRCDIR)/core ../tests/zoom_test.cpp -o obj/zoom_test
 	obj/zoom_test
+
+uiscale-test:
+	@mkdir -p obj
+	$(HOST_CXX) -std=c++20 -Wall -Wextra -pedantic -I$(SRCDIR)/core ../tests/uiscale_test.cpp -o obj/uiscale_test
+	obj/uiscale_test
 
 group-panel-test:
 	@mkdir -p obj

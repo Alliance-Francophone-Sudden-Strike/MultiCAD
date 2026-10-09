@@ -187,6 +187,23 @@ Example configuration:
 
 With the default `temp` behaviour the panel stays up for five seconds then fades out, and pressing the shortcut again restarts those five seconds.
 
+### In-game UI scale
+
+_Added by this AF version of the MultiCAD, with HS2Engine._
+
+HS2Engine lays out the in-game UI elements (the panels, the status strip, the dialogs) on a smaller logical screen, and the renderer maps it to the real screen. The battlefield, the strategic map, and the panels of MultiCAD keep their size. The key is in the `[Game]` section of the ini that HS2Engine reads:
+
+| Key       | Values                           | Default | Effect                                           |
+| --------- | -------------------------------- | ------- | ------------------------------------------------ |
+| `UIScale` | `1` to the screen size / 800 × 600 | `1`     | Bigger UI elements for high resolutions          |
+
+> ```ini
+> [Game]
+> UIScale=1.5
+> ```
+
+MultiCAD exports `SetUiScale(float scale, int logicalWidth, int logicalHeight)` for HS2Engine and honours it only for the HS_2 profile. Any other game dll keeps the unscaled UI. The in-game menu and the chat are drawn at the logical size for now.
+
 ### Replacement Menu or Game Modules
 
 _Added by this AF version of the MultiCAD._

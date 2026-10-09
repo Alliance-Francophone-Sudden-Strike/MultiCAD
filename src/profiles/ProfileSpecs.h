@@ -768,6 +768,7 @@ const std::array hooks_game_ss_2_v2_2
     HookSpec{0xA1130, reinterpret_cast<uintptr_t>(&GameDllHooks::drawUiElement_ver<V>)},
     HookSpec{0xA1200, reinterpret_cast<uintptr_t>(&GameDllHooks::calculateClosedArea_ver<V>)},
     HookSpec{0xA1220, reinterpret_cast<uintptr_t>(&GameDllHooks::calculateCursorType)},
+    HookSpec{0xA12F0, reinterpret_cast<uintptr_t>(&GameDllHooks::getUiHint)},
     HookSpec{0xCACD0, reinterpret_cast<uintptr_t>(&GameDllHooks::dispatchMouseButtonEvent_ver<V>)},
     HookSpec{0xCAD50, reinterpret_cast<uintptr_t>(&GameDllHooks::dispatchMouseMoveEvent_ver<V>)},
     HookSpec{0xCAF30, reinterpret_cast<uintptr_t>(&GameDllHooks::dispatchWndMessage_ver<V>)},

@@ -2,6 +2,7 @@
 
 #include "types.h"
 #include "cad.h"
+#include "UIScale.h"
 #include "renderer.h"
 #include "Zoom.h"
 #include "ZeppelinPanel.h"
@@ -1578,6 +1579,7 @@ public:
         calculateClosedArea(self, data);
     }
     static int  __declspec(noinline) __fastcall calculateCursorType(UiElementBase* self, void* /*dummy*/, int x, int y, int* a4);
+    static int  __declspec(noinline) __fastcall getUiHint(UiElementBase* self, void* /*dummy*/, int x, int y, char* out);
     template<GameVersion V>
     static void __declspec(noinline) __cdecl    dispatchMouseButtonEvent_ver(int eventTag)
     {
@@ -1656,6 +1658,20 @@ private:
 
     static bool KnownIsolationDecor(const UIRenderElement* element);
     static bool KnownIsolationUi(const UiElementBase* element);
+    // [Game] UIScale (HS_2 profile): the engine lays the UI out on a smaller logical screen,
+    // mapped here to the real one (UIScale.h). Elements and event areas of the battlefield,
+    // the strategic map and MultiCAD's own panels keep the real screen.
+    static bool uiScaled(const UiElementBase* self);
+    static bool mapUiPoint(const UiElementBase* self, int& x, int& y);
+    static UIScale::Rect scaledUiRect(const UiElementBase* self);
+    static UIScale::Rect areaScreenRect(const UiEventArea* area);
+    static int areaLocalX(const UiEventArea* area, int x);
+    static int areaLocalY(const UiEventArea* area, int y);
+    static bool blitScaledUiElement(const UiElementBase* ui, const DrawDecorUiElementData* data = nullptr, bool* wroteCursor = nullptr);
+    static void drawScaledUiElements(const DrawDecorUiElementData& data);
+    static void drawScaledDecor(const DrawDecorUiElementData& data);
+    static void invalidateOnUiListChange(const DrawDecorUiElementData& data);
+
     static void prepareUiElements(UiElementBase* ui);
     static void withBattlefieldMouseCoordinates(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());
     static void updateBattlefieldHover(int* mouseX, int* mouseY, UiEventArea* areas, int active, void(__cdecl* fn)(int));
