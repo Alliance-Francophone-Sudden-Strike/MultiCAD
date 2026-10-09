@@ -2131,12 +2131,28 @@ bool GameDllHooks::screenCoveredByUi(UiElementBase* ui, int width, int height)
     return false;
 }
 
+// The topmost unscaled element that covers the screen: the strategic map. The game shows
+// nothing under it (it owns every tile), and it draws the decorations (chat) into its own
+// buffer, at their logical place. So the scaled elements under it and the scaled decorations
+// stay off, whatever path the frame takes (live, the game skips this hook on many frames;
+// paused, it calls it on every frame).
+GameDllHooks::UiElementBase* GameDllHooks::realScreenCover(UiElementBase* ui, int width, int height)
+{
+    for (; ui; ui = ui->prev)
+        if (!uiScaled(ui) && (!ui->uiEventArea || ui->uiEventArea->tag != 'FILD') &&
+            ui->leftX <= 0 && ui->topY <= 0 && ui->rightX >= width - 1 && ui->bottomY >= height - 1)
+            return ui;
+    return nullptr;
+}
+
 void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
     const uint32_t tick = GetTickCount();
     Zoom::GetState().updatePan(data.cameraX, data.cameraY, tick);
     const bool uiListChanged = invalidateOnUiListChange(data);
-    const bool decorChanged = composeScaledDecor(data);  // marks last frame's decoration box
+    UiElementBase* const cover = UIScale::Active()
+        ? realScreenCover(data.uiElement, data.surfaceWidth, data.surfaceHeight) : nullptr;
+    const bool decorChanged = composeScaledDecor(data, cover != nullptr);  // marks last frame's decoration box
     const bool zoomed = prepareZoomPresentation(data);
     g_uiRepaint = {};
     if (zoomed || uiListChanged)
@@ -2342,7 +2358,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     // The present loop copies the world over every tile the UI does not close, partial
     // ones included, so the scaled elements go on last. (Zoomed, prepareZoomPresentation draws them.)
     if (!zoomed && UIScale::Active())
-        drawScaledUiElements(data);
+        drawScaledUiElements(data, cover);
 
     if (preserveWorld)
     {
@@ -4882,10 +4898,11 @@ bool GameDllHooks::blitScaledUiElement(const UiElementBase* ui, const DrawDecorU
 }
 
 // After the world is presented. Not marked for the present loop: mask 16 copies the world over the tile.
-void GameDllHooks::drawScaledUiElements(const DrawDecorUiElementData& data)
+void GameDllHooks::drawScaledUiElements(const DrawDecorUiElementData& data, UiElementBase* cover)
 {
-    UiElementBase* lowest = data.uiElement;
-    while (lowest && lowest->prev)
+    // Only the elements over the cover, if any (it is not scaled itself).
+    UiElementBase* lowest = cover ? cover : data.uiElement;
+    while (!cover && lowest && lowest->prev)
         lowest = lowest->prev;
 
     ++g_uiFrame;
@@ -4930,14 +4947,14 @@ void GameDllHooks::drawScaledUiElements(const DrawDecorUiElementData& data)
 // True when last frame's scaled pixels differ: a decoration that changes marks its tiles
 // in its own (logical) pixels, not where it was drawn, so its old pixels (a sent chat line,
 // a closed input line) are marked here for the world to cover them.
-bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data)
+bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, bool covered)
 {
     constexpr Pixel kKey = 0xF81F;
     const int lw = UIScale::GetState().logicalWidth, lh = UIScale::GetState().logicalHeight;
     const int width = Screen::width_, height = Screen::height_;
     const size_t screenPixels = static_cast<size_t>(width) * height;
     g_decorBox = {};
-    if (!UIScale::Active() || !g_moduleState || !g_moduleState->surface.renderer)
+    if (covered || !UIScale::Active() || !g_moduleState || !g_moduleState->surface.renderer)
     {
         g_decorLastValid = false;
         return false;
