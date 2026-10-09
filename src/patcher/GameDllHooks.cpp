@@ -98,6 +98,85 @@ namespace
 
     constexpr int kGroupPanelTag = 'GRPP';
 
+    // The battlefield and the strategic map use the real screen, as MultiCAD's own panels.
+    bool isScalableUiTag(int tag)
+    {
+        return tag != 'FILD' && tag != 'TMAP' && tag != kGroupPanelTag && tag != UIFilter::getCustomTag();
+    }
+
+    // The game draws its cursor on the surface after the frame and presents asynchronously (the
+    // ddraw wrapper's thread). Redrawing the UI under the cursor on every frame erases it for a
+    // moment, which shows as a blinking cursor, so the pixels under it are written only when they
+    // change. What the last frame wrote:
+    struct LastBlit
+    {
+        int x = 0, y = 0, width = 0, height = 0;
+        uint64_t frame = 0;
+        std::vector<Pixel> pixels;
+    };
+    std::unordered_map<const void*, LastBlit> g_lastBlits;
+    uint64_t g_uiFrame = 0;
+    bool g_cursorDisturbed = false;  // this frame wrote over the cursor
+    std::vector<Pixel> g_decorLast, g_decorNow;
+    bool g_decorLastValid = false;
+
+    struct CursorRect
+    {
+        int left = 0, top = 0, right = 0, bottom = 0;
+        bool valid = false;
+        bool hits(int x, int y) const { return valid && x >= left && x < right && y >= top && y < bottom; }
+    };
+
+    // Where the cursor is on the surface now (the game's save-under rectangle).
+    CursorRect cursorRectOf(const int* x, const int* y, const int* width, const int* height)
+    {
+        CursorRect c;
+        c.valid = Zoom::GetState().cursorSaveRect(Screen::width_, Screen::height_, x, y, width, height,
+            c.left, c.top, c.right, c.bottom);
+        return c;
+    }
+
+    // Bilinear taps of a scaled image: screen pixels [first, first + count) along one axis,
+    // from the image of `inSize` pixels that starts at logical pixel `origin` of the logical
+    // axis (`logical` pixels on `real`). The centre of a screen pixel is at (o + .5) * logical / real.
+    struct Tap
+    {
+        int i0, i1, weight;  // the second tap's weight, 0..256
+    };
+
+    void buildTaps(std::vector<Tap>& taps, int first, int count, int real, int logical, int origin, int inSize)
+    {
+        taps.resize(count);
+        for (int n = 0; n < count; ++n)
+        {
+            float u = (first + n + 0.5f) * logical / real - 0.5f - origin;
+            u = std::clamp(u, 0.0f, static_cast<float>(inSize - 1));
+            const int i0 = static_cast<int>(u);
+            taps[n] = { i0, std::min(i0 + 1, inSize - 1), static_cast<int>((u - i0) * 256 + 0.5f) };
+        }
+    }
+
+    // Four RGB565 pixels with the weights of their taps (each 0..256). A pixel equal to
+    // `key` does not count; the result is false when less than half the weight is left.
+    bool blendPixels(const Pixel (&p)[4], int wx, int wy, bool keyed, Pixel key, Pixel& out)
+    {
+        const int w[4] = { (256 - wx) * (256 - wy), wx * (256 - wy), (256 - wx) * wy, wx * wy };
+        int sum = 0, r = 0, g = 0, b = 0;
+        for (int i = 0; i < 4; ++i)
+        {
+            if (keyed && p[i] == key)
+                continue;
+            sum += w[i];
+            r += w[i] * (p[i] >> 11);
+            g += w[i] * ((p[i] >> 5) & 63);
+            b += w[i] * (p[i] & 31);
+        }
+        if (sum == 0 || (keyed && sum < 32768))
+            return false;
+        out = static_cast<Pixel>((((r + sum / 2) / sum) << 11) | (((g + sum / 2) / sum) << 5) | ((b + sum / 2) / sum));
+        return true;
+    }
+
     bool groupPanelVisible()
     {
         return g_groupPanelOpacity > 0 && g_groupPanel.bound() && GetUIFilter().isEnabled() &&
@@ -1998,6 +2077,11 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             (ui->uiEventArea && ui->uiEventArea->tag == 'FILD') ||
             !ui->sprites || ui->stride < ui->rightX - ui->leftX + 1)
             continue;
+        if (uiScaled(ui))
+        {
+            blitScaledUiElement(ui);
+            continue;
+        }
 
         const int left = std::max(0, ui->leftX);
         const int top = std::max(0, ui->topY);
@@ -2025,12 +2109,14 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
 bool GameDllHooks::screenCoveredByUi(UiElementBase* ui, int width, int height)
 {
     for (; ui; ui = ui->prev)
+    {
+        const UIScale::Rect r = scaledUiRect(ui);
         if ((!ui->uiEventArea || ui->uiEventArea->tag != 'FILD') &&
-            ui->leftX <= 0 && ui->topY <= 0 &&
-            ui->rightX >= width - 1 && ui->bottomY >= height - 1)
+            r.x <= 0 && r.y <= 0 && r.x + r.width >= width && r.y + r.height >= height)
         {
             return true;
         }
+    }
 
     return false;
 }
@@ -2039,6 +2125,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
     const uint32_t tick = GetTickCount();
     Zoom::GetState().updatePan(data.cameraX, data.cameraY, tick);
+    invalidateOnUiListChange(data);
     const bool zoomed = prepareZoomPresentation(data);
 
     const int lastPanelOpacity = g_groupPanelOpacity;
@@ -2162,6 +2249,8 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     {
         if (GetUIFilter().shouldIgnoreDecor(uiObj->type))
             continue;
+        if (UIScale::Active())
+            continue;  // drawn scaled by drawScaledDecor
         if (zoomed)
         {
             // The +0x20 callback draws the decoration into a UI buffer,
@@ -2177,6 +2266,9 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             reinterpret_cast<Fn>(uiObj->vtable[1])(uiObj);
         }
     }
+
+    if (zoomed && UIScale::Active())
+        drawScaledDecor(data);
 
     auto sub_1006AEA0 = data.blendMainWithWarFog;
     auto sub_100564F0 = data.getFirstDecorUi;
@@ -2229,6 +2321,12 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         } while (sub_10056530(div16Ptr, &gd));
     }
     frameStatsAdd(FRAME_STATS_PRESENT, presentStats);
+
+    // The present loop copies the world over every tile the UI does not close, partial
+    // ones included, so the scaled elements go on last. (Zoomed, prepareZoomPresentation draws them.)
+    if (!zoomed && UIScale::Active())
+        drawScaledUiElements(data);
+
     if (preserveWorld)
     {
         Zoom::GetState().finishWorldIsolation(
@@ -4626,6 +4724,331 @@ void GameDllHooks::drawPlaneCrossOnStrategicMap(PlaneData* mapData, const PlaneM
     data.drawVertLine(data.mapData, mapX, mapY - 2, 5, data.colors[mapData->teamId]);
 }
 
+bool GameDllHooks::uiScaled(const UiElementBase* self)
+{
+    return UIScale::Active() && self->type != UIFilter::getCustomType() &&
+        (!self->uiEventArea || isScalableUiTag(self->uiEventArea->tag));
+}
+
+// The game gives a position from the logical left-top; the mouse is on the real screen.
+// False if the point is outside the scaled element.
+bool GameDllHooks::mapUiPoint(const UiElementBase* self, int& x, int& y)
+{
+    if (!uiScaled(self))
+        return true;
+    const int physicalX = x + self->leftX;
+    const int physicalY = y + self->topY;
+    const UIScale::Rect r = scaledUiRect(self);
+    if (physicalX < r.x || physicalX >= r.x + r.width || physicalY < r.y || physicalY >= r.y + r.height)
+        return false;
+    x = UIScale::UnmapX(physicalX, Screen::width_) - self->leftX;
+    y = UIScale::UnmapY(physicalY, Screen::height_) - self->topY;
+    return true;
+}
+
+UIScale::Rect GameDllHooks::scaledUiRect(const UiElementBase* self)
+{
+    if (uiScaled(self))
+        return UIScale::MapRect(self->leftX, self->topY, self->rightX, self->bottomY, Screen::width_, Screen::height_);
+    return { self->leftX, self->topY, self->rightX - self->leftX + 1, self->bottomY - self->topY + 1 };
+}
+
+UIScale::Rect GameDllHooks::areaScreenRect(const UiEventArea* area)
+{
+    if (UIScale::Active() && isScalableUiTag(area->tag) && area->width > 0 && area->height > 0)
+        return UIScale::MapRect(
+            area->x, area->y, area->x + area->width - 1, area->y + area->height - 1, Screen::width_, Screen::height_);
+    return { area->x, area->y, area->width, area->height };
+}
+
+// The event position inside the area, in the area's own pixels.
+int GameDllHooks::areaLocalX(const UiEventArea* area, int x)
+{
+    return (UIScale::Active() && isScalableUiTag(area->tag) ? UIScale::UnmapX(x, Screen::width_) : x) - area->x;
+}
+
+int GameDllHooks::areaLocalY(const UiEventArea* area, int y)
+{
+    return (UIScale::Active() && isScalableUiTag(area->tag) ? UIScale::UnmapY(y, Screen::height_) : y) - area->y;
+}
+
+// The element's whole buffer on the surface, nearest pixel. Elements are opaque.
+bool GameDllHooks::blitScaledUiElement(const UiElementBase* ui, const DrawDecorUiElementData* data, bool* wroteCursor)
+{
+    if (wroteCursor)
+        *wroteCursor = false;
+    const int width = ui->rightX - ui->leftX + 1;
+    const int height = ui->bottomY - ui->topY + 1;
+    if (!ui->sprites || width <= 0 || height <= 0 || ui->stride < width)
+        return false;
+
+    const UIScale::Rect r = scaledUiRect(ui);
+    const int x0 = std::max(0, r.x), y0 = std::max(0, r.y);
+    const int x1 = std::min(Screen::width_, r.x + r.width), y1 = std::min(Screen::height_, r.y + r.height);
+    if (x1 <= x0 || y1 <= y0)
+        return false;
+
+    static std::vector<Pixel> scaled;
+    try
+    {
+        scaled.resize(static_cast<size_t>(x1 - x0) * (y1 - y0));
+    }
+    catch (...)
+    {
+        return false;
+    }
+
+    // Bilinear: the buffers are pixel art, and nearest pixel makes uneven strokes at a fractional scale.
+    static std::vector<Tap> columns, rows;
+    buildTaps(columns, x0, x1 - x0, Screen::width_, UIScale::GetState().logicalWidth, ui->leftX, width);
+    buildTaps(rows, y0, y1 - y0, Screen::height_, UIScale::GetState().logicalHeight, ui->topY, height);
+
+    Pixel* out = scaled.data();
+    for (const Tap& ty : rows)
+    {
+        const Pixel* const row0 = ui->sprites + static_cast<size_t>(ty.i0) * ui->stride;
+        const Pixel* const row1 = ui->sprites + static_cast<size_t>(ty.i1) * ui->stride;
+        for (const Tap& tx : columns)
+        {
+            const Pixel taps[4] = { row0[tx.i0], row0[tx.i1], row1[tx.i0], row1[tx.i1] };
+            Pixel mixed;
+            *out++ = blendPixels(taps, tx.weight, ty.weight, false, 0, mixed) ? mixed : taps[0];
+        }
+    }
+
+    const int w = x1 - x0, h = y1 - y0;
+    LastBlit& last = g_lastBlits[ui];
+    last.frame = g_uiFrame;
+
+    // The cursor is on the surface over this element: leave its pixels alone while they are the
+    // ones written last frame (they are, unless the element changed there).
+    const CursorRect cursor = data
+        ? cursorRectOf(data->cursorSavedX, data->cursorSavedY, data->cursorSavedWidth, data->cursorSavedHeight)
+        : CursorRect{};
+    const int cl = std::max(x0, cursor.left), ct = std::max(y0, cursor.top);
+    const int cr = std::min(x1, cursor.right), cb = std::min(y1, cursor.bottom);
+    const bool underCursor = cursor.valid && cr > cl && cb > ct;
+    bool keepCursorPixels = false;
+    if (underCursor && last.x == x0 && last.y == y0 && last.width == w && last.height == h)
+    {
+        keepCursorPixels = true;
+        for (int y = ct; y < cb && keepCursorPixels; ++y)
+            keepCursorPixels = std::equal(
+                scaled.data() + static_cast<size_t>(y - y0) * w + (cl - x0),
+                scaled.data() + static_cast<size_t>(y - y0) * w + (cr - x0),
+                last.pixels.data() + static_cast<size_t>(y - y0) * w + (cl - x0));
+    }
+
+    if (!keepCursorPixels)
+        copyToRendererSurfaceRect(0, 0, w, h, x0, y0, w, scaled.data());
+    else
+    {
+        // Above, below, left of and right of the cursor's rectangle.
+        const auto part = [&](int left, int top, int right, int bottom)
+        {
+            if (right > left && bottom > top)
+                copyToRendererSurfaceRect(left - x0, top - y0, right - left, bottom - top, left, top, w, scaled.data());
+        };
+        part(x0, y0, x1, ct);
+        part(x0, cb, x1, y1);
+        part(x0, ct, cl, cb);
+        part(cr, ct, x1, cb);
+    }
+    if (underCursor && !keepCursorPixels)
+    {
+        g_cursorDisturbed = true;
+        if (wroteCursor)
+            *wroteCursor = true;
+    }
+
+    last.x = x0;
+    last.y = y0;
+    last.width = w;
+    last.height = h;
+    last.pixels = scaled;
+    return true;
+}
+
+// After the world is presented. Not marked for the present loop: mask 16 copies the world over the tile.
+void GameDllHooks::drawScaledUiElements(const DrawDecorUiElementData& data)
+{
+    UiElementBase* lowest = data.uiElement;
+    while (lowest && lowest->prev)
+        lowest = lowest->prev;
+
+    ++g_uiFrame;
+    g_cursorDisturbed = false;
+    for (UiElementBase* ui = lowest; ui; ui = ui->next)
+    {
+        bool wroteCursor = false;
+        if (GetUIFilter().shouldIgnore(ui->type) || !uiScaled(ui) || !blitScaledUiElement(ui, &data, &wroteCursor))
+            continue;
+
+        // What the game restores under its cursor is older than this write. Only an element's
+        // pixels are fresh: the surface elsewhere still has the cursor of the last frame.
+        if (wroteCursor)
+        {
+            const UIScale::Rect r = scaledUiRect(ui);
+            Zoom::GetState().refreshCursorSaveRect(
+                static_cast<const Pixel*>(g_moduleState->surface.renderer),
+                static_cast<int>(g_moduleState->pitch / sizeof(Pixel)), Zoom::Rect{ r.x, r.y, r.width, r.height },
+                data.surfaceWidth, data.surfaceHeight,
+                data.cursorSavedX, data.cursorSavedY, data.cursorSavedWidth, data.cursorSavedHeight,
+                data.cursorSavedPixels);
+        }
+    }
+
+    // Elements that are gone.
+    for (auto it = g_lastBlits.begin(); it != g_lastBlits.end();)
+        it = it->second.frame == g_uiFrame ? std::next(it) : g_lastBlits.erase(it);
+
+    // The decorations (in-game menu frame details, chat) go over the elements.
+    drawScaledDecor(data);
+
+    // The game redraws its cursor only when told to: tell it when this frame wrote over it.
+    if (g_cursorDisturbed && data.cursorRedrawFlag)
+        *data.cursorRedrawFlag = 1;
+}
+
+// A decoration draws itself at logical positions, into any UI buffer it is given (the zoom
+// presentation uses the same callback). Give it a logical-size buffer of the transparent
+// colour (magenta: the engine's palette conversion never makes it), then put the pixels
+// it drew on the surface, scaled.
+void GameDllHooks::drawScaledDecor(const DrawDecorUiElementData& data)
+{
+    constexpr Pixel kKey = 0xF81F;
+    const int lw = UIScale::GetState().logicalWidth, lh = UIScale::GetState().logicalHeight;
+    if (!UIScale::Active() || !g_moduleState || !g_moduleState->surface.renderer)
+        return;
+
+    static std::vector<Pixel> scratch;
+    try
+    {
+        scratch.assign(static_cast<size_t>(lw) * lh, kKey);
+    }
+    catch (...)
+    {
+        return;
+    }
+
+    UiElementBase target{};
+    target.sprites = scratch.data();
+    target.stride = lw;
+    target.rightX = target.clipRight = lw - 1;
+    target.bottomY = target.clipBottom = lh - 1;
+
+    using Fn = void(__thiscall*)(UIRenderElement*, UiElementBase*);
+    for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
+        if (!GetUIFilter().shouldIgnoreDecor(uiObj->type))
+            reinterpret_cast<Fn>(uiObj->vtable[8])(uiObj, &target);
+
+    // The logical pixels the decorations drew, as a box, then those on the screen (bilinear,
+    // the key not counting; two pixels of margin for the filter).
+    int minX = lw, minY = lh, maxX = -1, maxY = -1;
+    for (int y = 0; y < lh; ++y)
+    {
+        const Pixel* const row = scratch.data() + static_cast<size_t>(y) * lw;
+        for (int x = 0; x < lw; ++x)
+            if (row[x] != kKey)
+            {
+                minX = std::min(minX, x);
+                maxX = std::max(maxX, x);
+                minY = std::min(minY, y);
+                maxY = std::max(maxY, y);
+            }
+    }
+    if (maxX < 0)
+    {
+        g_decorLastValid = false;
+        return;
+    }
+
+    const int width = Screen::width_, height = Screen::height_;
+    const int x0 = std::max(0, UIScale::MapX(minX, width) - 2), x1 = std::min(width, UIScale::MapX(maxX + 1, width) + 2);
+    const int y0 = std::max(0, UIScale::MapY(minY, height) - 2), y1 = std::min(height, UIScale::MapY(maxY + 1, height) + 2);
+    static std::vector<Tap> columns, rows;
+    buildTaps(columns, x0, x1 - x0, width, lw, 0, lw);
+    buildTaps(rows, y0, y1 - y0, height, lh, 0, lh);
+
+    auto* const surface = static_cast<uint8_t*>(g_moduleState->surface.renderer);
+    const uint32_t pitch = g_moduleState->pitch;
+
+    // As for the elements: what the cursor covers is written only when it changed since the last frame.
+    const CursorRect cursor = cursorRectOf(
+        data.cursorSavedX, data.cursorSavedY, data.cursorSavedWidth, data.cursorSavedHeight);
+    const size_t screenPixels = static_cast<size_t>(width) * height;
+    try
+    {
+        g_decorNow.assign(screenPixels, kKey);
+        if (g_decorLast.size() != screenPixels)
+            g_decorLastValid = false;
+    }
+    catch (...)
+    {
+        return;
+    }
+
+    for (int y = y0; y < y1; ++y)
+    {
+        const Tap& ty = rows[y - y0];
+        const Pixel* const row0 = scratch.data() + static_cast<size_t>(ty.i0) * lw;
+        const Pixel* const row1 = scratch.data() + static_cast<size_t>(ty.i1) * lw;
+        Pixel* const out = reinterpret_cast<Pixel*>(surface + static_cast<size_t>(y) * pitch);
+        if (Zoom::GetState().trackingWorldWrites())
+            Zoom::GetState().captureWorldWrite(out + x0, (x1 - x0) * sizeof(Pixel));
+        for (int x = x0; x < x1; ++x)
+        {
+            const Tap& tx = columns[x - x0];
+            const Pixel taps[4] = { row0[tx.i0], row0[tx.i1], row1[tx.i0], row1[tx.i1] };
+            Pixel mixed;
+            if (!blendPixels(taps, tx.weight, ty.weight, true, kKey, mixed))
+                continue;
+            const size_t at = static_cast<size_t>(y) * width + x;
+            g_decorNow[at] = mixed;
+            if (cursor.hits(x, y))
+            {
+                if (!g_cursorDisturbed && g_decorLastValid && g_decorLast[at] == mixed)
+                    continue;
+                g_cursorDisturbed = true;
+            }
+            out[x] = mixed;
+        }
+    }
+
+    g_decorLast.swap(g_decorNow);
+    g_decorLastValid = true;
+}
+
+// The game marks the area of an element it adds or removes in its own (logical)
+// pixels, which is not where the scaled element was. Redraw the whole screen when
+// the list of scaled elements changes.
+void GameDllHooks::invalidateOnUiListChange(const DrawDecorUiElementData& data)
+{
+    static uint64_t last = 0;
+
+    uint64_t hash = 0;
+    if (UIScale::Active())
+    {
+        hash = 1469598103934665603ull;
+        const auto mix = [&hash](uint64_t value) { hash = (hash ^ value) * 1099511628211ull; };
+        for (const UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+        {
+            if (GetUIFilter().shouldIgnore(ui->type) || !uiScaled(ui))
+                continue;
+            mix(reinterpret_cast<uintptr_t>(ui));
+            mix(static_cast<uint32_t>(ui->leftX));
+            mix(static_cast<uint32_t>(ui->topY));
+            mix(static_cast<uint32_t>(ui->rightX));
+            mix(static_cast<uint32_t>(ui->bottomY));
+        }
+    }
+
+    if (hash == last)
+        return;
+    last = hash;
+    sub_10055E00(data.closedAreaGameDataArray, nullptr, 30, 0, 0, Screen::width_ - 1, Screen::height_ - 1);
+}
+
 void GameDllHooks::addUiElement(UiElementBase* elem, const AddUiElementData& data)
 {
     UiElementBase** pointed = data.pointed;
@@ -4683,6 +5106,10 @@ void GameDllHooks::addUiElement(UiElementBase* elem, const AddUiElementData& dat
 void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& data)
 {
     if (GetUIFilter().shouldIgnore(self->type))
+        return;
+
+    // Scaled elements are drawn whole on each frame, by drawScaledUiElements.
+    if (uiScaled(self))
         return;
 
     int* const dword_103B708 = data.dword_103B708;
@@ -4745,12 +5172,26 @@ void GameDllHooks::calculateClosedArea(UiElementBase* self, const CalculateClose
     if (GetUIFilter().shouldIgnore(self->type))
         return;
 
+    if (uiScaled(self))
+    {
+        // Only the tiles wholly under the element: the partial ones stay open for the world.
+        const UIScale::Rect r = scaledUiRect(self);
+        const int left = (r.x + 15) & ~15, top = (r.y + 7) & ~7;
+        const int right = ((r.x + r.width) & ~15) - 1, bottom = ((r.y + r.height) & ~7) - 1;
+        if (right >= left && bottom >= top)
+            data.fn_794B0(data.dword_103CF10, 30, left, top, right, bottom);
+        return;
+    }
+
     data.fn_794B0(data.dword_103CF10, 30, self->leftX, self->topY, self->rightX, self->bottomY);
 }
 
 int  __declspec(noinline) __fastcall GameDllHooks::calculateCursorType(UiElementBase* self, void* /*dummy*/, int x, int y, int* a4)
 {
     if (GetUIFilter().shouldIgnore(self->type))
+        return 0;
+
+    if (!mapUiPoint(self, x, y))
         return 0;
 
     if (self->forced)
@@ -4789,6 +5230,62 @@ int  __declspec(noinline) __fastcall GameDllHooks::calculateCursorType(UiElement
         z->vtable->calculateCursorType(z, x, y, a4);
     }
 
+    return 1;
+}
+
+// The hint of the element under the cursor (slot after the cursor type; it fills the
+// text of the bottom bar), as the original, with the position mapped. `out` is
+// type byte + 4 bytes of payload: 2 + text pointer, or 3 + callback, tag and index.
+int __declspec(noinline) __fastcall GameDllHooks::getUiHint(UiElementBase* self, void* /*dummy*/, int x, int y, char* out)
+{
+    if (GetUIFilter().shouldIgnore(self->type) || !mapUiPoint(self, x, y))
+        return 0;
+
+    using ZoneHint = int(__thiscall*)(ZoneHandler*, int, int, char*);
+    const auto hint = [](ZoneHandler* zone, int zx, int zy, char* buffer)
+    {
+        return reinterpret_cast<ZoneHint>(reinterpret_cast<void**>(zone->vtable)[0x30 / sizeof(void*)])(zone, zx, zy, buffer);
+    };
+
+    if (self->forced)
+    {
+        hint(self->forced, x, y, out);
+        return 1;
+    }
+
+    if (x < 0 || x >= self->rightX - self->leftX + 1 || y < 0 || y >= self->bottomY - self->topY + 1)
+        return 0;
+
+    const uint8_t zoneId = self->zoneBuffer[y * self->stride + x];
+    for (ZoneHandler* zone = self->zoneList; zone; zone = zone->next)
+        if (zone->zoneId == zoneId)
+        {
+            if (hint(zone, x, y, out))
+                return 1;
+            break;
+        }
+
+    const int index = self->var_24;
+    if (index == 0)
+        return 0;
+
+    auto* const g = globals_;
+    if (index > 0)
+    {
+        out[0] = 2;
+        const int text = g->getValue<int*>(0xDD54F0)[index];
+        std::memcpy(out + 1, &text, sizeof(text));
+        return 1;
+    }
+
+    out[0] = 3;
+    const int callback = static_cast<int>(reinterpret_cast<uintptr_t>(g->getFn<void(void)>(0xB2920)));
+    const int tag = self->uiEventArea->tag;
+    const int zero = 0;
+    std::memcpy(out + 1, &callback, sizeof(callback));
+    std::memcpy(out + 9, &index, sizeof(index));
+    std::memcpy(out + 13, &tag, sizeof(tag));
+    std::memcpy(out + 17, &zero, sizeof(zero));
     return 1;
 }
 
@@ -4844,9 +5341,6 @@ void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& 
         if (GetUIFilter().shouldIgnoreByTag(area->tag))
             continue;
 
-        const int left = area->x;
-        const int top = area->y;
-
         if (!areaOwnsPoint(uiEventAreas, area, mouseX, mouseY, data.eventTag))
             continue;
 
@@ -4858,8 +5352,8 @@ void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& 
             writeEventToRingBuffer(
                 area->tag,
                 data.eventTag,
-                eventX - left,
-                eventY - top);
+                areaLocalX(area, eventX),
+                areaLocalY(area, eventY));
 
             // Stop propagation
             if (area->flags & UI_STOP_PROPAGATION)
@@ -4882,9 +5376,6 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
         if (GetUIFilter().shouldIgnoreByTag(area->tag))
             continue;
 
-        const int left = area->x;
-        const int top = area->y;
-
         const bool wasInside = areaOwnsPoint(
             uiEventAreas, area, data.prevMouseX, data.prevMouseY,
             UI_MOUSE_MOVE | UI_MOUSE_ENTER | UI_MOUSE_LEAVE);
@@ -4900,8 +5391,8 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
             writeEventToRingBuffer(
                 area->tag,
                 UI_MOUSE_LEAVE,
-                eventX - left,
-                eventY - top);
+                areaLocalX(area, eventX),
+                areaLocalY(area, eventY));
         }
     }
 
@@ -4916,9 +5407,6 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
 
         if (GetUIFilter().shouldIgnoreByTag(area->tag))
             continue;
-
-        const int left = area->x;
-        const int top = area->y;
 
         if (!areaOwnsPoint(
                 uiEventAreas, area, data.mouseX, data.mouseY,
@@ -4938,8 +5426,8 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
             writeEventToRingBuffer(
                 area->tag,
                 UI_MOUSE_ENTER,
-                eventX - left,
-                eventY - top);
+                areaLocalX(area, eventX),
+                areaLocalY(area, eventY));
         }
 
         // MouseMove / Hover
@@ -4953,8 +5441,8 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
                 writeEventToRingBuffer(
                     area->tag,
                     UI_MOUSE_MOVE,
-                    eventX - left,
-                    eventY - top);
+                    areaLocalX(area, eventX),
+                    areaLocalY(area, eventY));
             }
 
             if (area->flags & UI_STOP_PROPAGATION)
@@ -4967,8 +5455,8 @@ void GameDllHooks::dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data
 
 bool GameDllHooks::areaOwnsPoint(UiEventArea* areas, UiEventArea* area, int x, int y, int eventTag)
 {
-    if (x < area->x || y < area->y ||
-        x >= area->x + area->width || y >= area->y + area->height)
+    const UIScale::Rect r = areaScreenRect(area);
+    if (x < r.x || y < r.y || x >= r.x + r.width || y >= r.y + r.height)
         return false;
 
     if (Zoom::GetState().scale() != Zoom::kMinScale && area->tag == 'FILD' &&
@@ -4987,8 +5475,8 @@ GameDllHooks::UiEventArea* GameDllHooks::battlefieldAt(UiEventArea* areas, int x
         if ((area->flags & UI_DISABLED) || GetUIFilter().shouldIgnoreByTag(area->tag))
             continue;
 
-        if (x >= area->x && y >= area->y &&
-            x < area->x + area->width && y < area->y + area->height)
+        const UIScale::Rect r = areaScreenRect(area);
+        if (x >= r.x && y >= r.y && x < r.x + r.width && y < r.y + r.height)
         {
             if (area->tag != 'FILD')
             {

@@ -23,6 +23,7 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
         return false;
 
     Zoom::GetState().setMode(Zoom::Mode::Off);
+    UIScale::Allow(false);
     std::thread([] { AudioHelper::EnsureMaxVolume(); }).detach();
 
     // "[Game] GameProfile=" forces a profile onto a dll we couldn't identify. Only once the
@@ -108,6 +109,8 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
         return false;
     }
 
+    // HS2Engine asks for a UI scale through SetUiScale; only the HS_2 profile honours it.
+    UIScale::Allow(version == GameVersion::HS_2 && !state.patchEngine->skippedUnverified());
     Zoom::GetState().setMode(
         state.patchEngine->skippedUnverified() ? Zoom::Mode::Off : Screen::GetZoom());
     GameDllHooks::configureWorldIsolation(

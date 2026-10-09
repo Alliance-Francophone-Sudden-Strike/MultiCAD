@@ -1,2 +1,3 @@
 EXPORTS
     CADraw_Init
+    SetUiScale

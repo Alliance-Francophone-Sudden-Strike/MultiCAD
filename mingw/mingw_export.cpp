@@ -11,6 +11,13 @@ extern "C" __declspec(dllexport) void* CADraw_Init(void)
     return InitializeModule();
 }
 
+extern void SetUiScaleExport(float scale, int logicalWidth, int logicalHeight);
+
+extern "C" __declspec(dllexport) void SetUiScale(float scale, int logicalWidth, int logicalHeight)
+{
+    SetUiScaleExport(scale, logicalWidth, logicalHeight);
+}
+
 /*
  * libstdc++'s default terminate handler demangles the exception type name to
  * print it, pulling ~48KB of cp-demangle.o into the static build. A DLL loaded
