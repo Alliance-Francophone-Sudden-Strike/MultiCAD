@@ -1662,15 +1662,16 @@ private:
     // mapped here to the real one (UIScale.h). Elements and event areas of the battlefield,
     // the strategic map and MultiCAD's own panels keep the real screen.
     static bool uiScaled(const UiElementBase* self);
-    static bool mapUiPoint(const UiElementBase* self, int& x, int& y);
+    static void mapUiPoint(const UiElementBase* self, int& x, int& y);
     static UIScale::Rect scaledUiRect(const UiElementBase* self);
     static UIScale::Rect areaScreenRect(const UiEventArea* area);
     static int areaLocalX(const UiEventArea* area, int x);
     static int areaLocalY(const UiEventArea* area, int y);
     static bool blitScaledUiElement(const UiElementBase* ui, const DrawDecorUiElementData* data = nullptr, bool* wroteCursor = nullptr);
     static void drawScaledUiElements(const DrawDecorUiElementData& data);
+    static bool composeScaledDecor(const DrawDecorUiElementData& data);
     static void drawScaledDecor(const DrawDecorUiElementData& data);
-    static void invalidateOnUiListChange(const DrawDecorUiElementData& data);
+    static bool invalidateOnUiListChange(const DrawDecorUiElementData& data);
 
     static void prepareUiElements(UiElementBase* ui);
     static void withBattlefieldMouseCoordinates(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());
