@@ -11,11 +11,11 @@ extern "C" __declspec(dllexport) void* CADraw_Init(void)
     return InitializeModule();
 }
 
-extern void SetUiScaleExport(float scale, int logicalWidth, int logicalHeight);
+extern int SetUiScaleExport(float scale, int logicalWidth, int logicalHeight);
 
-extern "C" __declspec(dllexport) void SetUiScale(float scale, int logicalWidth, int logicalHeight)
+extern "C" __declspec(dllexport) int SetUiScale(float scale, int logicalWidth, int logicalHeight)
 {
-    SetUiScaleExport(scale, logicalWidth, logicalHeight);
+    return SetUiScaleExport(scale, logicalWidth, logicalHeight);
 }
 
 /*

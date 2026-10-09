@@ -197,11 +197,13 @@ static GameVersion ResolveModuleStateVersion()
 
 // HS2Engine's [Game] UIScale: the logical screen the UI is laid out on (UIScale.h).
 // Honoured for the HS_2 profile only; for any other game dll the UI stays unscaled.
-void SetUiScaleExport(float /*scale*/, int logicalWidth, int logicalHeight)
+// Nonzero when the map is on: otherwise the engine keeps its real-screen layout.
+int SetUiScaleExport(float /*scale*/, int logicalWidth, int logicalHeight)
 {
 #pragma comment(linker, "/EXPORT:" "SetUiScale=" __FUNCDNAME__)
 
     UIScale::Set(logicalWidth, logicalHeight, Screen::width_, Screen::height_);
+    return UIScale::Active();
 }
 
 void* InitializeModule()

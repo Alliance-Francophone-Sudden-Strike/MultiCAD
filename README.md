@@ -202,7 +202,7 @@ HS2Engine lays out the in-game UI elements (the panels, the status strip, the di
 > UIScale=1.5
 > ```
 
-MultiCAD exports `SetUiScale(float scale, int logicalWidth, int logicalHeight)` for HS2Engine and honours it only for the HS_2 profile. Any other game dll keeps the unscaled UI. The in-game menu and the chat are drawn at the logical size for now.
+MultiCAD exports `int SetUiScale(float scale, int logicalWidth, int logicalHeight)` for HS2Engine and honours it only for the HS_2 profile. For any other game dll it returns 0, and HS2Engine keeps the unscaled UI. The in-game menu and the chat are scaled with the other UI elements.
 
 ### Replacement Menu or Game Modules
 
