@@ -683,6 +683,23 @@ namespace Zoom
             }
         }
 
+        // Where the game keeps screen pixel (x, y) while its cursor covers it; null outside
+        // the saved rectangle.
+        uint16_t* cursorSavePixel(
+            int width, int height,
+            const int* savedX, const int* savedY,
+            const int* savedWidth, const int* savedHeight,
+            uint16_t* savedPixels, int x, int y) const
+        {
+            int left, top, right, bottom;
+            if (!savedPixels ||
+                !cursorSaveRect(width, height, savedX, savedY, savedWidth, savedHeight,
+                    left, top, right, bottom) ||
+                x < left || x >= right || y < top || y >= bottom)
+                return nullptr;
+            return savedPixels + (y - *savedY) * kCursorPitch + x - *savedX;
+        }
+
         void beginWorldIsolation(uint16_t* main, uint16_t* back, size_t pixels, size_t rowWidth = 0)
         {
             finishWorldIsolation(isolationMain_, isolationBack_);
