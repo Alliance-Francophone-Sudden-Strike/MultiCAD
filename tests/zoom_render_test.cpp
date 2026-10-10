@@ -5,8 +5,6 @@
 #include "renderer.h"
 #include "Zoom.h"
 #include "UIFilter.h"
-#include "GroupPanelTraits.h"
-#include "ZeppelinPanel.h"
 #include <array>
 #include <cassert>
 #include <bit>
@@ -210,101 +208,6 @@ static void testTrackedRenderer()
     });
     zoom.setMode(Zoom::Mode::Off);
     puts("Tracked renderer: clipping, aliases, fog, sprites, wrapping and guard-row restoration OK");
-}
-
-static void testPanelCursorIsolation()
-{
-    constexpr int w = 640, h = 480, stride = w + 8;
-    constexpr Pixel cursorColor = 0xf81f;
-    Screen::UpdateSize(w, h);
-    static ModuleStateShort module{};
-    g_moduleState = &module;
-    module.windowRect = {0, 0, w - 1, h - 1};
-    module.surface.stride = w * sizeof(Pixel);
-    module.surface.offset = 17 * w * sizeof(Pixel);
-    module.surface.y = h - 17;
-    const size_t count = w * (h + 1);
-    std::vector<Pixel> original(count), back(count, 0x3456);
-    for (size_t i = 0; i < count; ++i)
-        original[i] = static_cast<Pixel>(i * 11 + 1);
-    GroupPanel::Slots active{}, empty{};
-    GroupPanel::Counts counts{};
-    active[0] = active[3] = true;
-    counts[0] = 12;
-    ZeppelinPanel::Rows rows{};
-    rows[0] = {0x07e0, 127, 2, 5};
-    rows[1] = {0xf800, 45, 1, 3};
-    const auto group = GroupPanel::CellRect(0, w);
-    const auto zeppelin = ZeppelinPanel::PanelRect(w, h, 2);
-    std::vector<std::vector<Pixel>> expectedFrames;
-    std::vector<std::array<Pixel, 64 * 64>> expectedSaves;
-    std::vector<Pixel> scratch(Zoom::ScaleScratchSize(w));
-    auto& zoom = Zoom::GetState();
-    for (bool tracked : {false, true})
-    {
-        zoom.setMode(Zoom::Mode::On);
-        zoom.setBattlefield({0, 0, w, h});
-        std::copy(original.begin(), original.end(), g_rendererState.surfaces.main);
-        std::copy(back.begin(), back.end(), g_rendererState.surfaces.back);
-        std::vector<Pixel> output(stride * h, padding);
-        std::array<Pixel, 64 * 64> save{};
-        int savedX = group.x - 2, savedY = group.y, cw = 6, ch = 6;
-        const std::array<Zoom::Rect, 6> positions{{
-            {group.x - 2, group.y, 6, 6}, {group.x + 2, group.y, 6, 6},
-            {group.x + 2, group.y, 6, 6}, {zeppelin.x - 2, zeppelin.y, 6, 6},
-            {zeppelin.x + 2, zeppelin.y, 6, 6}, {zeppelin.x + 2, zeppelin.y, 6, 6}}};
-        for (int frame = 0; frame < 24; ++frame)
-        {
-            if (frame && frame % 6 == 0)
-                zoom.addWheelDelta(zoom.scale() == Zoom::kMinScale ? 120 : -120);
-            module.surface.renderer = output.data();
-            module.pitch = stride * sizeof(Pixel);
-            zoom.beginWorldIsolation(g_rendererState.surfaces.main, g_rendererState.surfaces.back,
-                                     count, tracked ? w : 0);
-            drawMainSurfaceFilledColorRect(savedX, savedY, cw, ch, cursorColor);
-            zoom.finishWorldIsolation(g_rendererState.surfaces.main, g_rendererState.surfaces.back);
-            assert(std::equal(original.begin(), original.end(), g_rendererState.surfaces.main));
-            assert(std::equal(back.begin(), back.end(), g_rendererState.surfaces.back));
-            copyMainSurfaceToRenderer(0, 0, w, h);
-            if (zoom.scale() != Zoom::kMinScale)
-            {
-                const auto source = output;
-                Zoom::ScaleSharp16(source.data(), stride, output.data(), stride,
-                                   zoom.transform(), scratch.data());
-            }
-            const int opacity = frame % 6 == 4 ? 8 : (frame % 6 == 5 ? 0 : 16);
-            counts[0] = static_cast<uint16_t>(12 + frame);
-            rows[0].secondsLeft = 127 - frame;
-            GroupPanel::Draw16(output.data(), stride, w, h, active, empty, empty, opacity, &counts);
-            ZeppelinPanel::Draw16(output.data(), stride, w, h, rows, 2);
-            const auto clean = output;
-            zoom.refreshCursorSaveRect(output.data(), stride, {0, 0, w, h}, w, h,
-                                       &savedX, &savedY, &cw, &ch, save.data());
-            for (int y = 0; y < ch; ++y)
-                std::copy_n(save.data() + y * 64, cw, output.data() + (savedY + y) * stride + savedX);
-            assert(output == clean);
-            const auto nextPosition = positions[frame % positions.size()];
-            savedX = nextPosition.x;
-            savedY = nextPosition.y;
-            for (int y = 0; y < ch; ++y)
-            {
-                std::copy_n(output.data() + (savedY + y) * stride + savedX, cw, save.data() + y * 64);
-                std::fill_n(output.data() + (savedY + y) * stride + savedX, cw, cursorColor);
-            }
-            if (tracked)
-            {
-                assert(output == expectedFrames[frame]);
-                assert(save == expectedSaves[frame]);
-            }
-            else
-            {
-                expectedFrames.push_back(output);
-                expectedSaves.push_back(save);
-            }
-        }
-    }
-    zoom.setMode(Zoom::Mode::Off);
-    puts("Panel cursor: full-size groups/zeppelins, save/erase/draw, fades and zoom transitions match eager isolation");
 }
 
 static int benchmarkRows;
@@ -894,10 +797,6 @@ int main(int argc, char** argv)
         [](const HookSpec& hook) { return hook.targetRva == 0x6AC80; });
     assert(ss1LoopHook != hooks_game_ss_gold_hd_v1_2<GameVersion::SS_GOLD_HD_1_2_INT>.end());
     assert(ss1LoopHook->overwriteSize == 30);
-    assert(TryGetGroupPanelAddresses(GameVersion::SS_RW_V2_4) == nullptr);
-    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_HD_1_2_INT) == nullptr);
-    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_EN) == nullptr);
-    assert(TryGetGroupPanelAddresses(GameVersion::SS_GOLD_DE) == nullptr);
 
     Hooks::UiEventArea battlefield{};
     battlefield.tag = 'FILD';
@@ -1091,7 +990,6 @@ int main(int argc, char** argv)
     }
 
     testTrackedRenderer();
-    testPanelCursorIsolation();
     testParallelPasses();
     if (nativeGame)
         testNativeIsolation(nativeGame);

@@ -5,7 +5,6 @@
 #include "UIScale.h"
 #include "renderer.h"
 #include "Zoom.h"
-#include "ZeppelinPanel.h"
 #include "DllHooksBase.h"
 
 #include <vector>
@@ -1332,17 +1331,9 @@ private:
 
 public:
     static void configureWorldIsolation(GameVersion version);
-    static void configureGroupPanel(GameVersion version, bool showCounts = false, bool debug = false,
-                                     bool persistent = false,
-                                     int scaleQuarters = PanelScale::kMinQuarters);
-    static void configureZeppelinPanel(GameVersion version,
-                                       ZeppelinPanel::Behaviour behaviour = ZeppelinPanel::Behaviour::Temp,
-                                       int scaleQuarters = PanelScale::kMinQuarters);
     static void shutdown()
     {
         configureWorldIsolation(GameVersion::UNKNOWN);
-        configureGroupPanel(GameVersion::UNKNOWN);
-        configureZeppelinPanel(GameVersion::UNKNOWN);
         DllHooksBase<GameTag>::shutdown();
     }
 
@@ -1704,7 +1695,5 @@ private:
     static void dispatchMouseMoveEvent(const DispatchMouseMoveEventData& data);
     static UiEventArea* battlefieldAt(UiEventArea* areas, int x, int y, int eventTag = 0);
     static bool areaOwnsPoint(UiEventArea* areas, UiEventArea* area, int x, int y, int eventTag);
-    static void syncGroupPanelArea(const DispatchWndMessageData& data);
-    inline static UiEventArea* groupPanelArea_{ nullptr };
     static int  dispatchWndMessage(const DispatchWndMessageData& data);
 };

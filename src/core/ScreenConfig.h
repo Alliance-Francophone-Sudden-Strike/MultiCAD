@@ -4,7 +4,6 @@
 #include "util.h"
 #include "PanelScale.h"
 #include "Zoom.h"
-#include "ZeppelinPanel.h"
 #include "GameIni.h"
 
 #include <cstdlib>
@@ -239,75 +238,6 @@ public:
         return Zoom::ParseMode(buffer) == Zoom::Mode::On;
     }
 
-    static bool GetGroupPanel()
-    {
-        const std::string iniPath = GameIni::Path();
-        if (iniPath.empty())
-            return false;
-
-        char buffer[8]{};
-        GetPrivateProfileStringA("Game", "GroupPanel", "off", buffer, sizeof(buffer), iniPath.c_str());
-        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
-    }
-
-    static bool GetGroupPanelDebug()
-    {
-        const std::string iniPath = GameIni::Path();
-        if (iniPath.empty())
-            return false;
-
-        char buffer[8]{};
-        GetPrivateProfileStringA("Game", "GroupPanelDebug", "off", buffer, sizeof(buffer), iniPath.c_str());
-        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
-    }
-
-    static bool GetGroupPanelCount()
-    {
-        const std::string iniPath = GameIni::Path();
-        if (iniPath.empty())
-            return true;
-
-        char buffer[8]{};
-        GetPrivateProfileStringA("Game", "GroupPanelCount", "on", buffer, sizeof(buffer), iniPath.c_str());
-        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
-    }
-
-    static bool GetPersistentGroupPanel()
-    {
-        const std::string iniPath = GameIni::Path();
-        if (iniPath.empty())
-            return false;
-
-        char buffer[8]{};
-        GetPrivateProfileStringA("Game", "PersistentGroupPanel", "off", buffer, sizeof(buffer), iniPath.c_str());
-        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
-    }
-
-    static bool GetZeppelinPanel()
-    {
-        const std::string iniPath = GameIni::Path();
-        if (iniPath.empty())
-            return false;
-
-        char buffer[8]{};
-        GetPrivateProfileStringA("Game", "ZeppelinPanel", "off", buffer, sizeof(buffer), iniPath.c_str());
-        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
-    }
-
-    static ZeppelinPanel::Behaviour GetZeppelinPanelBehaviour()
-    {
-        const std::string iniPath = GameIni::Path();
-        if (iniPath.empty())
-            return ZeppelinPanel::Behaviour::Temp;
-
-        char buffer[8]{};
-        GetPrivateProfileStringA("Game", "ZeppelinPanelBehaviour", "temp", buffer, sizeof(buffer), iniPath.c_str());
-        for (char& c : buffer)
-            if (c >= 'A' && c <= 'Z')
-                c = static_cast<char>(c + ('a' - 'A'));
-        return ZeppelinPanel::ParseBehaviour(buffer);
-    }
-
     static int GetPanelScale(const char* key)
     {
         const std::string iniPath = GameIni::Path();
@@ -322,8 +252,6 @@ public:
         return PanelScale::Quarters(static_cast<float>(std::atof(buffer)));
     }
 
-    static int GetGroupPanelScale() { return GetPanelScale("GroupPanelScale"); }
-    static int GetZeppelinPanelScale() { return GetPanelScale("ZeppelinPanelScale"); }
     static int GetZoomIndicatorScale() { return GetPanelScale("ZoomIndicatorScale"); }
 
 private:

@@ -119,79 +119,15 @@ Nothing needs to be added to the ini. To go back to a single thread:
 <details>
 <summary>Other Settings in testing phase only working with Sudden Strike 2 and Hidden Stroke 2</summary>
 
-### Control-Group Panel
+### Control-Group and Zeppelin Panels
 
-_Added by this AF version of the MultiCAD. Disabled by default. Available only for Sudden Strike 2 and Hidden Stroke 2._
-
-A row of ten cells labelled `1`–`9` and `0` in the screen's **top-right corner**, showing the state of your control groups at a glance. Groups holding units light up; empty ones stay dim.
-
-In-game tests found false active groups and incorrect counts in Resource War 2.4 (including HS2 RW). The panel also failed in Sudden Strike Gold HD v1.2. Sudden Strike Gold (en) shares the Gold binding and is also classified incompatible. Resource War 2.3, Europe 2015 and Black Sea remain untested. The panel is disabled for all of these profiles even if `GroupPanel=on`; zoom support is unaffected.
-
-> ```ini
-> [Game]
-> GroupPanel=on
-> ```
-
-- Each lit cell shows the **number of units** in the group, centred just below it.
-- Small badges tell you what is in the group: a **house** (top-right) for units inside a building, a **wheel** (bottom-left) for vehicle drivers, a **green square** (top-left) for transported units, and a **gun** (bottom-right) for artillery crews.
-- The cells are **clickable**: left-click selects the group, exactly as pressing its number-row key does; right-click assigns the current selection to it, as `Ctrl` + the number key does.
-
-| Setting                | Values                   | Default | What it does                                           |
-| ---------------------- | ------------------------ | ------- | ------------------------------------------------------ |
-| `GroupPanel`           | `on` / `off`             | `off`   | Enables the feature                                    |
-| `GroupPanelCount`      | `on` / `off`             | `on`    | Shows the unit count under each lit cell               |
-| `PersistentGroupPanel` | `on` / `off`             | `off`   | Keeps the panel on screen even when no group has units |
-| `GroupPanelScale`      | `1`–`3`, steps of `0.25` | `1`     | Bigger panel for high resolutions                      |
-
-Example configuration:
-
-> ```ini
-> [Game]
-> GroupPanel=on
-> GroupPanelCount=off
-> PersistentGroupPanel=on
-> GroupPanelScale=2
-> ```
-
-### Zeppelin Capture Panel
-
-_Added by this AF version of the MultiCAD. Disabled by default. **Hidden Stroke 2 only** for now._
-
-On multiplayer maps built around capturing zeppelins, a list in the **bottom-right corner** of the groups you have not captured yet. One colour swatch per group, with its state to the left of it.
-
-> ```ini
-> [Game]
-> ZeppelinPanel=on
-> ```
-
-- While you hold part of a group, the row shows how many you hold (`2/3`). Once you hold them all, it switches to a **live capture countdown**.
-- If a started capture is interrupted, the countdown freezes and the row alternates every two seconds between the held count and the frozen time, both greyed out, so a running capture and an abandoned one are told apart at a glance, including once you hold none of the group. If an enemy capture resets the group, the count comes back on its own.
-- A group drops off the list as soon as you own it.
-- Press **`Alt` + `Z`** to show it. Either `Alt` key works, including `AltGr`.
-- The panel only appears on maps that actually define zeppelin groups, so it stays out of the way in single-player and on ordinary multiplayer maps.
-
-| Setting                  | Values                   | Default | What it does                                                                                 |
-| ------------------------ | ------------------------ | ------- | -------------------------------------------------------------------------------------------- |
-| `ZeppelinPanel`          | `on` / `off`             | `off`   | Enables the feature                                                                          |
-| `ZeppelinPanelBehaviour` | `temp` / `toggle`        | `temp`  | `temp` fades the panel out after five seconds; `toggle` makes the shortcut open and close it |
-| `ZeppelinPanelScale`     | `1`–`3`, steps of `0.25` | `1`     | Bigger panel for high resolutions                                                            |
-
-Example configuration:
-
-> ```ini
-> [Game]
-> ZeppelinPanel=on
-> ZeppelinPanelBehaviour=toggle
-> ZeppelinPanelScale=1.5
-> ```
-
-With the default `temp` behaviour the panel stays up for five seconds then fades out, and pressing the shortcut again restarts those five seconds.
+These panels are now part of HS2Engine and of the AF release `Game_Dll.dll` (the `HS2_MOD_GROUP_PANEL` and `HS2_MOD_ZEPPELIN_PANEL` mods). MultiCAD no longer draws them, and it ignores the old `GroupPanel*` and `ZeppelinPanel*` keys.
 
 ### In-game UI scale
 
 _Added by this AF version of the MultiCAD, with HS2Engine._
 
-HS2Engine lays out the in-game UI elements (the panels, the status strip, the dialogs) on a smaller logical screen, and the renderer maps it to the real screen. The battlefield, the strategic map, and the panels of MultiCAD keep their size. The key is in the `[Game]` section of the ini that HS2Engine reads:
+HS2Engine lays out the in-game UI elements (the panels, the status strip, the dialogs) on a smaller logical screen, and the renderer maps it to the real screen. The battlefield and the strategic map keep their size. The key is in the `[Game]` section of the ini that HS2Engine reads:
 
 | Key       | Values                           | Default | Effect                                           |
 | --------- | -------------------------------- | ------- | ------------------------------------------------ |

@@ -1,7 +1,5 @@
 #include "pch.h"
 #include "GameDllHooks.h"
-#include "GroupPanelReader.h"
-#include "ZeppelinReader.h"
 #include "renderer.h"
 #include "UiFilter.h"
 #include "types.h"
@@ -59,49 +57,10 @@ namespace
         return std::find(std::begin(known), std::end(known), draw) != std::end(known);
     }
 
-    GroupPanelReader g_groupPanel;
-    GroupPanel::Fade g_groupPanelFade;
-    int g_groupPanelOpacity = 0;
-    int g_groupPanelSurfaceWidth = 0;
-    int g_groupPanelSurfaceHeight = 0;
-    const int* g_groupPanelCursorX = nullptr;
-    const int* g_groupPanelCursorY = nullptr;
-    const int* g_groupPanelCursorWidth = nullptr;
-    const int* g_groupPanelCursorHeight = nullptr;
-    Pixel* g_groupPanelCursorPixels = nullptr;
-    bool g_groupPanelShowCount = false;
-    bool g_groupPanelDebug = false;
-
-    ZeppelinReader g_zeppelin;
-    ZeppelinPanel::Behaviour g_zeppelinBehaviour = ZeppelinPanel::Behaviour::Temp;
-    bool g_zeppelinRequested = false;
-    uint32_t g_zeppelinRequestTick = 0;
-    uint32_t g_zeppelinTick = 0;
-    int g_zeppelinOpacity = 0;
-    bool g_zeppelinVisible = false;
-    Zoom::Rect g_zeppelinLastRect{};
-
-    Zoom::Rect GroupPanelRect()
-    {
-        const Zoom::Rect first = GroupPanel::CellRect(0, g_groupPanelSurfaceWidth);
-        return { first.x, first.y, GroupPanel::Width(), GroupPanel::Height() };
-    }
-
-    Zoom::Rect IntersectRect(const Zoom::Rect& a, const Zoom::Rect& b)
-    {
-        const int left = std::max(a.x, b.x);
-        const int top = std::max(a.y, b.y);
-        const int right = std::min(a.x + a.width, b.x + b.width);
-        const int bottom = std::min(a.y + a.height, b.y + b.height);
-        return { left, top, std::max(0, right - left), std::max(0, bottom - top) };
-    }
-
-    constexpr int kGroupPanelTag = 'GRPP';
-
-    // The battlefield and the strategic map use the real screen, as MultiCAD's own panels.
+    // The battlefield and the strategic map use the real screen.
     bool isScalableUiTag(int tag)
     {
-        return tag != 'FILD' && tag != 'TMAP' && tag != kGroupPanelTag && tag != UIFilter::getCustomTag();
+        return tag != 'FILD' && tag != 'TMAP' && tag != UIFilter::getCustomTag();
     }
 
     // The game draws its cursor on the surface after the frame and presents asynchronously (the
@@ -187,102 +146,14 @@ namespace
         return true;
     }
 
-    bool groupPanelVisible()
-    {
-        return g_groupPanelOpacity > 0 && g_groupPanel.bound() && GetUIFilter().isEnabled() &&
-            GroupPanel::Fits(g_groupPanelSurfaceWidth, g_groupPanelSurfaceHeight);
-    }
-
-    bool groupPanelContains(int x, int y)
-    {
-        if (!groupPanelVisible())
-            return false;
-
-        const Zoom::Rect panel = GroupPanelRect();
-        return x >= panel.x && y >= panel.y &&
-            x < panel.x + panel.width && y < panel.y + panel.height;
-    }
-
-    bool groupPanelClick(int eventTag, int x, int y)
-    {
-        constexpr int kLeftButtonDown = 8;
-        constexpr int kRightButtonDown = 32;
-
-        if (eventTag != kLeftButtonDown && eventTag != kRightButtonDown)
-            return false;
-
-        if (!groupPanelContains(x, y))
-            return false;
-
-        const int slot = GroupPanel::HitTest(x, y, g_groupPanelSurfaceWidth);
-        if (slot >= 0)
-        {
-            if (eventTag == kRightButtonDown)
-                g_groupPanel.assign(slot);
-            else if (g_groupPanelFade.slots()[static_cast<size_t>(slot)])
-                g_groupPanel.select(slot);
-        }
-
-        return true;
-    }
-
+    // Alt alone, or AltGr (right Alt, which Windows reports with Ctrl).
     bool altOnly()
     {
-        return GroupPanel::AltOnly(
-            (GetKeyState(VK_MENU) & 0x8000) != 0,
-            (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-            (GetKeyState(VK_SHIFT) & 0x8000) != 0,
-            (GetKeyState(VK_RMENU) & 0x8000) != 0);
-    }
-
-    int groupPanelAltSlot(int key)
-    {
-        if (!g_groupPanel.bound() || !altOnly())
-            return -1;
-
-        for (int slot = 0; slot < GroupPanel::kCount; ++slot)
-            if (GroupPanel::VirtualKeyForSlot(slot) == key)
-                return slot;
-        return -1;
-    }
-
-    int zeppelinVisibleRows()
-    {
-        return g_zeppelinOpacity > 0 && g_zeppelinVisible ? g_zeppelin.rowCount() : 0;
-    }
-
-    Zoom::Rect ZeppelinPanelRect()
-    {
-        return ZeppelinPanel::PanelRect(
-            g_groupPanelSurfaceWidth, g_groupPanelSurfaceHeight, zeppelinVisibleRows());
-    }
-
-    bool zeppelinPanelVisible()
-    {
-        return g_zeppelinVisible;
-    }
-
-    bool zeppelinPanelAltShow(int key)
-    {
-        return key == 'Z' && zeppelinPanelVisible() && altOnly();
-    }
-
-    void zeppelinPanelPress()
-    {
-        const uint32_t now = GetTickCount();
-
-        if (g_zeppelinBehaviour != ZeppelinPanel::Behaviour::Toggle)
-        {
-            g_zeppelinRequested = true;
-            g_zeppelinRequestTick = now;
-            return;
-        }
-
-        const int current = ZeppelinPanel::ToggleOpacity(
-            g_zeppelinRequested, now - g_zeppelinRequestTick);
-        g_zeppelinRequested = !g_zeppelinRequested;
-        const int ramp = g_zeppelinRequested ? current : 16 - current;
-        g_zeppelinRequestTick = now - ramp * ZeppelinPanel::kFadeMs / 16;
+        const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+        const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool rightAlt = (GetKeyState(VK_RMENU) & 0x8000) != 0;
+        return alt && !shift && (!ctrl || rightAlt);
     }
 
     Zoom::Rect UnionRect(const Zoom::Rect& a, const Zoom::Rect& b)
@@ -299,139 +170,6 @@ namespace
         return { left, top, right - left, bottom - top };
     }
 
-    void DrawGroupPanelOverlay(const Zoom::Rect* clip = nullptr);
-    void DrawZeppelinPanelOverlay(const Zoom::Rect* clip = nullptr);
-
-    void RepairGroupPanelRegion(int left, int top, int right, int bottom)
-    {
-        if (g_groupPanelOpacity != 16)
-            return;
-
-        const Zoom::Rect panel = GroupPanelRect();
-        if (right < panel.x || left >= panel.x + panel.width ||
-            bottom < panel.y || top >= panel.y + panel.height)
-            return;
-
-        const Zoom::Rect damaged{ left, top, right - left + 1, bottom - top + 1 };
-        DrawGroupPanelOverlay(&damaged);
-    }
-
-    void DrawGroupPanelDebugMarkers()
-    {
-        if (!g_groupPanelDebug || !g_moduleState || !g_moduleState->surface.renderer ||
-            !GroupPanel::Fits(g_groupPanelSurfaceWidth, g_groupPanelSurfaceHeight))
-            return;
-
-        auto* const destination = static_cast<Pixel*>(g_moduleState->surface.renderer);
-        const int pitch = static_cast<int>(g_moduleState->pitch / sizeof(Pixel));
-        const Zoom::Rect panel = GroupPanelRect();
-
-        const int size = 8;
-        const int markerY = panel.y;
-        const int stateX = panel.x - 2 * (size + 4);
-        const int frameX = panel.x - (size + 4);
-
-        for (int y = 0; y < size; ++y)
-        {
-            for (int x = 0; x < size; ++x)
-            {
-                if (stateX >= 0)
-                    destination[(markerY + y) * pitch + stateX + x] =
-                        !g_groupPanel.bound() ? 0x8410 :
-                        g_groupPanelOpacity == 16 ? 0x07E0 : (g_groupPanelOpacity > 0 ? 0xFFE0 : 0xF800);
-                if (frameX >= 0)
-                    destination[(markerY + y) * pitch + frameX + x] = 0x001F;
-            }
-        }
-    }
-
-    void RepairGroupPanelOnPresent()
-    {
-        if (g_groupPanelOpacity != 16)
-            return;
-
-        const Zoom::Rect panel = GroupPanelRect();
-        if (g_groupPanelCursorX && g_groupPanelCursorY &&
-            g_groupPanelCursorWidth && g_groupPanelCursorHeight &&
-            *g_groupPanelCursorWidth > 0 && *g_groupPanelCursorHeight > 0 &&
-            *g_groupPanelCursorX < panel.x + panel.width &&
-            *g_groupPanelCursorX + *g_groupPanelCursorWidth > panel.x &&
-            *g_groupPanelCursorY < panel.y + panel.height &&
-            *g_groupPanelCursorY + *g_groupPanelCursorHeight > panel.y)
-            return;
-
-        DrawGroupPanelOverlay();
-    }
-
-    void DrawGroupPanelOverlay(const Zoom::Rect* clip)
-    {
-        if (g_groupPanelOpacity <= 0 || !g_moduleState || !g_moduleState->surface.renderer)
-            return;
-
-        auto* const destination = static_cast<Pixel*>(g_moduleState->surface.renderer);
-        const int pitch = static_cast<int>(g_moduleState->pitch / sizeof(Pixel));
-
-        GroupPanel::Draw16(
-            destination,
-            pitch,
-            g_groupPanelSurfaceWidth,
-            g_groupPanelSurfaceHeight,
-            g_groupPanelFade.slots(),
-            g_groupPanelFade.houses(),
-            g_groupPanelFade.wheels(),
-            g_groupPanelOpacity,
-            g_groupPanelShowCount ? &g_groupPanelFade.counts() : nullptr,
-            &g_groupPanelFade.transports(),
-            g_groupPanelFade.persistent(),
-            clip,
-            &g_groupPanelFade.guns());
-
-        const Zoom::Rect panel = GroupPanelRect();
-        Zoom::GetState().refreshCursorSaveRect(
-            destination,
-            pitch,
-            clip ? IntersectRect(panel, *clip) : panel,
-            g_groupPanelSurfaceWidth,
-            g_groupPanelSurfaceHeight,
-            g_groupPanelCursorX,
-            g_groupPanelCursorY,
-            g_groupPanelCursorWidth,
-            g_groupPanelCursorHeight,
-            g_groupPanelCursorPixels);
-    }
-
-    void DrawZeppelinPanelOverlay(const Zoom::Rect* clip)
-    {
-        if (zeppelinVisibleRows() <= 0 || !g_moduleState || !g_moduleState->surface.renderer)
-            return;
-
-        auto* const destination = static_cast<Pixel*>(g_moduleState->surface.renderer);
-        const int pitch = static_cast<int>(g_moduleState->pitch / sizeof(Pixel));
-
-        ZeppelinPanel::Draw16(
-            destination,
-            pitch,
-            g_groupPanelSurfaceWidth,
-            g_groupPanelSurfaceHeight,
-            g_zeppelin.rows(),
-            zeppelinVisibleRows(),
-            clip,
-            g_zeppelinOpacity,
-            g_zeppelinTick);
-
-        const Zoom::Rect panel = ZeppelinPanelRect();
-        Zoom::GetState().refreshCursorSaveRect(
-            destination,
-            pitch,
-            clip ? IntersectRect(panel, *clip) : panel,
-            g_groupPanelSurfaceWidth,
-            g_groupPanelSurfaceHeight,
-            g_groupPanelCursorX,
-            g_groupPanelCursorY,
-            g_groupPanelCursorWidth,
-            g_groupPanelCursorHeight,
-            g_groupPanelCursorPixels);
-    }
 }
 
 bool GameDllHooks::KnownIsolationDecor(const UIRenderElement* element)
@@ -479,39 +217,6 @@ void GameDllHooks::configureWorldIsolation(GameVersion version)
     g_isolationFog = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(addresses->fnBlendMainWithWarFog));
     g_isolationFirst = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(addresses->fnGetFirstDecorUi));
     g_isolationNext = reinterpret_cast<uintptr_t>(globals_->getPtr<void>(addresses->fnGetNextDecorUi));
-}
-
-void GameDllHooks::configureGroupPanel(GameVersion version, bool showCounts, bool debug, bool persistent,
-                                       int scaleQuarters)
-{
-    GroupPanel::SetScale(scaleQuarters);
-    g_groupPanelDebug = debug;
-    g_surfaceRegionRepair = &RepairGroupPanelRegion;
-    g_surfacePresentRepair = &RepairGroupPanelOnPresent;
-    if (globals_)
-        g_groupPanel.bind(*globals_, version);
-    else
-        g_groupPanel = {};
-    g_groupPanelFade = {};
-    g_groupPanelFade.setPersistent(persistent);
-    g_groupPanelOpacity = 0;
-    g_groupPanelShowCount = showCounts;
-}
-
-void GameDllHooks::configureZeppelinPanel(GameVersion version, ZeppelinPanel::Behaviour behaviour,
-                                          int scaleQuarters)
-{
-    ZeppelinPanel::SetScale(scaleQuarters);
-    if (globals_)
-        g_zeppelin.bind(*globals_, version);
-    else
-        g_zeppelin = {};
-
-    g_zeppelinBehaviour = behaviour;
-    g_zeppelinRequested = false;
-    g_zeppelinOpacity = 0;
-    g_zeppelinVisible = false;
-    g_zeppelinLastRect = {};
 }
 
 int __declspec(noinline) __fastcall GameDllHooks::sub_1001D240(GameData5* self, void* /*dummy*/, int** a2)
@@ -1980,21 +1685,12 @@ void GameDllHooks::calculateCursorTypeAtZoom(
     void(__cdecl* fn)(int, int, int*))
 {
     const MouseMapGuard guard;
-    const int physicalX = x;
-    const int physicalY = y;
     if (guard.outermost && battlefieldAt(areas, x, y))
     {
         x = Zoom::GetState().mapX(x);
         y = Zoom::GetState().mapY(y);
     }
     fn(x, y, result);
-
-    if (guard.outermost && result && groupPanelContains(physicalX, physicalY))
-    {
-        result[0] = 0;
-        result[1] = 0;
-        result[2] = 0;
-    }
 }
 
 bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
@@ -2161,57 +1857,12 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         g_uiRepaint = { g_decorLastBox.x & ~15, g_decorLastBox.y & ~7,
             (g_decorLastBox.x + g_decorLastBox.width + 15) & ~15, (g_decorLastBox.y + g_decorLastBox.height + 7) & ~7, true };
 
-    const int lastPanelOpacity = g_groupPanelOpacity;
-    g_groupPanelOpacity = 0;
-    g_groupPanelSurfaceWidth = data.surfaceWidth;
-    g_groupPanelSurfaceHeight = data.surfaceHeight;
-    g_groupPanelCursorX = data.cursorSavedX;
-    g_groupPanelCursorY = data.cursorSavedY;
-    g_groupPanelCursorWidth = data.cursorSavedWidth;
-    g_groupPanelCursorHeight = data.cursorSavedHeight;
-    g_groupPanelCursorPixels = data.cursorSavedPixels;
-
-    const bool panelCovered = screenCoveredByUi(data.uiElement, data.surfaceWidth, data.surfaceHeight);
-
-    if (g_groupPanel.bound() && GetUIFilter().isEnabled() && !panelCovered &&
-        GroupPanel::Fits(data.surfaceWidth, data.surfaceHeight))
-    {
-        const auto& active = g_groupPanel.groups(tick);
-        g_groupPanelOpacity = g_groupPanelFade.update(
-            active, g_groupPanel.house(), g_groupPanel.wheel(), tick,
-            &g_groupPanel.counts(), &g_groupPanel.transport(), &g_groupPanel.gun());
-    }
-
-    const bool panelPainted = !panelCovered && (g_groupPanelOpacity > 0 || lastPanelOpacity > 0);
-
-    const bool zeppelinWasShown = zeppelinVisibleRows() > 0;
-    const Zoom::Rect zeppelinPrevRect = g_zeppelinLastRect;
-    g_zeppelinVisible = false;
-
-    if (g_zeppelin.bound() && GetUIFilter().isEnabled() && !panelCovered)
-    {
-        g_zeppelin.groups(tick);
-        g_zeppelinVisible = g_zeppelin.rowCount() > 0 && ZeppelinPanel::Fits(
-            data.surfaceWidth, data.surfaceHeight, g_zeppelin.rowCount());
-    }
-
-    g_zeppelinTick = tick;
-    g_zeppelinOpacity = g_zeppelinBehaviour == ZeppelinPanel::Behaviour::Toggle
-        ? ZeppelinPanel::ToggleOpacity(g_zeppelinRequested, tick - g_zeppelinRequestTick)
-        : (g_zeppelinRequested
-            ? ZeppelinPanel::HoldOpacity(tick - g_zeppelinRequestTick) : 0);
-
-    const bool zeppelinShown = zeppelinVisibleRows() > 0;
-    g_zeppelinLastRect = zeppelinShown ? ZeppelinPanelRect() : Zoom::Rect{};
-    const bool zeppelinPainted = zeppelinShown || zeppelinWasShown;
-
-    if ((zoomed || panelPainted || zeppelinPainted) && data.cursorRedrawFlag)
-        *data.cursorRedrawFlag = 1;
-
     if (zoomed)
     {
         Zoom::GetState().markPresented();
         Zoom::GetState().finishIndicatorFrame(GetTickCount());
+        if (data.cursorRedrawFlag)
+            *data.cursorRedrawFlag = 1;
 
         sub_10055E00(
             data.closedAreaGameDataArray,
@@ -2221,37 +1872,6 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             0,
             data.surfaceWidth - 1,
             data.surfaceHeight - 1);
-    }
-    else if (panelPainted || zeppelinPainted)
-    {
-        // The native 1x surface is incremental. Reopen the panel's tiles so
-        // its previous pixels are repainted even when the last group vanishes.
-        if (panelPainted)
-        {
-            const Zoom::Rect panel = GroupPanelRect();
-            sub_10055E00(
-                data.closedAreaGameDataArray,
-                nullptr,
-                16,
-                panel.x,
-                panel.y,
-                panel.x + panel.width - 1,
-                panel.y + panel.height - 1);
-        }
-
-        if (zeppelinPainted)
-        {
-            const Zoom::Rect panel = UnionRect(zeppelinPrevRect, g_zeppelinLastRect);
-            if (panel.width > 0 && panel.height > 0)
-                sub_10055E00(
-                    data.closedAreaGameDataArray,
-                    nullptr,
-                    16,
-                    panel.x,
-                    panel.y,
-                    panel.x + panel.width - 1,
-                    panel.y + panel.height - 1);
-        }
     }
 
     // Snapshot decorations only, after terrain/camera/world updates. At 1x
@@ -2380,12 +2000,6 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
                 line[j] = (val & 0xBF) | 0x18;
         }
     }
-
-    // Last write to the presented frame: the cursor is drawn on top of it right
-    // after this, and erased from it by native code at a moment we do not see.
-    DrawGroupPanelOverlay();
-    DrawZeppelinPanelOverlay();
-    DrawGroupPanelDebugMarkers();
 
     if (zoomed)
     {
@@ -5218,31 +4832,6 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
         } while (sub_79950(dword_103B708, &v6));
     }
 
-    if (g_groupPanelOpacity > 0)
-    {
-        const Zoom::Rect panel = GroupPanelRect();
-        if (self->rightX >= panel.x && self->leftX < panel.x + panel.width &&
-            self->bottomY >= panel.y && self->topY < panel.y + panel.height)
-        {
-            const Zoom::Rect damaged{ self->leftX, self->topY,
-                                      self->rightX - self->leftX + 1,
-                                      self->bottomY - self->topY + 1 };
-            DrawGroupPanelOverlay(&damaged);
-        }
-    }
-
-    if (zeppelinVisibleRows() > 0)
-    {
-        const Zoom::Rect panel = ZeppelinPanelRect();
-        if (self->rightX >= panel.x && self->leftX < panel.x + panel.width &&
-            self->bottomY >= panel.y && self->topY < panel.y + panel.height)
-        {
-            const Zoom::Rect damaged{ self->leftX, self->topY,
-                                      self->rightX - self->leftX + 1,
-                                      self->bottomY - self->topY + 1 };
-            DrawZeppelinPanelOverlay(&damaged);
-        }
-    }
 }
 
 void GameDllHooks::calculateClosedArea(UiElementBase* self, const CalculateClosedAreaData& data)
@@ -5370,47 +4959,11 @@ int __declspec(noinline) __fastcall GameDllHooks::getUiHint(UiElementBase* self,
     return 1;
 }
 
-void GameDllHooks::syncGroupPanelArea(const DispatchWndMessageData& data)
-{
-    if (!data.addUiEventArea || !data.removeUiEventAreaSafe)
-        return;
-
-    const bool wanted = groupPanelVisible();
-    const Zoom::Rect rect = wanted ? GroupPanelRect() : Zoom::Rect{};
-
-    if (groupPanelArea_ &&
-        (!wanted ||
-            groupPanelArea_->x != rect.x || groupPanelArea_->y != rect.y ||
-            groupPanelArea_->width != rect.width || groupPanelArea_->height != rect.height))
-    {
-        data.removeUiEventAreaSafe(groupPanelArea_);
-        delete groupPanelArea_;
-        groupPanelArea_ = nullptr;
-    }
-
-    if (wanted && !groupPanelArea_)
-    {
-        auto* const area = new UiEventArea();
-        area->tag = kGroupPanelTag;
-        area->x = rect.x;
-        area->y = rect.y;
-        area->width = rect.width;
-        area->height = rect.height;
-        area->flags = 0;
-        area->flags_2 = 0;
-        area->next = nullptr;
-        data.addUiEventArea(area);
-        groupPanelArea_ = area;
-    }
-}
-
 void GameDllHooks::dispatchMouseButtonEvent(const DispatchMouseButtonEventData& data)
 {
     const int mouseX = data.mouseX;
     const int mouseY = data.mouseY;
 
-    if (groupPanelClick(data.eventTag, mouseX, mouseY))
-        return;
     UiEventArea* const uiEventAreas = data.uiEventAreas;
     auto const writeEventToRingBuffer = data.writeEventToRingBuffer;
 
@@ -5589,7 +5142,6 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
     int* const dword_11070720 = data.wndClickGlobals + 4;
     int* const dword_11070724 = data.wndClickGlobals + 5;
     int* const dword_11070728 = data.wndClickGlobals + 6;
-    syncGroupPanelArea(data);
 
     auto const dispatchMouseButtonEvent = data.dispatchMouseButtonEvent;
     auto const dispatchMouseMoveEvent = data.dispatchMouseMoveEvent;
@@ -5760,22 +5312,11 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         {
             setPanKey(true);
 
-            const int altSlot = groupPanelAltSlot(a3);
-            if (altSlot >= 0 && g_groupPanel.select(altSlot))
-                break;
-
-            if (zeppelinPanelAltShow(a3))
-            {
-                if ((a4 & 0x40000000) == 0)
-                    zeppelinPanelPress();
-                break;
-            }
-
             writeEventToRingBuffer('/KBD', a3 + 256, *mouseX, *mouseY);
             if (data.multiByteToWideCharOr)
                 writeEventToRingBuffer('/UTF', a3 + 0x1000000, *mouseX, *mouseY);
 
-            // ALT + E toggle UI
+            // Alt+Y toggles the UI
             if (altOnly() && a3 == 'Y')
             {
                 bool newState = !GetUIFilter().isEnabled();
@@ -5840,9 +5381,6 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
         case WM_SYSKEYUP:
         {
             setPanKey(false);
-
-            if (groupPanelAltSlot(a3) >= 0 || zeppelinPanelAltShow(a3))
-                break;
 
             writeEventToRingBuffer('/KBD', a3 + 512, *mouseX, *mouseY);
             if (data.multiByteToWideCharOr)
