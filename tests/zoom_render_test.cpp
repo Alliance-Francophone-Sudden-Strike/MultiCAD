@@ -76,6 +76,15 @@ static void __thiscall drawIntoUi(Hooks::UIRenderElement* ui, Hooks::UiElementBa
         reinterpret_cast<ImageSpriteUI*>(&target->sprites));
 }
 
+// A scaled decoration (UIScale): a block of decorColor at logical (4..9, 2..5).
+constexpr Pixel decorColor = 0x07e0;
+static void __thiscall drawBlock(Hooks::UIRenderElement*, Hooks::UiElementBase* target)
+{
+    for (int y = 2; y <= 5; ++y)
+        for (int x = 4; x <= 9; ++x)
+            target->sprites[y * target->stride + x] = decorColor;
+}
+
 static void __stdcall blend() { ++blends; }
 static int __thiscall first(int*, Hooks::GameData2* region)
 {
@@ -987,6 +996,87 @@ int main(int argc, char** argv)
         data.uiElement = nullptr;
         decorFrame(); // The map closes and the world composes again.
         assert(zoom.presentedScale() == zoom.scale());
+    }
+
+    {
+        // A scaled decoration under the cursor. The game erases its cursor by stamping its
+        // save-under back, and redraws it in place: that save-under must hold the
+        // decoration, or the cursor's box shows the world through it (a hole that stays,
+        // because unchanged pixels under the cursor are not written again).
+        zoom.resetScale();
+        UIScale::Allow(true);
+        UIScale::Set(width / 2, height / 2, width, height);  // x2: the block is (8..19, 4..11)
+        assert(UIScale::Active());
+        std::array<void*, 9> blockTable{};
+        blockTable[8] = reinterpret_cast<void*>(&drawBlock);
+        Hooks::UIRenderElement block{};
+        block.vtable = blockTable.data();
+        block.type = 60;
+        data.uiRenderElem = &block;
+        data.uiElement = nullptr;
+        data.getFirstDecorUi = next;  // the world is not presented: nothing changed there
+        int redraw = 0;
+        data.cursorRedrawFlag = &redraw;
+        int savedX = 10, savedY = 5, savedWidth = 4, savedHeight = 4;
+        std::array<Pixel, 64 * 64> savedPixels;
+        constexpr Pixel world = 0x1111, cursorInk = 0xffff;
+        savedPixels.fill(world);
+        data.cursorSavedX = &savedX;
+        data.cursorSavedY = &savedY;
+        data.cursorSavedWidth = &savedWidth;
+        data.cursorSavedHeight = &savedHeight;
+        data.cursorSavedPixels = savedPixels.data();
+        const auto scaledFrame = [&]
+        {
+            redraw = 0;
+            module.surface.renderer = renderer.data();
+            module.pitch = pitch * sizeof(Pixel);
+            Hooks::drawDecorUiElements(data);
+        };
+        const auto savedAt = [&](int x, int y) { return savedPixels[(y - savedY) * 64 + x - savedX]; };
+        const auto eraseAndRedraw = [&]  // the game, when told to (or on its own)
+        {
+            for (int y = savedY; y < savedY + savedHeight; ++y)
+                for (int x = savedX; x < savedX + savedWidth; ++x)
+                    renderer[y * pitch + x] = savedAt(x, y);
+            renderer[savedY * pitch + savedX] = cursorInk;
+        };
+
+        scaledFrame();  // first frame: written everywhere, the save-under follows
+        assert(redraw == 1);
+        for (int y = savedY; y < savedY + savedHeight; ++y)
+            for (int x = savedX; x < savedX + savedWidth; ++x)
+                assert(savedAt(x, y) == decorColor);
+        eraseAndRedraw();
+        scaledFrame();  // settled: nothing to write, the cursor is left alone
+        assert(redraw == 0 && renderer[savedY * pitch + savedX] == cursorInk);
+
+        // A save-under taken from the world (the hole): the hook corrects it and asks for a
+        // redraw, without writing over the cursor itself.
+        savedPixels.fill(world);
+        eraseAndRedraw();
+        scaledFrame();
+        assert(redraw == 1 && renderer[savedY * pitch + savedX] == cursorInk);
+        eraseAndRedraw();
+        for (int y = savedY; y < savedY + savedHeight; ++y)
+            for (int x = savedX; x < savedX + savedWidth; ++x)
+                assert(savedAt(x, y) == decorColor &&
+                    renderer[y * pitch + x] == (x == savedX && y == savedY ? cursorInk : decorColor));
+        scaledFrame();
+        assert(redraw == 0);
+
+        // The world presented under the cursor this frame: the block goes back there too.
+        data.getFirstDecorUi = first;
+        scaledFrame();
+        assert(redraw == 1);
+        for (int y = savedY; y < savedY + savedHeight; ++y)
+            for (int x = savedX; x < savedX + savedWidth; ++x)
+                assert(renderer[y * pitch + x] == decorColor && savedAt(x, y) == decorColor);
+
+        UIScale::Allow(false);
+        data.uiRenderElem = nullptr;
+        data.cursorSavedPixels = nullptr;
+        data.cursorRedrawFlag = nullptr;
     }
 
     testTrackedRenderer();

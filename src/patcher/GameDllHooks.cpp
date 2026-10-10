@@ -96,6 +96,10 @@ namespace
     // written again there, under the cursor too.
     CursorRect g_uiRepaint;
 
+    // Whether this frame's present loop copied the world under the cursor: the scaled
+    // decorations are written there again, as in g_uiRepaint.
+    bool g_worldUnderCursor = false;
+
     // Where the cursor is on the surface now (the game's save-under rectangle).
     CursorRect cursorRectOf(const int* x, const int* y, const int* width, const int* height)
     {
@@ -1851,6 +1855,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     const bool decorChanged = composeScaledDecor(data, cover != nullptr);  // marks last frame's decoration box
     const bool zoomed = prepareZoomPresentation(data);
     g_uiRepaint = {};
+    g_worldUnderCursor = false;
     if (zoomed || uiListChanged)
         g_uiRepaint = { 0, 0, data.surfaceWidth, data.surfaceHeight, true };
     else if (decorChanged)
@@ -1960,12 +1965,16 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 
     int* div16Ptr = data.closedAreaGameDataArray;
     const LONGLONG presentStats = frameStatsStart();
+    const CursorRect cursorNow = cursorRectOf(
+        data.cursorSavedX, data.cursorSavedY, data.cursorSavedWidth, data.cursorSavedHeight);
     if (sub_100564F0(div16Ptr, &gd))
     {
         do
         {
             if (!zoomed)
             {
+                g_worldUnderCursor = g_worldUnderCursor ||
+                    cursorNow.overlaps({ gd.alignX, gd.alignY, gd.allowX + 1, gd.allowY + 1, true });
                 if (gd.cellMask == 16)
                     cad_2B90(gd.alignX, gd.alignY, gd.allowX, gd.allowY);
                 else
@@ -4697,8 +4706,26 @@ void GameDllHooks::drawScaledDecor(const DrawDecorUiElementData& data)
                 continue;
             if (cursor.hits(x, y))
             {
-                if (!g_cursorDisturbed && !g_uiRepaint.hits(x, y) && g_decorLastValid && g_decorLast[at] == mixed)
+                // What the game puts back when it erases its cursor must be the decoration,
+                // not the world it saved under it (the screen shows that as a hole as soon
+                // as the cursor is redrawn in place, and as a trail when it moves).
+                Pixel* const saved = Zoom::GetState().cursorSavePixel(width, Screen::height_,
+                    data.cursorSavedX, data.cursorSavedY, data.cursorSavedWidth, data.cursorSavedHeight,
+                    data.cursorSavedPixels, x, y);
+                if (!g_cursorDisturbed && !g_worldUnderCursor && !g_uiRepaint.hits(x, y) &&
+                    g_decorLastValid && g_decorLast[at] == mixed)
+                {
+                    // Unchanged: the cursor stays on screen, the game redraws it over its
+                    // corrected save-under.
+                    if (saved && *saved != mixed)
+                    {
+                        *saved = mixed;
+                        g_cursorDisturbed = true;
+                    }
                     continue;
+                }
+                if (saved)
+                    *saved = mixed;
                 g_cursorDisturbed = true;
             }
             out[x] = mixed;
