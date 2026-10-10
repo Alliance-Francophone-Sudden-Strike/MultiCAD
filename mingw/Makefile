@@ -78,6 +78,17 @@ bin/cadMulti_mt.dll: $(OBJS) $(RES)
 	    -o $@ $(OBJS) $(RES) -Wl,-Bstatic -lstdc++ -lpthread $(LDLIBS)
 	$(STRIP) --strip-unneeded $@
 	@echo "  -> $@ (standalone)"
+	@# Publish it to RUI's binaries branch when RUI is checked out beside
+	@# MultiCAD (RUI scripts/sync-binary.sh): only a build of origin/main with
+	@# no uncommitted change, so a branch build never replaces the shipped one.
+	@# RUI_SYNC=0 skips.
+	@if [ "$(RUI_SYNC)" != 0 ] && [ -x ../../RUI/scripts/sync-binary.sh ]; then \
+	    if git diff --quiet HEAD -- .. && [ "$$(git rev-parse HEAD)" = "$$(git rev-parse origin/main 2>/dev/null)" ]; then \
+	        ../../RUI/scripts/sync-binary.sh multicad $@ || echo "RUI sync failed; the build itself is fine" >&2; \
+	    else \
+	        echo "  RUI sync: skipped (not a clean origin/main build)"; \
+	    fi; \
+	fi
 
 bin/cadMulti.dll: $(OBJS) $(RES)
 	@mkdir -p bin
