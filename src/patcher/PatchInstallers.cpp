@@ -125,16 +125,6 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     Zoom::GetState().setZoomOnCursor(Screen::GetZoomOnCursor());
     SetRenderThreads(Screen::GetRenderThreads());
     g_frameStats = Screen::GetFrameStats();
-    GameDllHooks::configureGroupPanel(
-        Screen::GetGroupPanel() ? version : GameVersion::UNKNOWN,
-        Screen::GetGroupPanelCount(),
-        Screen::GetGroupPanelDebug(),
-        Screen::GetPersistentGroupPanel(),
-        Screen::GetGroupPanelScale());
-    GameDllHooks::configureZeppelinPanel(
-        Screen::GetZeppelinPanel() ? version : GameVersion::UNKNOWN,
-        Screen::GetZeppelinPanelBehaviour(),
-        Screen::GetZeppelinPanelScale());
 
     // None of the addresses it needs lie in a relocated gap, so the module base
     // is the whole of the mapping.
