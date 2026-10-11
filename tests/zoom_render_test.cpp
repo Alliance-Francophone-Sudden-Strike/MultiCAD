@@ -1032,6 +1032,8 @@ int main(int argc, char** argv)
             module.surface.renderer = renderer.data();
             module.pitch = pitch * sizeof(Pixel);
             Hooks::drawDecorUiElements(data);
+            // The scaled frame is made off screen; the unlock copies it (unlockDxSurface).
+            zoom.finishPresentation(module.surface.renderer, module.pitch, width, height);
         };
         const auto savedAt = [&](int x, int y) { return savedPixels[(y - savedY) * 64 + x - savedX]; };
         const auto eraseAndRedraw = [&]  // the game, when told to (or on its own)

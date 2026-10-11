@@ -1661,7 +1661,7 @@ private:
     static int areaLocalY(const UiEventArea* area, int y);
     static bool blitScaledUiElement(const UiElementBase* ui, const DrawDecorUiElementData* data = nullptr, bool* wroteCursor = nullptr);
     static void drawScaledUiElements(const DrawDecorUiElementData& data, UiElementBase* cover);
-    static bool composeScaledDecor(const DrawDecorUiElementData& data, bool covered);
+    static bool composeScaledDecor(const DrawDecorUiElementData& data, bool covered, Zoom::Rect& gone);
     static void drawScaledDecor(const DrawDecorUiElementData& data);
     static bool invalidateOnUiListChange(const DrawDecorUiElementData& data);
 

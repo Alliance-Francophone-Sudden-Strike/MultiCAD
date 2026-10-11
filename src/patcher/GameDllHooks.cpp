@@ -92,8 +92,8 @@ namespace
         }
     };
 
-    // Where this frame presents the world over scaled UI pixels (whole 16 x 8 tiles): they are
-    // written again there, under the cursor too.
+    // Where scaled UI pixels are written again this frame, under the cursor too (whole 16 x 8
+    // tiles): the screen after a zoom or a UI list change, the tiles of gone decoration pixels.
     CursorRect g_uiRepaint;
 
     // Whether this frame's present loop copied the world under the cursor: the scaled
@@ -1852,15 +1852,25 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     const bool uiListChanged = invalidateOnUiListChange(data);
     UiElementBase* const cover = UIScale::Active()
         ? realScreenCover(data.uiElement, data.surfaceWidth, data.surfaceHeight) : nullptr;
-    const bool decorChanged = composeScaledDecor(data, cover != nullptr);  // marks last frame's decoration box
+    Zoom::Rect decorGone;
+    const bool decorChanged = composeScaledDecor(data, cover != nullptr, decorGone);  // marks the world under gone pixels
     const bool zoomed = prepareZoomPresentation(data);
     g_uiRepaint = {};
     g_worldUnderCursor = false;
     if (zoomed || uiListChanged)
         g_uiRepaint = { 0, 0, data.surfaceWidth, data.surfaceHeight, true };
     else if (decorChanged)
-        g_uiRepaint = { g_decorLastBox.x & ~15, g_decorLastBox.y & ~7,
-            (g_decorLastBox.x + g_decorLastBox.width + 15) & ~15, (g_decorLastBox.y + g_decorLastBox.height + 7) & ~7, true };
+        g_uiRepaint = { decorGone.x, decorGone.y, decorGone.x + decorGone.width, decorGone.y + decorGone.height, true };
+
+    // The locked surface is on screen while the frame is made: the world, each scaled element
+    // whole, then the decorations would show one after another (a confirm box blinks off, the
+    // never-painted buffer of a covered panel flashes). Make the frame off screen, as the zoom
+    // does; unlockDxSurface copies it once.
+    if (!zoomed && UIScale::Active() && g_moduleState && g_moduleState->surface.renderer &&
+        data.surfaceWidth == Screen::width_ && data.surfaceHeight == Screen::height_ &&
+        Zoom::GetState().ensureBuffers(static_cast<size_t>(Screen::width_) * Screen::height_, Screen::width_))
+        Zoom::GetState().beginPresentation(g_moduleState->surface.renderer, g_moduleState->pitch,
+            Screen::width_, Screen::height_);
 
     if (zoomed)
     {
@@ -4567,11 +4577,15 @@ void GameDllHooks::drawScaledUiElements(const DrawDecorUiElementData& data, UiEl
 // draws itself at logical positions, into any UI buffer it is given (the zoom presentation
 // uses the same callback). Give it a logical-size buffer of the transparent colour (magenta:
 // the engine's palette conversion never makes it), then scale the pixels it drew.
-// True when last frame's scaled pixels differ: a decoration that changes marks its tiles
-// in its own (logical) pixels, not where it was drawn, so its old pixels (a sent chat line,
-// a closed input line) are marked here for the world to cover them.
-bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, bool covered)
+// True when some of last frame's scaled pixels are gone: a decoration that changes marks its
+// tiles in its own (logical) pixels, not where it was drawn, so its old pixels (a sent chat
+// line, a closed input line) are marked here for the world to cover them. Only where they are
+// over the world: the scaled elements are blitted whole on each frame, and the surface is on
+// screen while the frame is made, so the world presented under them shows as a blink.
+// `gone` gets the tiles that held a gone pixel, under the elements too.
+bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, bool covered, Zoom::Rect& gone)
 {
+    gone = {};
     constexpr Pixel kKey = 0xF81F;
     const int lw = UIScale::GetState().logicalWidth, lh = UIScale::GetState().logicalHeight;
     const int width = Screen::width_, height = Screen::height_;
@@ -4666,10 +4680,47 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, bool c
         const size_t at = static_cast<size_t>(y) * width + both.x;
         changed = !std::equal(g_decorNow.begin() + at, g_decorNow.begin() + at + both.width, g_decorLast.begin() + at);
     }
-    if (changed)
-        sub_10055E00(data.closedAreaGameDataArray, nullptr, 16, g_decorLastBox.x, g_decorLastBox.y,
-            g_decorLastBox.x + g_decorLastBox.width - 1, g_decorLastBox.y + g_decorLastBox.height - 1);
-    return changed;
+    if (!changed)
+        return false;
+
+    // The elements drawScaledUiElements blits.
+    static std::vector<UIScale::Rect> elements;
+    elements.clear();
+    for (UiElementBase* ui = data.uiElement; ui; ui = ui->prev)
+        if (!GetUIFilter().shouldIgnore(ui->type) && uiScaled(ui))
+            elements.push_back(scaledUiRect(ui));
+    const auto underElement = [](int x, int y)
+    {
+        for (const UIScale::Rect& r : elements)
+            if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
+                return true;
+        return false;
+    };
+
+    // Last frame's pixels, tile by tile (16 x 8): a pixel is gone when this frame draws none there.
+    const bool noneNow = g_decorBox.width <= 0;  // g_decorNow is not this frame's then
+    const Zoom::Rect& last = g_decorLastBox;
+    for (int ty = last.y & ~7; ty < last.y + last.height; ty += 8)
+        for (int tx = last.x & ~15; tx < last.x + last.width; tx += 16)
+        {
+            const int x0 = std::max(tx, last.x), x1 = std::min(tx + 16, last.x + last.width);
+            const int y0 = std::max(ty, last.y), y1 = std::min(ty + 8, last.y + last.height);
+            bool goneHere = false, overWorld = false;
+            for (int y = y0; y < y1 && !overWorld; ++y)
+                for (int x = x0; x < x1 && !overWorld; ++x)
+                {
+                    const size_t at = static_cast<size_t>(y) * width + x;
+                    if (g_decorLast[at] == kKey || (!noneNow && g_decorNow[at] != kKey))
+                        continue;
+                    goneHere = true;
+                    overWorld = !underElement(x, y);
+                }
+            if (overWorld)
+                sub_10055E00(data.closedAreaGameDataArray, nullptr, 16, tx, ty, tx + 15, ty + 7);
+            if (goneHere)
+                gone = UnionRect(gone, { tx, ty, 16, 8 });
+        }
+    return gone.width > 0;
 }
 
 // After the world and the scaled elements: what composeScaledDecor made, on the surface.
