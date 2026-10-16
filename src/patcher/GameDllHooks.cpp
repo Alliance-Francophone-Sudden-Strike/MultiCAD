@@ -4545,7 +4545,10 @@ bool GameDllHooks::blitScaledUiElement(const UiElementBase* ui, const DrawDecorU
     const int cr = std::min(x1, cursor.right), cb = std::min(y1, cursor.bottom);
     const bool underCursor = cursor.valid && cr > cl && cb > ct;
     bool keepCursorPixels = false;
-    if (underCursor && !cursor.overlaps(g_uiRepaint) && last.x == x0 && last.y == y0 && last.width == w && last.height == h)
+    // Not where this frame's present loop copied the world under the cursor: the world is
+    // presented under scaled elements (they close no area), so it is there now, not the element.
+    if (underCursor && !g_worldUnderCursor && !cursor.overlaps(g_uiRepaint) &&
+        last.x == x0 && last.y == y0 && last.width == w && last.height == h)
     {
         keepCursorPixels = true;
         for (int y = ct; y < cb && keepCursorPixels; ++y)

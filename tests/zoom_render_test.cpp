@@ -1097,6 +1097,37 @@ int main(int argc, char** argv)
             for (int x = savedX; x < savedX + savedWidth; ++x)
                 assert(renderer[y * pitch + x] == decorColor && savedAt(x, y) == decorColor);
 
+        // A scaled element under the cursor. It closes no area, so the world is presented under
+        // it: where that covered the cursor, the element goes back there and the save-under
+        // follows (the cursor's box showed the world over the element).
+        {
+            constexpr Pixel panelColor = 0x4321;
+            std::vector<Pixel> panelPixels(4 * 4, panelColor);
+            Hooks::UiElementBase panel{};
+            panel.leftX = 4;
+            panel.topY = 2;
+            panel.rightX = 7;
+            panel.bottomY = 5;  // the screen's (8..15, 4..11): under the cursor (10..13, 5..8)
+            panel.sprites = panelPixels.data();
+            panel.stride = 4;
+            data.uiRenderElem = nullptr;
+            data.uiElement = &panel;
+            data.getFirstDecorUi = next;
+            scaledFrame();  // the list changed: written everywhere
+            eraseAndRedraw();
+            scaledFrame();  // settled: the cursor is left alone
+            assert(redraw == 0 && renderer[savedY * pitch + savedX] == cursorInk);
+
+            data.getFirstDecorUi = first;
+            scaledFrame();
+            assert(redraw == 1);
+            for (int y = savedY; y < savedY + savedHeight; ++y)
+                for (int x = savedX; x < savedX + savedWidth; ++x)
+                    assert(renderer[y * pitch + x] == panelColor && savedAt(x, y) == panelColor);
+            data.uiElement = nullptr;
+            data.uiRenderElem = &block;
+        }
+
         // A scaled dialog comes up over the strategic map (not scaled). The world must not be
         // presented over the map: the map re-blits only its marked UI tiles, so the world
         // stayed until the map was closed. The map repaints itself instead.
