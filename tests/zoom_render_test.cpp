@@ -85,6 +85,10 @@ static void __thiscall drawBlock(Hooks::UIRenderElement*, Hooks::UiElementBase* 
             target->sprites[y * target->stride + x] = decorColor;
 }
 
+// The strategic map's +0x04: the game's "repaint your whole rect".
+static int mapRepaints;
+static void __thiscall repaintMap(Hooks::UiElementBase*) { ++mapRepaints; }
+
 static void __stdcall blend() { ++blends; }
 static int __thiscall first(int*, Hooks::GameData2* region)
 {
@@ -1075,8 +1079,47 @@ int main(int argc, char** argv)
             for (int x = savedX; x < savedX + savedWidth; ++x)
                 assert(renderer[y * pitch + x] == decorColor && savedAt(x, y) == decorColor);
 
+        // A scaled dialog comes up over the strategic map (not scaled). The world must not be
+        // presented over the map: the map re-blits only its marked UI tiles, so the world
+        // stayed until the map was closed. The map repaints itself instead.
+        const auto marked = [&](uint8_t bits)
+        {
+            int count = 0;
+            for (int row = 0; row < height / 8; ++row)
+                for (int column = 0; column < width / 16; ++column)
+                    count += (reinterpret_cast<const uint8_t*>(coverage.data() + 2)
+                        [column + kRowStrideByteSize * row] & bits) != 0;
+            return count;
+        };
+        Hooks::UiEventArea mapArea{};
+        mapArea.tag = 'TMAP';
+        Hooks::UiElementVtable mapTable{};
+        mapTable.fn2 = repaintMap;
+        Hooks::UiElementBase map{}, dialog{};
+        map.vtable = &mapTable;
+        map.uiEventArea = &mapArea;
+        map.rightX = width - 1;
+        map.bottomY = height - 1;
+        dialog.leftX = dialog.topY = 2;
+        dialog.rightX = dialog.bottomY = 5;
+        map.next = &dialog;
+        dialog.prev = &map;
+        data.uiRenderElem = nullptr;
+        data.uiElement = &dialog;
+        coverage.fill(0);
+        coverage[0] = width / 16; coverage[1] = height / 8;
+        scaledFrame();
+        assert(mapRepaints == 1 && marked(0x10) == 0);
+
+        // Without the map, the whole screen is presented again, as before.
+        dialog.prev = nullptr;
+        dialog.leftX = 3;
+        scaledFrame();
+        assert(mapRepaints == 1 && marked(0x10) == (width / 16) * (height / 8));
+
         UIScale::Allow(false);
         data.uiRenderElem = nullptr;
+        data.uiElement = nullptr;
         data.cursorSavedPixels = nullptr;
         data.cursorRedrawFlag = nullptr;
     }

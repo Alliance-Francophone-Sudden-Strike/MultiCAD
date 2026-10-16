@@ -1663,7 +1663,7 @@ private:
     static void drawScaledUiElements(const DrawDecorUiElementData& data, UiElementBase* cover);
     static bool composeScaledDecor(const DrawDecorUiElementData& data, bool covered, Zoom::Rect& gone);
     static void drawScaledDecor(const DrawDecorUiElementData& data);
-    static bool invalidateOnUiListChange(const DrawDecorUiElementData& data);
+    static bool invalidateOnUiListChange(const DrawDecorUiElementData& data, UiElementBase* cover);
 
     static void prepareUiElements(UiElementBase* ui);
     static void withBattlefieldMouseCoordinates(int* mouseX, int* mouseY, UiEventArea* areas, void(__cdecl* fn)());
