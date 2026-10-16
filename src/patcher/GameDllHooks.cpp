@@ -80,6 +80,10 @@ namespace
     std::vector<Pixel> g_decorLast, g_decorNow;
     bool g_decorLastValid = false;
     Zoom::Rect g_decorBox, g_decorLastBox;
+    // Under the strategic map: the scaled decorations above it (key elsewhere), which the map
+    // carries in its own buffer (drawUiElement), and their box.
+    std::vector<Pixel> g_coverDecor;
+    Zoom::Rect g_coverDecorBox;
 
     struct CursorRect
     {
@@ -1594,7 +1598,16 @@ void GameDllHooks::prepareUiElements(UiElementBase* ui)
         isolated = isolate;
         if (isolate && Zoom::GetState().trackingWorldWrites() && !KnownIsolationUi(ui))
             Zoom::GetState().captureWholeWorld();
+        // An element composes the decorations above it into its own buffer, at their logical
+        // place. The strategic map is not scaled, so it gets them scaled from
+        // composeScaledDecor instead: hide the list while it composes.
+        void* const decorHead = g_isolationDecorHead ? *g_isolationDecorHead : nullptr;
+        const bool hideDecor = decorHead && UIScale::Active() && isScreenCover(ui, Screen::width_, Screen::height_);
+        if (hideDecor)
+            *g_isolationDecorHead = nullptr;
         ui->vtable->fn_A1000(ui);
+        if (hideDecor)
+            *g_isolationDecorHead = decorHead;
     }
     if (isolated)
         Zoom::GetState().finishWorldIsolation(
@@ -1832,17 +1845,56 @@ bool GameDllHooks::screenCoveredByUi(UiElementBase* ui, int width, int height)
 }
 
 // The topmost unscaled element that covers the screen: the strategic map. The game shows
-// nothing under it (it owns every tile), and it draws the decorations (chat) into its own
-// buffer, at their logical place. So the scaled elements under it and the scaled decorations
-// stay off, whatever path the frame takes (live, the game skips this hook on many frames;
-// paused, it calls it on every frame).
+// nothing under it (it owns every tile), so the scaled elements under it stay off, whatever
+// path the frame takes (live, the game skips this hook on many frames; paused, it calls it on
+// every frame). The decorations above it go into its own buffer, scaled (putOverCover).
 GameDllHooks::UiElementBase* GameDllHooks::realScreenCover(UiElementBase* ui, int width, int height)
 {
     for (; ui; ui = ui->prev)
-        if (!uiScaled(ui) && (!ui->uiEventArea || ui->uiEventArea->tag != 'FILD') &&
-            ui->leftX <= 0 && ui->topY <= 0 && ui->rightX >= width - 1 && ui->bottomY >= height - 1)
+        if (isScreenCover(ui, width, height))
             return ui;
     return nullptr;
+}
+
+bool GameDllHooks::isScreenCover(const UiElementBase* ui, int width, int height)
+{
+    return !uiScaled(ui) && (!ui->uiEventArea || ui->uiEventArea->tag != 'FILD') &&
+        ui->leftX <= 0 && ui->topY <= 0 && ui->rightX >= width - 1 && ui->bottomY >= height - 1;
+}
+
+// What is scaled above the strategic map, into its buffer where it is about to blit (screen
+// pixels, inclusive): the scaled elements over it (as last blitted), then the scaled
+// decorations. Its blit then puts them back on the screen, cursor handled, whenever it repaints
+// a tile that is not wholly under a scaled element (those it leaves alone, see drawUiElement).
+void GameDllHooks::putOverCover(UiElementBase* cover, int left, int top, int right, int bottom)
+{
+    constexpr Pixel kKey = 0xF81F;
+    const auto put = [&](const Zoom::Rect& box, const Pixel* pixels, int stride, bool keyed)
+    {
+        const int x0 = std::max({ left, box.x, cover->leftX }), x1 = std::min({ right + 1, box.x + box.width, cover->rightX + 1 });
+        const int y0 = std::max({ top, box.y, cover->topY }), y1 = std::min({ bottom + 1, box.y + box.height, cover->bottomY + 1 });
+        for (int y = y0; y < y1; ++y)
+        {
+            const Pixel* const from = pixels + static_cast<size_t>(y - box.y) * stride - box.x;
+            Pixel* const to = cover->sprites + static_cast<size_t>(y - cover->topY) * cover->stride - cover->leftX;
+            for (int x = x0; x < x1; ++x)
+                if (!keyed || from[x] != kKey)
+                    to[x] = from[x];
+        }
+    };
+
+    for (const UiElementBase* ui = cover->next; ui; ui = ui->next)
+    {
+        const auto it = g_lastBlits.find(ui);
+        if (it != g_lastBlits.end() && uiScaled(ui))
+        {
+            const LastBlit& last = it->second;
+            put({ last.x, last.y, last.width, last.height }, last.pixels.data(), last.width, false);
+        }
+    }
+    if (g_coverDecorBox.width > 0 && g_coverDecor.size() == static_cast<size_t>(Screen::width_) * Screen::height_)
+        put(g_coverDecorBox, g_coverDecor.data() + static_cast<size_t>(g_coverDecorBox.y) * Screen::width_ + g_coverDecorBox.x,
+            Screen::width_, true);
 }
 
 void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
@@ -1853,7 +1905,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         ? realScreenCover(data.uiElement, data.surfaceWidth, data.surfaceHeight) : nullptr;
     const bool uiListChanged = invalidateOnUiListChange(data, cover);
     Zoom::Rect decorGone;
-    const bool decorChanged = composeScaledDecor(data, cover != nullptr, decorGone);  // marks the world under gone pixels
+    const bool decorChanged = composeScaledDecor(data, cover, decorGone);  // marks the world under gone pixels
     const bool zoomed = prepareZoomPresentation(data);
     g_uiRepaint = {};
     g_worldUnderCursor = false;
@@ -4583,7 +4635,7 @@ void GameDllHooks::drawScaledUiElements(const DrawDecorUiElementData& data, UiEl
 // over the world: the scaled elements are blitted whole on each frame, and the surface is on
 // screen while the frame is made, so the world presented under them shows as a blink.
 // `gone` gets the tiles that held a gone pixel, under the elements too.
-bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, bool covered, Zoom::Rect& gone)
+bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElementBase* cover, Zoom::Rect& gone)
 {
     gone = {};
     constexpr Pixel kKey = 0xF81F;
@@ -4591,9 +4643,14 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, bool c
     const int width = Screen::width_, height = Screen::height_;
     const size_t screenPixels = static_cast<size_t>(width) * height;
     g_decorBox = {};
-    if (covered || !UIScale::Active() || !g_moduleState || !g_moduleState->surface.renderer)
+    if (cover)
+        g_decorLastValid = false;
+    else
+        g_coverDecorBox = {};
+    if (!UIScale::Active() || !g_moduleState || !g_moduleState->surface.renderer)
     {
         g_decorLastValid = false;
+        g_coverDecorBox = {};
         return false;
     }
 
@@ -4618,7 +4675,7 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, bool c
 
     using Fn = void(__thiscall*)(UIRenderElement*, UiElementBase*);
     for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
-        if (!GetUIFilter().shouldIgnoreDecor(uiObj->type))
+        if (!GetUIFilter().shouldIgnoreDecor(uiObj->type) && (!cover || uiObj->type > cover->type))
             reinterpret_cast<Fn>(uiObj->vtable[8])(uiObj, &target);
 
     // The logical pixels the decorations drew, as a box, then those on the screen (bilinear,
@@ -4668,6 +4725,32 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, bool c
             }
         }
         g_decorBox = { x0, y0, x1 - x0, y1 - y0 };
+    }
+
+    // Under the strategic map, only those above it (as the game composes them into an element):
+    // the map carries them in its own buffer, so that its own repaints (after this hook, and on
+    // the frames that skip it) keep them. It repaints whole, from fresh map pixels, when they change.
+    if (cover)
+    {
+        bool changed = g_decorBox.width > 0 || g_coverDecorBox.width > 0;
+        if (g_decorBox.width > 0 && g_coverDecorBox.width > 0 && g_coverDecor.size() == screenPixels)
+        {
+            changed = false;
+            const Zoom::Rect both = UnionRect(g_coverDecorBox, g_decorBox);
+            for (int y = both.y; y < both.y + both.height && !changed; ++y)
+            {
+                const size_t at = static_cast<size_t>(y) * width + both.x;
+                changed = !std::equal(g_decorNow.begin() + at, g_decorNow.begin() + at + both.width, g_coverDecor.begin() + at);
+            }
+        }
+        if (changed)
+        {
+            g_coverDecor.swap(g_decorNow);
+            g_coverDecorBox = g_decorBox;
+            cover->vtable->fn2(cover);
+        }
+        g_decorBox = {};  // not drawn over the frame
+        return false;
     }
 
     // Both buffers hold the key outside their boxes: compare their union.
@@ -4892,19 +4975,20 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
     GameData v6{};
 
     // Scaled elements are drawn whole on each frame, by drawScaledUiElements. Still take the
-    // tiles under them, as the original draw takes its own: the list runs top first, and an
-    // unscaled element below (the strategic map) blits any tile left marked, a pending
-    // compose (2) included, over the scaled pixels.
+    // tiles wholly under them, as the original draw takes its own: the list runs top first, and
+    // an unscaled element below (the strategic map) blits any tile left marked, a pending
+    // compose (2) included, over the scaled pixels. The partial tiles stay with the map, which
+    // puts the scaled pixels into its buffer before it blits them (putOverCover).
     if (uiScaled(self))
     {
         const UIScale::Rect r = scaledUiRect(self);
         v6.mask = 0xFF;
         v6.maskValue = 0xFC;
-        v6.x = r.x >> 4;
-        v6.y = r.y >> 3;
-        v6.maxX = (r.x + r.width + 15) >> 4;
-        v6.maxY = (r.y + r.height + 7) >> 3;
-        if (sub_79900(dword_103B708, &v6))
+        v6.x = (r.x + 15) >> 4;
+        v6.y = (r.y + 7) >> 3;
+        v6.maxX = (r.x + r.width) >> 4;
+        v6.maxY = (r.y + r.height) >> 3;
+        if (v6.maxX > v6.x && v6.maxY > v6.y && sub_79900(dword_103B708, &v6))
             while (sub_79950(dword_103B708, &v6)) {}
         return;
     }
@@ -4922,10 +5006,13 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
     v6.x = tileX;
     v6.y = tileY;
 
+    const bool cover = UIScale::Active() && self->sprites && isScreenCover(self, Screen::width_, Screen::height_);
     if (sub_79900(dword_103B708, &v6))
     {
         do
         {
+            if (cover)
+                putOverCover(self, v6.alignX, v6.alignY, v6.allowX, v6.allowY);
             sub_98410(v6.alignX - self->leftX, v6.alignY - self->topY, v6.allowX - v6.alignX + 1, v6.allowY - v6.alignY + 1, self->leftX, self->topY, &self->sprites);
         } while (sub_79950(dword_103B708, &v6));
     }

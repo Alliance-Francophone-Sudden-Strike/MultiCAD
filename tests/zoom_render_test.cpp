@@ -88,6 +88,17 @@ static void __thiscall drawBlock(Hooks::UIRenderElement*, Hooks::UiElementBase* 
 // The strategic map's +0x04: the game's "repaint your whole rect".
 static int mapRepaints;
 static void __thiscall repaintMap(Hooks::UiElementBase*) { ++mapRepaints; }
+// Its +0x28 walk over the UI grid: one region, the whole screen; the blit is counted.
+static int __thiscall wholeScreen(int*, Hooks::GameData* region)
+{
+    region->alignX = region->alignY = 0;
+    region->allowX = width - 1;
+    region->allowY = height - 1;
+    return 1;
+}
+static int __thiscall noMoreRegions(int*, Hooks::GameData*) { return 0; }
+static int mapBlits;
+static void __cdecl countMapBlit(int, int, int, int, int, int, void*) { ++mapBlits; }
 
 static void __stdcall blend() { ++blends; }
 static int __thiscall first(int*, Hooks::GameData2* region)
@@ -1111,11 +1122,42 @@ int main(int argc, char** argv)
         scaledFrame();
         assert(mapRepaints == 1 && marked(0x10) == 0);
 
+        // A decoration above the map: the map carries it, scaled, in its own buffer (not at its
+        // logical place), and repaints when it changes. Its blit puts the scaled dialog and the
+        // decoration (over it) into its buffer first.
+        constexpr Pixel mapColor = 0x0123, dialogColor = 0x2468;
+        std::vector<Pixel> mapPixels(width * height, mapColor), dialogPixels(4 * 4, dialogColor);
+        map.sprites = mapPixels.data();
+        map.stride = width;
+        dialog.sprites = dialogPixels.data();
+        dialog.stride = 4;
+        data.uiRenderElem = &block;
+        scaledFrame();
+        assert(mapRepaints == 2);
+        scaledFrame();
+        assert(mapRepaints == 2);  // unchanged
+        Hooks::DrawUiElementData mapDraw{};
+        mapDraw.dword_103B708 = coverage.data();
+        mapDraw.fn_79900 = wholeScreen;
+        mapDraw.fn_79950 = noMoreRegions;
+        mapDraw.fn_98410 = countMapBlit;
+        Hooks::drawUiElement(&map, mapDraw);
+        assert(mapBlits == 1);
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
+            {
+                const bool inBlock = x >= 8 && x <= 19 && y >= 4 && y <= 11;  // logical (4..9, 2..5)
+                const bool inDialog = x >= 4 && x <= 11 && y >= 4 && y <= 11;  // logical (2..5, 2..5)
+                assert(mapPixels[y * width + x] == (inBlock ? decorColor : inDialog ? dialogColor : mapColor));
+            }
+        data.uiRenderElem = nullptr;
+        dialog.sprites = nullptr;
+
         // Without the map, the whole screen is presented again, as before.
         dialog.prev = nullptr;
         dialog.leftX = 3;
         scaledFrame();
-        assert(mapRepaints == 1 && marked(0x10) == (width / 16) * (height / 8));
+        assert(mapRepaints == 2 && marked(0x10) == (width / 16) * (height / 8));
 
         UIScale::Allow(false);
         data.uiRenderElem = nullptr;

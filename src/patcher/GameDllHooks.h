@@ -1647,6 +1647,8 @@ public:
 private:
     static bool screenCoveredByUi(UiElementBase* ui, int width, int height);
     static UiElementBase* realScreenCover(UiElementBase* ui, int width, int height);
+    static bool isScreenCover(const UiElementBase* ui, int width, int height);
+    static void putOverCover(UiElementBase* cover, int left, int top, int right, int bottom);
 
     static bool KnownIsolationDecor(const UIRenderElement* element);
     static bool KnownIsolationUi(const UiElementBase* element);
@@ -1661,7 +1663,7 @@ private:
     static int areaLocalY(const UiEventArea* area, int y);
     static bool blitScaledUiElement(const UiElementBase* ui, const DrawDecorUiElementData* data = nullptr, bool* wroteCursor = nullptr);
     static void drawScaledUiElements(const DrawDecorUiElementData& data, UiElementBase* cover);
-    static bool composeScaledDecor(const DrawDecorUiElementData& data, bool covered, Zoom::Rect& gone);
+    static bool composeScaledDecor(const DrawDecorUiElementData& data, UiElementBase* cover, Zoom::Rect& gone);
     static void drawScaledDecor(const DrawDecorUiElementData& data);
     static bool invalidateOnUiListChange(const DrawDecorUiElementData& data, UiElementBase* cover);
 
