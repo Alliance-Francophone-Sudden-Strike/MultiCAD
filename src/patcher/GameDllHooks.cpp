@@ -1849,9 +1849,9 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
     const uint32_t tick = GetTickCount();
     Zoom::GetState().updatePan(data.cameraX, data.cameraY, tick);
-    const bool uiListChanged = invalidateOnUiListChange(data);
     UiElementBase* const cover = UIScale::Active()
         ? realScreenCover(data.uiElement, data.surfaceWidth, data.surfaceHeight) : nullptr;
+    const bool uiListChanged = invalidateOnUiListChange(data, cover);
     Zoom::Rect decorGone;
     const bool decorChanged = composeScaledDecor(data, cover != nullptr, decorGone);  // marks the world under gone pixels
     const bool zoomed = prepareZoomPresentation(data);
@@ -4790,8 +4790,11 @@ void GameDllHooks::drawScaledDecor(const DrawDecorUiElementData& data)
 
 // The game marks the area of an element it adds or removes in its own (logical)
 // pixels, which is not where the scaled element was. Redraw the whole screen when
-// the list of scaled elements changes.
-bool GameDllHooks::invalidateOnUiListChange(const DrawDecorUiElementData& data)
+// the list of scaled elements changes. Under the strategic map, the world must not
+// come back (this runs after the closed areas, the map re-blits only its marked UI
+// tiles, and the world stayed until the map was closed): the map repaints itself
+// whole instead, as the game asks every element to on a full UI repaint (+0x04).
+bool GameDllHooks::invalidateOnUiListChange(const DrawDecorUiElementData& data, UiElementBase* cover)
 {
     static uint64_t last = 0;
 
@@ -4815,7 +4818,10 @@ bool GameDllHooks::invalidateOnUiListChange(const DrawDecorUiElementData& data)
     if (hash == last)
         return false;
     last = hash;
-    sub_10055E00(data.closedAreaGameDataArray, nullptr, 30, 0, 0, Screen::width_ - 1, Screen::height_ - 1);
+    if (cover)
+        cover->vtable->fn2(cover);
+    else
+        sub_10055E00(data.closedAreaGameDataArray, nullptr, 30, 0, 0, Screen::width_ - 1, Screen::height_ - 1);
     return true;
 }
 
@@ -4878,16 +4884,30 @@ void GameDllHooks::drawUiElement(UiElementBase* self, const DrawUiElementData& d
     if (GetUIFilter().shouldIgnore(self->type))
         return;
 
-    // Scaled elements are drawn whole on each frame, by drawScaledUiElements.
-    if (uiScaled(self))
-        return;
-
     int* const dword_103B708 = data.dword_103B708;
     auto const sub_79900 = data.fn_79900;
     auto const sub_79950 = data.fn_79950;
     auto const sub_98410 = data.fn_98410;
 
     GameData v6{};
+
+    // Scaled elements are drawn whole on each frame, by drawScaledUiElements. Still take the
+    // tiles under them, as the original draw takes its own: the list runs top first, and an
+    // unscaled element below (the strategic map) blits any tile left marked, a pending
+    // compose (2) included, over the scaled pixels.
+    if (uiScaled(self))
+    {
+        const UIScale::Rect r = scaledUiRect(self);
+        v6.mask = 0xFF;
+        v6.maskValue = 0xFC;
+        v6.x = r.x >> 4;
+        v6.y = r.y >> 3;
+        v6.maxX = (r.x + r.width + 15) >> 4;
+        v6.maxY = (r.y + r.height + 7) >> 3;
+        if (sub_79900(dword_103B708, &v6))
+            while (sub_79950(dword_103B708, &v6)) {}
+        return;
+    }
 
     v6.mask = 0xFF;
     v6.maskValue = 0xFE;
