@@ -103,6 +103,8 @@ static void __cdecl countMapBlit(int, int, int, int, int, int, void*) { ++mapBli
 static std::string replayCalls;
 static void __thiscall notifyScroll(Hooks::UiElementBase*, int, int) { replayCalls += 'n'; }
 static void __thiscall closeArea(Hooks::UiElementBase*) { replayCalls += 'c'; }
+static int closeCalls;
+static void __thiscall countClose(int*, char, int, int, int, int) { ++closeCalls; }
 static void __thiscall composeNothing(Hooks::UiElementBase*) {}
 
 static void __stdcall blend() { ++blends; }
@@ -1180,6 +1182,24 @@ int main(int argc, char** argv)
         Hooks::prepareUiElements(&upper);
         assert(replayCalls == "nncc");
         zoom.resetScale();
+
+        // A scaled element closes no area: the world's marks under it stay, so that the world
+        // is restored there too (aircraft are drawn into the main surface under the panels,
+        // and copies of them came out of it as a trail). An unscaled one still closes.
+        {
+            closeCalls = 0;
+            Hooks::CalculateClosedAreaData closing{ nullptr, countClose };
+            Hooks::UiElementBase panel{};
+            panel.type = 10;
+            panel.rightX = 15;
+            panel.bottomY = 7;
+            Hooks::calculateClosedArea(&panel, closing);
+            assert(closeCalls == 0);
+            UIScale::Allow(false);
+            Hooks::calculateClosedArea(&panel, closing);
+            assert(closeCalls == 1);
+            UIScale::Allow(true);
+        }
 
         UIScale::Allow(false);
         data.uiRenderElem = nullptr;

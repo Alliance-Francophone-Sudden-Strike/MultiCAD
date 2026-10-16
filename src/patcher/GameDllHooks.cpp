@@ -5029,12 +5029,12 @@ void GameDllHooks::calculateClosedArea(UiElementBase* self, const CalculateClose
 
     if (uiScaled(self))
     {
-        // Only the tiles wholly under the element: the partial ones stay open for the world.
-        const UIScale::Rect r = scaledUiRect(self);
-        const int left = (r.x + 15) & ~15, top = (r.y + 7) & ~7;
-        const int right = ((r.x + r.width) & ~15) - 1, bottom = ((r.y + r.height) & ~7) - 1;
-        if (right >= left && bottom >= top)
-            data.fn_794B0(data.dword_103CF10, 30, left, top, right, bottom);
+        // A scaled element closes nothing. Closing clears the world's marks (restore from the
+        // back surface, present, passes) over the tiles, and aircraft are drawn into the main
+        // surface every frame, whatever the marks: under a closed tile they were never erased,
+        // and the copies came out from under the panel as a trail (the camera scroll moves the
+        // main surface). The world is presented under the element (it is blitted whole on
+        // each frame, in the off-screen frame), like the unscaled UI did before it closed.
         return;
     }
 
