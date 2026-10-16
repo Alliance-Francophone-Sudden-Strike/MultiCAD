@@ -99,6 +99,11 @@ static int __thiscall wholeScreen(int*, Hooks::GameData* region)
 static int __thiscall noMoreRegions(int*, Hooks::GameData*) { return 0; }
 static int mapBlits;
 static void __cdecl countMapBlit(int, int, int, int, int, int, void*) { ++mapBlits; }
+// The viewport replay: camera notifications (n) and closed areas (c), in call order.
+static std::string replayCalls;
+static void __thiscall notifyScroll(Hooks::UiElementBase*, int, int) { replayCalls += 'n'; }
+static void __thiscall closeArea(Hooks::UiElementBase*) { replayCalls += 'c'; }
+static void __thiscall composeNothing(Hooks::UiElementBase*) {}
 
 static void __stdcall blend() { ++blends; }
 static int __thiscall first(int*, Hooks::GameData2* region)
@@ -1158,6 +1163,23 @@ int main(int argc, char** argv)
         dialog.leftX = 3;
         scaledFrame();
         assert(mapRepaints == 2 && marked(0x10) == (width / 16) * (height / 8));
+
+        // A viewport change replays the camera notification (+0x34, which reopens the element's
+        // own, logical, rect for the world) to every element, then closes them all. One by one,
+        // a scaled panel under the map reopened its logical rect after the map had closed the
+        // screen, and the world showed there in the panel's unscaled shape.
+        Hooks::UiElementVtable replayTable{};
+        replayTable.fn12 = notifyScroll;
+        replayTable.calculateClosedArea = closeArea;
+        replayTable.fn_A1000 = composeNothing;
+        Hooks::UiElementBase upper{}, lower{};
+        upper.vtable = lower.vtable = &replayTable;
+        upper.prev = &lower;
+        lower.next = &upper;
+        assert(zoom.addWheelDelta(120));
+        Hooks::prepareUiElements(&upper);
+        assert(replayCalls == "nncc");
+        zoom.resetScale();
 
         UIScale::Allow(false);
         data.uiRenderElem = nullptr;

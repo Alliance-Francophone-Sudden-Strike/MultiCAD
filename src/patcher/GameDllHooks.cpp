@@ -1568,14 +1568,17 @@ void GameDllHooks::prepareUiElements(UiElementBase* ui)
     // without scrolling the camera, and the game repaints those only from the
     // camera-scroll notification it sends to every panel (0x97EA0 -> fn12). Replay
     // that notification with a null delta, before the panels repaint below. It also
-    // reopens each panel area for the world blit, so close it again like the pass
-    // that runs just ahead of this one.
+    // reopens each panel area for the world blit, so close them all again afterwards, like
+    // the pass that runs just ahead of this one. Not one by one: the list runs top first, and
+    // a scaled panel reopens its logical rect but closes its scaled one, so under the
+    // strategic map, closed already, the world showed in the panels' logical shape.
     if (Zoom::GetState().takeViewportChange())
+    {
         for (UiElementBase* element = ui; element; element = element->prev)
-        {
             element->vtable->fn12(element, 0, 0);
+        for (UiElementBase* element = ui; element; element = element->prev)
             element->vtable->calculateClosedArea(element);
-        }
+    }
 
     bool isolated = false;
     for (; ui; ui = ui->prev)
