@@ -78,6 +78,7 @@ namespace
     bool g_cursorDisturbed = false;  // this frame wrote over the cursor
     // The scaled decorations on the screen (key elsewhere): this frame's, last frame's, and their boxes.
     std::vector<Pixel> g_decorLast, g_decorNow;
+    std::vector<U8> g_decorFade;  // with g_decorNow: a fading pixel's vanish level (0..31), 0 if opaque
     bool g_decorLastValid = false;
     Zoom::Rect g_decorBox, g_decorLastBox;
     // Under the strategic map: the scaled decorations above it (key elsewhere), which the map
@@ -1895,6 +1896,8 @@ void GameDllHooks::putOverCover(UiElementBase* cover, int left, int top, int rig
             put({ last.x, last.y, last.width, last.height }, last.pixels.data(), last.width, false);
         }
     }
+    // ponytail: a fading chat line stays whole over the map until it goes (g_decorFade is not
+    // carried here); blend with to[x] by its level if that shows.
     if (g_coverDecorBox.width > 0 && g_coverDecor.size() == static_cast<size_t>(Screen::width_) * Screen::height_)
         put(g_coverDecorBox, g_coverDecor.data() + static_cast<size_t>(g_coverDecorBox.y) * Screen::width_ + g_coverDecorBox.x,
             Screen::width_, true);
@@ -4661,9 +4664,11 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElem
     }
 
     static std::vector<Pixel> scratch;
+    static std::vector<U8> levels;  // a fading chat line's pixels: their vanish level (renderer's VanishCapture)
     try
     {
         scratch.assign(static_cast<size_t>(lw) * lh, kKey);
+        levels.assign(scratch.size(), 0);
         if (g_decorLast.size() != screenPixels)
             g_decorLastValid = false;
     }
@@ -4679,10 +4684,14 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElem
     target.rightX = target.clipRight = lw - 1;
     target.bottomY = target.clipBottom = lh - 1;
 
+    // A fading pixel blends with what is under it: here the key, which turns it pink. It is
+    // drawn whole instead, with its level, and blended with the world in drawScaledDecor.
     using Fn = void(__thiscall*)(UIRenderElement*, UiElementBase*);
+    g_vanishCapture = { scratch.data(), levels.data(), levels.size(), kKey };
     for (UIRenderElement* uiObj = data.uiRenderElem; uiObj; uiObj = uiObj->prev)
         if (!GetUIFilter().shouldIgnoreDecor(uiObj->type) && (!cover || uiObj->type > cover->type))
             reinterpret_cast<Fn>(uiObj->vtable[8])(uiObj, &target);
+    g_vanishCapture = {};
 
     // The logical pixels the decorations drew, as a box, then those on the screen (bilinear,
     // the key not counting; two pixels of margin for the filter).
@@ -4700,6 +4709,7 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElem
             }
     }
 
+    bool fading = false;
     if (maxX >= 0)
     {
         const int x0 = std::max(0, UIScale::MapX(minX, width) - 2), x1 = std::min(width, UIScale::MapX(maxX + 1, width) + 2);
@@ -4710,6 +4720,7 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElem
         try
         {
             g_decorNow.assign(screenPixels, kKey);
+            g_decorFade.assign(screenPixels, 0);
         }
         catch (...)
         {
@@ -4721,13 +4732,20 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElem
             const Tap& ty = rows[y - y0];
             const Pixel* const row0 = scratch.data() + static_cast<size_t>(ty.i0) * lw;
             const Pixel* const row1 = scratch.data() + static_cast<size_t>(ty.i1) * lw;
+            const U8* const fade0 = levels.data() + static_cast<size_t>(ty.i0) * lw;
+            const U8* const fade1 = levels.data() + static_cast<size_t>(ty.i1) * lw;
             for (int x = x0; x < x1; ++x)
             {
                 const Tap& tx = columns[x - x0];
                 const Pixel taps[4] = { row0[tx.i0], row0[tx.i1], row1[tx.i0], row1[tx.i1] };
                 Pixel mixed;
                 if (blendPixels(taps, tx.weight, ty.weight, true, kKey, mixed))
-                    g_decorNow[static_cast<size_t>(y) * width + x] = mixed;
+                {
+                    const size_t at = static_cast<size_t>(y) * width + x;
+                    g_decorNow[at] = mixed;
+                    g_decorFade[at] = std::max({ fade0[tx.i0], fade0[tx.i1], fade1[tx.i0], fade1[tx.i1] });
+                    fading |= g_decorFade[at] != 0;
+                }
             }
         }
         g_decorBox = { x0, y0, x1 - x0, y1 - y0 };
@@ -4759,19 +4777,6 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElem
         return false;
     }
 
-    // Both buffers hold the key outside their boxes: compare their union.
-    if (!g_decorLastValid || g_decorLastBox.width <= 0)
-        return false;
-    bool changed = g_decorBox.width <= 0;
-    const Zoom::Rect both = UnionRect(g_decorLastBox, g_decorBox);
-    for (int y = both.y; y < both.y + both.height && !changed; ++y)
-    {
-        const size_t at = static_cast<size_t>(y) * width + both.x;
-        changed = !std::equal(g_decorNow.begin() + at, g_decorNow.begin() + at + both.width, g_decorLast.begin() + at);
-    }
-    if (!changed)
-        return false;
-
     // The elements drawScaledUiElements blits.
     static std::vector<UIScale::Rect> elements;
     elements.clear();
@@ -4785,6 +4790,36 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElem
                 return true;
         return false;
     };
+
+    // A fading pixel blends with the world under it, which must be this frame's: the world
+    // goes back under it on each frame (over the elements, which are blitted whole anyway).
+    if (fading)
+    {
+        const Zoom::Rect& box = g_decorBox;
+        for (int ty = box.y & ~7; ty < box.y + box.height; ty += 8)
+            for (int tx = box.x & ~15; tx < box.x + box.width; tx += 16)
+            {
+                bool overWorld = false;
+                for (int y = std::max(ty, box.y); y < std::min(ty + 8, box.y + box.height) && !overWorld; ++y)
+                    for (int x = std::max(tx, box.x); x < std::min(tx + 16, box.x + box.width) && !overWorld; ++x)
+                        overWorld = g_decorFade[static_cast<size_t>(y) * width + x] != 0 && !underElement(x, y);
+                if (overWorld)
+                    sub_10055E00(data.closedAreaGameDataArray, nullptr, 16, tx, ty, tx + 15, ty + 7);
+            }
+    }
+
+    // Both buffers hold the key outside their boxes: compare their union.
+    if (!g_decorLastValid || g_decorLastBox.width <= 0)
+        return false;
+    bool changed = g_decorBox.width <= 0;
+    const Zoom::Rect both = UnionRect(g_decorLastBox, g_decorBox);
+    for (int y = both.y; y < both.y + both.height && !changed; ++y)
+    {
+        const size_t at = static_cast<size_t>(y) * width + both.x;
+        changed = !std::equal(g_decorNow.begin() + at, g_decorNow.begin() + at + both.width, g_decorLast.begin() + at);
+    }
+    if (!changed)
+        return false;
 
     // Last frame's pixels, tile by tile (16 x 8): a pixel is gone when this frame draws none there.
     const bool noneNow = g_decorBox.width <= 0;  // g_decorNow is not this frame's then
@@ -4841,9 +4876,12 @@ void GameDllHooks::drawScaledDecor(const DrawDecorUiElementData& data)
         for (int x = x0; x < x1; ++x)
         {
             const size_t at = static_cast<size_t>(y) * width + x;
-            const Pixel mixed = g_decorNow[at];
+            Pixel mixed = g_decorNow[at];
             if (mixed == kKey)
                 continue;
+            const bool fading = g_decorFade.size() == g_decorNow.size() && g_decorFade[at] != 0;
+            if (fading)
+                mixed = Zoom::Blend565(mixed, out[x], g_decorFade[at] >> 1);  // as the vanishing blitter: level / 32 of the world
             if (cursor.hits(x, y))
             {
                 // What the game puts back when it erases its cursor must be the decoration,
@@ -4852,7 +4890,7 @@ void GameDllHooks::drawScaledDecor(const DrawDecorUiElementData& data)
                 Pixel* const saved = Zoom::GetState().cursorSavePixel(width, Screen::height_,
                     data.cursorSavedX, data.cursorSavedY, data.cursorSavedWidth, data.cursorSavedHeight,
                     data.cursorSavedPixels, x, y);
-                if (!g_cursorDisturbed && !g_worldUnderCursor && !g_uiRepaint.hits(x, y) &&
+                if (!fading && !g_cursorDisturbed && !g_worldUnderCursor && !g_uiRepaint.hits(x, y) &&
                     g_decorLastValid && g_decorLast[at] == mixed)
                 {
                     // Unchanged: the cursor stays on screen, the game redraws it over its

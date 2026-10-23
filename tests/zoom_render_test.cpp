@@ -85,6 +85,16 @@ static void __thiscall drawBlock(Hooks::UIRenderElement*, Hooks::UiElementBase* 
             target->sprites[y * target->stride + x] = decorColor;
 }
 
+// A fading chat line (the game's blitter 0x100A2F60): a 2-pixel glyph in fadeInk at logical
+// (12, 6), half vanished.
+constexpr Pixel fadeInk = 0x001f;
+constexpr S32 fadeLevel = 16;
+static Pixel fadePalette[2] = { 0, fadeInk };
+static void __thiscall drawFading(Hooks::UIRenderElement*, Hooks::UiElementBase* target)
+{
+    drawVanishingUiSprite(12, 6, fadeLevel, fadePalette, &glyph, reinterpret_cast<ImageSpriteUI*>(&target->sprites));
+}
+
 // The strategic map's +0x04: the game's "repaint your whole rect".
 static int mapRepaints;
 static void __thiscall repaintMap(Hooks::UiElementBase*) { ++mapRepaints; }
@@ -1096,6 +1106,25 @@ int main(int argc, char** argv)
         for (int y = savedY; y < savedY + savedHeight; ++y)
             for (int x = savedX; x < savedX + savedWidth; ++x)
                 assert(renderer[y * pitch + x] == decorColor && savedAt(x, y) == decorColor);
+
+        // A fading decoration blends with the screen under it, not with the scratch buffer's
+        // key (the chat turned pink), and the world goes back under it on each frame.
+        {
+            std::array<void*, 9> fadeTable{};
+            fadeTable[8] = reinterpret_cast<void*>(&drawFading);
+            Hooks::UIRenderElement fade{};
+            fade.vtable = fadeTable.data();
+            fade.type = 60;
+            data.uiRenderElem = &fade;
+            coverage.fill(0);
+            coverage[0] = width / 16; coverage[1] = height / 8;
+            const Pixel under = renderer[13 * pitch + 25];  // the glyph's screen (24..27, 12..13)
+            scaledFrame();
+            assert(renderer[13 * pitch + 25] == Zoom::Blend565(fadeInk, under, fadeLevel >> 1));
+            assert((reinterpret_cast<const uint8_t*>(coverage.data() + 2)[1 + kRowStrideByteSize * 1] & 0x10) != 0);
+            assert(!g_vanishCapture.levels);
+            data.uiRenderElem = &block;
+        }
 
         // A scaled element under the cursor. It closes no area, so the world is presented under
         // it: where that covered the cursor, the element goes back there and the save-under

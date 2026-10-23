@@ -23,6 +23,21 @@
 #endif
 
 RendererState g_rendererState;
+VanishCapture g_vanishCapture;
+
+// A vanishing pixel: `blended` with what is under it, or `pixel` and its level when
+// g_vanishCapture takes it.
+static inline void putVanishing(Pixel* at, Pixel pixel, Pixel blended, S32 level)
+{
+    const VanishCapture& c = g_vanishCapture;
+    if (c.levels && *at == c.key && at >= c.base && static_cast<size_t>(at - c.base) < c.count)
+    {
+        *at = pixel;
+        c.levels[at - c.base] = static_cast<U8>(level);
+    }
+    else
+        *at = blended;
+}
 
 // Windowed renders here and blits on unlock: it never changes the display mode,
 // so the primary is the 32 bit desktop and the blit converts. Not in
@@ -7826,7 +7841,7 @@ void drawVanishingUiSprite(S32 x, S32 y, const S32 vanishLevel, const Pixel* pal
                                 const DoublePixel res = ((DoublePixel)sx[i] << 16) | sx[i];
                                 const DoublePixel mask = g_rendererState.sprite.colorMask & (((g_rendererState.sprite.colorMask & res) * vanishLevel) >> 5);
 
-                                sx[i] = (Pixel)((mask | (mask >> 16)) + (mask2 | (mask2 >> 16)));
+                                putVanishing(&sx[i], pixel, (Pixel)((mask | (mask >> 16)) + (mask2 | (mask2 >> 16))), vanishLevel);
                             }
                         }
 
@@ -7837,7 +7852,7 @@ void drawVanishingUiSprite(S32 x, S32 y, const S32 vanishLevel, const Pixel* pal
 
                         for (ptrdiff_t i = 0; i < availCount; ++i)
                         {
-                            const U8 indx = pixels->pixels[0];
+                            const U8 indx = pixels->pixels[skip + i];
                             const Pixel pixel = palette[indx];
 
                             const DoublePixel res2 = ((DoublePixel)pixel << 16) | pixel;
@@ -7846,7 +7861,7 @@ void drawVanishingUiSprite(S32 x, S32 y, const S32 vanishLevel, const Pixel* pal
                             const DoublePixel res = ((DoublePixel)sx[i] << 16) | sx[i];
                             const DoublePixel mask = g_rendererState.sprite.colorMask & (((g_rendererState.sprite.colorMask & res) * vanishLevel) >> 5);
 
-                            sx[i] = (Pixel)((mask | (mask >> 16)) + (mask2 | (mask2 >> 16)));
+                            putVanishing(&sx[i], pixel, (Pixel)((mask | (mask >> 16)) + (mask2 | (mask2 >> 16))), vanishLevel);
                         }
 
                         pixels = (ImagePaletteSpritePixel*)((Addr)pixels + sizeof(ImagePaletteSpritePixel) + (count - 1) * sizeof(pixels->pixels));

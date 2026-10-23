@@ -46,6 +46,18 @@ extern void (*g_surfaceRegionRepair)(int left, int top, int right, int bottom);
 extern void (*g_surfacePresentRepair)();
 extern bool g_surfaceRepairSuppressed;
 
+// While `levels` is set (the UI scale's decoration pass, GameDllHooks::composeScaledDecor),
+// drawVanishingUiSprite draws a pixel that lands on `key` in its full colour and keeps its
+// vanish level in levels[pixel - base]: the pass blends it with the world, not with the key.
+struct VanishCapture
+{
+    const Pixel* base = nullptr;
+    U8* levels = nullptr;
+    size_t count = 0;
+    Pixel key = 0;
+};
+extern VanishCapture g_vanishCapture;
+
 inline void RepairSurfaceRegion(int left, int top, int right, int bottom)
 {
     if (g_surfaceRegionRepair && !g_surfaceRepairSuppressed)
