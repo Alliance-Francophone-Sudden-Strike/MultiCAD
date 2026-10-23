@@ -128,8 +128,10 @@ public:
     }
 
     // Call when the game dll loads; the menu runs at its own fixed size.
+    // Re-read every load: the menu can change [Game] Resolution between missions.
     static void ApplyGameResolution()
     {
+        targetResolved_ = false;
         S32 width, height;
         ResolveTargetResolution(width, height);
         UpdateSize(width, height);
