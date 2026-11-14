@@ -73,6 +73,11 @@ GameVersion DllVersionDetector::GetGameVersion(const DllType type) const
     return it != states_.end() ? it->second.info.version : GameVersion::UNKNOWN;
 }
 
+bool DllVersionDetector::IsCustomGameDll() const
+{
+    return GetLastHashString(DllType::Game) == ToHexString(customGameDllSha256_);
+}
+
 std::string DllVersionDetector::GetLastHashString(const DllType type) const
 {
     auto it = states_.find(type);

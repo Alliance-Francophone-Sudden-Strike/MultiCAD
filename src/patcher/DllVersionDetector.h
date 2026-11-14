@@ -25,6 +25,8 @@ public:
     std::string GetLastHashString(const DllType type) const;
     GameVersion GetOrDetectGameVersion(const DllType type, const std::wstring& modulePath, const uintptr_t moduleBase, const size_t imageSize);
     ModuleInfo GetModuleInfo(const DllType type) const;
+    // The game dll is the AF CustomGameDLL release (its fixed .petite hash below).
+    bool IsCustomGameDll() const;
 
 private:
     struct DllVersion
@@ -39,6 +41,15 @@ private:
         ModuleInfo info;
         std::wstring path;      // file the status describes; a different one is re-hashed
         std::string hashHex;    // empty unless the hash was computed
+    };
+
+    // Hidden Stroke 2 Fusion 4.21b + CustomGameDLL: the stock DLL whose
+    // VModule_Init export leads to its .mods section, fixed for every release
+    static constexpr std::array<uint8_t, 32> customGameDllSha256_ = {
+        0x28, 0xB8, 0xB3, 0xE1, 0xF9, 0x8B, 0xA4, 0x86,
+        0xEF, 0x23, 0x6D, 0xA7, 0x72, 0x85, 0xC5, 0xC7,
+        0xA2, 0xF4, 0x85, 0xB6, 0xB4, 0xFD, 0xD7, 0xDB,
+        0x21, 0xC0, 0x3D, 0x57, 0x3D, 0xD7, 0xC2, 0x34
     };
 
     static constexpr std::array<DllVersion, 18> gameDllVersions_ = { {
@@ -122,14 +133,8 @@ private:
             0x0D, 0xBA, 0x1F, 0x2E, 0xE6, 0x20, 0x35, 0x42
         }},
 
-        // Hidden Stroke 2 Fusion 4.21b + CustomGameDLL: the stock DLL whose
-        // VModule_Init export leads to its .mods section, fixed for every release
-        { GameVersion::HS_2, {
-            0x28, 0xB8, 0xB3, 0xE1, 0xF9, 0x8B, 0xA4, 0x86,
-            0xEF, 0x23, 0x6D, 0xA7, 0x72, 0x85, 0xC5, 0xC7,
-            0xA2, 0xF4, 0x85, 0xB6, 0xB4, 0xFD, 0xD7, 0xDB,
-            0x21, 0xC0, 0x3D, 0x57, 0x3D, 0xD7, 0xC2, 0x34
-        }},
+        // Hidden Stroke 2 Fusion 4.21b + CustomGameDLL
+        { GameVersion::HS_2, customGameDllSha256_ },
 
         // Real War Game FMRM 2.1.5.3
         // ASPack packed: the hash covers the compressed .text, the patched image is Sudden Strike 2 v2.2

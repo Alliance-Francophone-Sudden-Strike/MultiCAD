@@ -6,6 +6,7 @@
 #include "ZoomIndicator.h"
 #include "WorldIsolationTraits.h"
 #include "GameIni.h"
+#include "DllVersionDetector.h"
 
 #include <bit>
 
@@ -5386,13 +5387,14 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
             *mouseY = HIWORD(a4);
         };
 
-    // HS2Engine (an [HS2Engine] section in the ini) steers units with the keypad, whose keys
-    // send the arrow codes with NumLock off: only the real arrow keys (extended, lParam
-    // bit 24) pan then. Without the section, as upstream.
+    // HS2Engine (an [HS2Engine] section in the ini) and its CustomGameDLL release steer units
+    // with the keypad, whose keys send the arrow codes with NumLock off: only the real arrow
+    // keys (extended, lParam bit 24) pan then. Any other game dll, as upstream.
     static const bool hs2Engine = [] {
         char section[4] = { 0 };
         const std::string ini = GameIni::Path();
-        return !ini.empty() && GetPrivateProfileSectionA("HS2Engine", section, sizeof(section), ini.c_str()) > 0;
+        return DllVersionDetector::GetInstance().IsCustomGameDll() ||
+               (!ini.empty() && GetPrivateProfileSectionA("HS2Engine", section, sizeof(section), ini.c_str()) > 0);
     }();
     const auto setPanKey = [&zoom, a3, a4](bool pressed)
         {
