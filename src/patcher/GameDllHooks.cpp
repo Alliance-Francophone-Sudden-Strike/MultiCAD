@@ -5,6 +5,7 @@
 #include "types.h"
 #include "ZoomIndicator.h"
 #include "WorldIsolationTraits.h"
+#include "GameIni.h"
 
 #include <bit>
 
@@ -5385,8 +5386,18 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
             *mouseY = HIWORD(a4);
         };
 
-    const auto setPanKey = [&zoom, a3](bool pressed)
+    // HS2Engine (an [HS2Engine] section in the ini) steers units with the keypad, whose keys
+    // send the arrow codes with NumLock off: only the real arrow keys (extended, lParam
+    // bit 24) pan then. Without the section, as upstream.
+    static const bool hs2Engine = [] {
+        char section[4] = { 0 };
+        const std::string ini = GameIni::Path();
+        return !ini.empty() && GetPrivateProfileSectionA("HS2Engine", section, sizeof(section), ini.c_str()) > 0;
+    }();
+    const auto setPanKey = [&zoom, a3, a4](bool pressed)
         {
+            if (hs2Engine && !(a4 & (1 << 24)))
+                return;
             switch (a3)
             {
             case VK_LEFT:  zoom.setPanDirection(Zoom::State::PanLeft, pressed); break;
