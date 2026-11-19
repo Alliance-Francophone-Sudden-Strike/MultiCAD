@@ -7,21 +7,24 @@
 
 namespace Zoom
 {
-    inline float IndicatorLevelFraction(float scale, int dot)
+    // Dot 0 is the top level (maxScale); each dot below is one wheel step (step quarters) lower.
+    inline float IndicatorLevelFraction(float scale, int dot, int maxScale = kMaxScale, int step = 1)
     {
-        return std::clamp(scale - (kMaxScale - dot) + 1.f, 0.f, 1.f);
+        return std::clamp((scale - (maxScale - dot * step)) / step + 1.f, 0.f, 1.f);
     }
 
-    inline float IndicatorLevelPeakFraction(float scale, int dot)
+    inline float IndicatorLevelPeakFraction(float scale, int dot, int maxScale = kMaxScale, int step = 1)
     {
-        return std::clamp(1.f - std::abs(scale - (kMaxScale - dot)), 0.f, 1.f);
+        return std::clamp(1.f - std::abs(scale - (maxScale - dot * step)) / step, 0.f, 1.f);
     }
 
     inline void DrawIndicatorSquares16(
         uint16_t* destination, int pitch, int width, int height, float scale, bool right,
-        int opacity = 16, int quarters = PanelScale::kMinQuarters)
+        int opacity = 16, int quarters = PanelScale::kMinQuarters, int maxScale = kMaxScale, int step = 1)
     {
-        constexpr int dots = kMaxScale - kMinScale + 1;
+        maxScale = std::clamp(maxScale, kMaxScale, kLimitScale);
+        step = std::max(step, 1);
+        const int dots = (maxScale - kMinScale) / step + 1;
         const int size = PanelScale::Size(12, quarters);
         const int gap = PanelScale::Size(8, quarters);
         constexpr int margin = 12;
@@ -34,12 +37,12 @@ namespace Zoom
         if (!destination || left < 0 || top < 0 || left + size > width || top + totalHeight > height)
             return;
 
-        scale = std::clamp(scale, static_cast<float>(kMinScale), static_cast<float>(kMaxScale));
+        scale = std::clamp(scale, static_cast<float>(kMinScale), static_cast<float>(maxScale));
         opacity = std::clamp(opacity, 0, 16);
 
         for (int dot = 0; dot < dots; ++dot)
         {
-            const int levelT = static_cast<int>(IndicatorLevelFraction(scale, dot) * 16.f + 0.5f);
+            const int levelT = static_cast<int>(IndicatorLevelFraction(scale, dot, maxScale, step) * 16.f + 0.5f);
             const uint16_t borderColor = Blend565(outline, fill, levelT);
             const int y = top + dot * (size + gap);
 
@@ -56,9 +59,11 @@ namespace Zoom
 
     inline void DrawIndicatorBars16(
         uint16_t* destination, int pitch, int width, int height, float scale, bool right,
-        int opacity = 16, int quarters = PanelScale::kMinQuarters)
+        int opacity = 16, int quarters = PanelScale::kMinQuarters, int maxScale = kMaxScale, int step = 1)
     {
-        constexpr int dots = kMaxScale - kMinScale + 1;
+        maxScale = std::clamp(maxScale, kMaxScale, kLimitScale);
+        step = std::max(step, 1);
+        const int dots = (maxScale - kMinScale) / step + 1;
         const int thickness = PanelScale::Size(2, quarters);
         const int gap = PanelScale::Size(18, quarters);
         const int shortLen = PanelScale::Size(14, quarters);
@@ -75,12 +80,12 @@ namespace Zoom
         if (!destination || top < 0 || top + totalHeight > height || leftEdge < 0 || rightEdge > width)
             return;
 
-        scale = std::clamp(scale, static_cast<float>(kMinScale), static_cast<float>(kMaxScale));
+        scale = std::clamp(scale, static_cast<float>(kMinScale), static_cast<float>(maxScale));
         opacity = std::clamp(opacity, 0, 16);
 
         for (int dot = 0; dot < dots; ++dot)
         {
-            const float fraction = IndicatorLevelPeakFraction(scale, dot);
+            const float fraction = IndicatorLevelPeakFraction(scale, dot, maxScale, step);
             const int len = shortLen + static_cast<int>((longLen - shortLen) * fraction + 0.5f);
             const uint16_t color = Blend565(outline, fill, static_cast<int>(fraction * 16.f + 0.5f));
             const int y = top + dot * (thickness + gap);
@@ -97,11 +102,12 @@ namespace Zoom
 
     inline void DrawIndicator16(
         IndicatorShape shape, uint16_t* destination, int pitch, int width, int height, float scale,
-        bool right, int opacity = 16, int quarters = PanelScale::kMinQuarters)
+        bool right, int opacity = 16, int quarters = PanelScale::kMinQuarters, int maxScale = kMaxScale,
+        int step = 1)
     {
         if (shape == IndicatorShape::Bars)
-            DrawIndicatorBars16(destination, pitch, width, height, scale, right, opacity, quarters);
+            DrawIndicatorBars16(destination, pitch, width, height, scale, right, opacity, quarters, maxScale, step);
         else
-            DrawIndicatorSquares16(destination, pitch, width, height, scale, right, opacity, quarters);
+            DrawIndicatorSquares16(destination, pitch, width, height, scale, right, opacity, quarters, maxScale, step);
     }
 }

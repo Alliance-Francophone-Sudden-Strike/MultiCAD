@@ -622,33 +622,33 @@ int main()
     smooth.setMode(Mode::On);
     smooth.setSmooth(true);
     smooth.setBattlefield({ 0, 0, 1600, 800 });
-    assert(smooth.addWheelDelta(120) && smooth.scale() == 5);
+    assert(smooth.addWheelDelta(120) && smooth.scale() == 6);
     assert(smooth.fineScale() == kMinFineScale && smooth.animating() && smooth.zoomed());
     smooth.updatePan(0, 0, 1000); // starts the clock
     assert(smooth.fineScale() == kMinFineScale);
     smooth.updatePan(0, 0, 1000 + kSmoothZoomMs / 2);
     const int half = smooth.fineScale();
-    assert(half > kMinFineScale + kFineSteps / 2 && half < 5 * kFineSteps); // ease-out: past halfway
+    assert(half > kMinFineScale + kFineSteps && half < 6 * kFineSteps); // ease-out: past halfway
     assert(smooth.transform().source.width == ViewportExtentFine(1600, half));
     assert(std::abs(smooth.animatedScale() - half / static_cast<float>(kFineSteps)) < 0.001f);
     smooth.updatePan(0, 0, 1000 + kSmoothZoomMs);
-    assert(smooth.fineScale() == 5 * kFineSteps && !smooth.animating());
+    assert(smooth.fineScale() == 6 * kFineSteps && !smooth.animating());
     smooth.updatePan(0, 0, 1000 + 2 * kSmoothZoomMs);
-    assert(smooth.fineScale() == 5 * kFineSteps);
+    assert(smooth.fineScale() == 6 * kFineSteps);
 
     // A new step during the movement starts again from the scale on screen.
-    assert(smooth.addWheelDelta(120) && smooth.scale() == 6);
+    assert(smooth.addWheelDelta(120) && smooth.scale() == 8);
     smooth.updatePan(0, 0, 2000);
     smooth.updatePan(0, 0, 2000 + kSmoothZoomMs / 3);
     const int partway = smooth.fineScale();
-    assert(partway > 5 * kFineSteps && partway < 6 * kFineSteps);
-    assert(smooth.addWheelDelta(120) && smooth.scale() == 7);
+    assert(partway > 6 * kFineSteps && partway < 8 * kFineSteps);
+    assert(smooth.addWheelDelta(120) && smooth.scale() == 10);
     smooth.updatePan(0, 0, 2100);
     assert(smooth.fineScale() == partway);
     smooth.updatePan(0, 0, 2100 + kSmoothZoomMs - 1);
-    assert(smooth.fineScale() > 6 * kFineSteps && smooth.fineScale() <= 7 * kFineSteps);
+    assert(smooth.fineScale() > 8 * kFineSteps && smooth.fineScale() <= 10 * kFineSteps);
     smooth.updatePan(0, 0, 2100 + kSmoothZoomMs);
-    assert(smooth.fineScale() == 7 * kFineSteps);
+    assert(smooth.fineScale() == 10 * kFineSteps);
 
     // The middle button goes back to 1x smoothly and forgets the pan at the end.
     smooth.setPanDirection(State::PanLeft, true);
@@ -672,25 +672,90 @@ int main()
     anchored.setZoomOnCursor(true);
     anchored.setBattlefield({ 0, 0, 1600, 800 });
     anchored.setPointer(1200, 600);
-    assert(anchored.addWheelDelta(480) && anchored.scale() == kMaxScale);
+    assert(anchored.addWheelDelta(480) && anchored.scale() == kLimitScale);
     for (uint32_t t = 0; t <= kSmoothZoomMs; t += 10)
     {
         anchored.updatePan(0, 0, 5000 + t);
         anchored.markPresented();
         assert(std::abs(anchored.mapX(1200) - 1200) <= 2 && std::abs(anchored.mapY(600) - 600) <= 2);
     }
-    assert(anchored.fineScale() == kMaxFineScale);
+    assert(anchored.fineScale() == kLimitScale * kFineSteps);
 
     // The camera speed follows the scale on screen: at 2x, half.
     State speed;
     speed.setMode(Mode::On);
     speed.setSmooth(true);
     speed.setBattlefield({ 0, 0, 1600, 800 });
-    speed.addWheelDelta(480);
+    speed.addWheelDelta(240); // 2x
     speed.updatePan(0, 0, 0);
     speed.updatePan(0, 0, kSmoothZoomMs);
     speed.markPresented();
     int dx = 8, dy = -8;
     speed.scaleCameraMovement(dx, dy);
     assert(dx == 4 && dy == -4);
+
+    // HS2Engine's range: 1x to 3x in steps of 0.5x.
+    State far;
+    far.setMode(Mode::On);
+    far.setSmooth(true);
+    assert(far.maxScale() == kLimitScale && far.stepScale() == 2);
+    far.setBattlefield({ 0, 0, 1920, 1080 });
+    assert(far.addWheelDelta(120) && far.scale() == 6);
+    assert(far.addWheelDelta(120 * 10) && far.scale() == kLimitScale);
+    far.updatePan(0, 0, 0);
+    far.updatePan(0, 0, kSmoothZoomMs);
+    assert(far.transform().source.width == 640 && far.transform().source.height == 360);
+    assert(far.addWheelDelta(-120) && far.scale() == 10);
+    far.setSmooth(false);
+    assert(far.maxScale() == kMaxScale && far.stepScale() == 1 && far.scale() == kMinScale);
+
+    // Smooth zoom out retraces the zoom in, wherever the cursor is now: the point the
+    // zoom in was centred on stays still, and 1x is reached without a slide.
+    State retrace;
+    retrace.setMode(Mode::On);
+    retrace.setSmooth(true);
+    retrace.setZoomOnCursor(true);
+    retrace.setBattlefield({ 0, 0, 1600, 800 });
+    retrace.setPointer(1200, 600);
+    assert(retrace.addWheelDelta(120 * 8) && retrace.scale() == kLimitScale);
+    retrace.updatePan(0, 0, 6000);
+    retrace.updatePan(0, 0, 6000 + kSmoothZoomMs);
+    assert(retrace.fineScale() == kLimitScale * kFineSteps);
+    retrace.setPointer(100, 100); // the opposite corner
+    for (int step = 0; step < (kLimitScale - kMinScale) / 2; ++step)
+    {
+        assert(retrace.addWheelDelta(-120));
+        const uint32_t start = 7000 + step * 1000;
+        for (uint32_t t = 0; t <= kSmoothZoomMs; t += 10)
+        {
+            retrace.updatePan(0, 0, start + t);
+            retrace.markPresented();
+            assert(std::abs(retrace.mapX(1200) - 1200) <= 3 && std::abs(retrace.mapY(600) - 600) <= 3);
+        }
+    }
+    assert(retrace.fineScale() == kMinFineScale && !retrace.zoomed());
+    assert(retrace.transform().source.x == 0 && retrace.transform().source.width == 1600);
+
+    // Steps (upstream) keep zooming out around the cursor.
+    State steppedOut;
+    steppedOut.setMode(Mode::On);
+    steppedOut.setZoomOnCursor(true);
+    steppedOut.setBattlefield({ 0, 0, 100, 80 });
+    steppedOut.setPointer(99, 79);
+    assert(steppedOut.addWheelDelta(480));
+    steppedOut.setPointer(0, 0);
+    assert(steppedOut.addWheelDelta(-120) && steppedOut.scale() == 7);
+    assert(steppedOut.transform().source.x == 43); // the cursor anchor clamps: a slide
+
+    // The indicator shows one level for each wheel step: five for 1x to 3x by 0.5x.
+    std::vector<uint16_t> tall(64 * 400, 0);
+    DrawIndicatorSquares16(tall.data(), 64, 64, 400, static_cast<float>(kLimitScale), false, 16,
+        PanelScale::kMinQuarters, kLimitScale, 2);
+    int lit = 0;
+    for (int y = 0; y < 400; ++y)
+        lit += tall[y * 64 + 18] != 0;
+    assert(lit == 5 * 12);
+    assert(IndicatorLevelFraction(10.f, 1, kLimitScale, 2) == 1.f);  // 2.5x lights its dot
+    assert(IndicatorLevelFraction(10.f, 0, kLimitScale, 2) == 0.f);  // not the 3x one
+    assert(IndicatorLevelFraction(11.f, 0, kLimitScale, 2) == 0.5f); // halfway to 3x
 }

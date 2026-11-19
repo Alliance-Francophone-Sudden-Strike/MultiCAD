@@ -1788,7 +1788,9 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
             zoom.animatedScale(),
             zoom.indicatorAnchor() == Zoom::IndicatorAnchor::Right,
             zoom.indicatorOpacity(indicatorTick),
-            zoom.indicatorScaleQuarters());
+            zoom.indicatorScaleQuarters(),
+            zoom.maxScale(),
+            zoom.stepScale());
 
     // A panel keeps its whole image in its own sprite buffer - that is what the
     // incremental path blits its dirty tiles from - so repaint it from there.

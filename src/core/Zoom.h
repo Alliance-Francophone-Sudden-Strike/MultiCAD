@@ -166,7 +166,8 @@ namespace Zoom
     };
 
     constexpr int kMinScale = 4; // quarter units: 4 == 1x
-    constexpr int kMaxScale = 8; // 8 == 2x
+    constexpr int kMaxScale = 8; // 8 == 2x, the upstream limit
+    constexpr int kLimitScale = 12; // 12 == 3x, the HS2Engine limit
     constexpr int kReferenceFrameUs = 1'000'000 / 60;
     constexpr uint32_t kIndicatorHoldMs = 1500;
     constexpr uint32_t kIndicatorFadeMs = 250;
@@ -177,7 +178,7 @@ namespace Zoom
     // 16q exactly, and every size below comes out the same for both.
     constexpr int kFineSteps = 16;
     constexpr int kMinFineScale = kMinScale * kFineSteps;
-    constexpr int kMaxFineScale = kMaxScale * kFineSteps;
+    constexpr int kMaxFineScale = kLimitScale * kFineSteps;
     constexpr uint32_t kSmoothZoomMs = 150; // one wheel step
 
     constexpr int ViewportExtentFine(int nativeExtent, int fineScale)
@@ -187,7 +188,7 @@ namespace Zoom
 
     constexpr int ViewportExtent(int nativeExtent, int scale)
     {
-        return ViewportExtentFine(nativeExtent, std::clamp(scale, kMinScale, kMaxScale) * kFineSteps);
+        return ViewportExtentFine(nativeExtent, std::clamp(scale, kMinScale, kLimitScale) * kFineSteps);
     }
 
     inline Transform MakeTransformFine(Rect battlefield, int fineScale, int panX = 0, int panY = 0)
@@ -209,7 +210,7 @@ namespace Zoom
 
     inline Transform MakeTransform(Rect battlefield, int scale = kMinScale, int panX = 0, int panY = 0)
     {
-        return MakeTransformFine(battlefield, std::clamp(scale, kMinScale, kMaxScale) * kFineSteps, panX, panY);
+        return MakeTransformFine(battlefield, std::clamp(scale, kMinScale, kLimitScale) * kFineSteps, panX, panY);
     }
 
     constexpr size_t ScaleScratchSize(size_t destinationWidth)
@@ -328,9 +329,18 @@ namespace Zoom
         int presentedFineScale() const { return presentedFine_; }
         bool zoomed() const { return scale_ != kMinScale || fineScale_ != kMinFineScale; }
         bool animating() const { return animating_; }
-        // Smooth: a wheel step moves the scale over kSmoothZoomMs. Off: it jumps (upstream).
-        void setSmooth(bool smooth) { smooth_ = smooth; }
+        // HS2Engine's zoom: 1x to 3x in steps of 0.5x, each step moving over kSmoothZoomMs.
+        // Off: 1x to 2x in steps of 0.25x that jump (upstream).
+        void setSmooth(bool smooth)
+        {
+            smooth_ = smooth;
+            maxScale_ = smooth ? kLimitScale : kMaxScale;
+            stepScale_ = smooth ? 2 : 1;
+            resetScale();
+        }
         bool smooth() const { return smooth_; }
+        int maxScale() const { return maxScale_; }   // quarters
+        int stepScale() const { return stepScale_; } // quarters for each wheel step
         bool dragging() const { return dragButtons_ != 0; }
         bool battlefieldDragging() const { return battlefieldDragButtons_ != 0; }
         IndicatorAnchor indicatorAnchor() const { return indicatorAnchor_; }
@@ -560,12 +570,12 @@ namespace Zoom
             const int oldScale = scale_;
             while (wheelRemainder_ >= 120)
             {
-                scale_ = std::min(scale_ + 1, kMaxScale);
+                scale_ = std::min(scale_ + stepScale_, maxScale_);
                 wheelRemainder_ -= 120;
             }
             while (wheelRemainder_ <= -120)
             {
-                scale_ = std::max(scale_ - 1, kMinScale);
+                scale_ = std::max(scale_ - stepScale_, kMinScale);
                 wheelRemainder_ += 120;
             }
             if (scale_ == oldScale)
@@ -862,6 +872,8 @@ namespace Zoom
         int fineScale_{ kMinFineScale };
         int presentedFine_{ kMinFineScale };
         bool smooth_{};
+        int maxScale_{ kMaxScale };
+        int stepScale_{ 1 };
         bool animating_{};
         bool animStarted_{};
         int animFrom_{ kMinFineScale };
@@ -1016,8 +1028,33 @@ namespace Zoom
                 return;
             const int oldFineScale = fineScale_;
             fineScale_ = fineScale;
-            if (zoomOnCursor_)
+            if (smooth_ && fineScale < oldFineScale)
+                anchorPanToVanishingPoint(oldFineScale);
+            else if (zoomOnCursor_)
                 anchorPanToPointer(oldFineScale);
+        }
+
+        // Zooming out around the point that stays still all the way to 1x: for a crop at
+        // offset o with margin m, the point o * extent / m. A step around it keeps it the
+        // same point (o' = o * m' / m), so the zoom out ends at 1x without a slide, and it
+        // retraces the zoom in: after a zoom in on the cursor at c, that point is c.
+        void anchorPanToVanishingPoint(int oldFineScale)
+        {
+            const auto anchor = [oldFineScale, this](int& pan, int extent)
+            {
+                const int oldMargin = extent - ViewportExtentFine(extent, oldFineScale);
+                const int margin = extent - ViewportExtentFine(extent, fineScale_);
+                if (oldMargin <= 0 || margin <= 0)
+                {
+                    pan = 0;
+                    return;
+                }
+                const int offset = std::clamp(oldMargin / 2 + pan, 0, oldMargin);
+                pan = (offset * margin + oldMargin / 2) / oldMargin - margin / 2;
+            };
+
+            anchor(panX_, battlefield_.width);
+            anchor(panY_, battlefield_.height);
         }
 
         void advanceIndicatorAnimation(uint32_t tick)
