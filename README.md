@@ -66,6 +66,8 @@ _Added by this AF version of the MultiCAD. Disabled by default._
 
 Zoom into the battlefield with the **mouse wheel**, from 1x up to 2x in four steps.
 
+With HS2Engine (an `[HS2Engine]` section in the ini) or its AF release `Game_Dll.dll`, each wheel step moves smoothly, in 150 ms, and the middle button goes back to 1x the same way. Every other game keeps the four steps.
+
 > ```ini
 > [Game]
 > Zoom=on

@@ -123,6 +123,8 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     Zoom::GetState().setPersistentIndicator(Screen::GetPersistentZoomIndicator());
     Zoom::GetState().setInvertZoom(Screen::GetInvertZoom());
     Zoom::GetState().setZoomOnCursor(Screen::GetZoomOnCursor());
+    // The smooth zoom is HS2Engine's; any other game keeps the upstream steps.
+    Zoom::GetState().setSmooth(GameDllHooks::hs2EngineGame());
     SetRenderThreads(Screen::GetRenderThreads());
     g_frameStats = Screen::GetFrameStats();
 

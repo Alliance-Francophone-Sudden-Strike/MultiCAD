@@ -1726,8 +1726,8 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     const int height = data.surfaceHeight;
 
     if (zoom.mode() == Zoom::Mode::Off ||
-        (!zoom.indicatorPending() && zoom.scale() == Zoom::kMinScale &&
-            zoom.presentedScale() == Zoom::kMinScale) ||
+        (!zoom.indicatorPending() && !zoom.zoomed() &&
+            zoom.presentedFineScale() == Zoom::kMinFineScale) ||
         !g_moduleState || !g_moduleState->surface.renderer ||
         width != Screen::width_ || height != Screen::height_ ||
         (width & 15) != 0 || (height & 7) != 0 ||
@@ -1753,7 +1753,13 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     g_moduleState->pitch = width * sizeof(Pixel);
     const bool wasSuppressed = g_surfaceRepairSuppressed;
     g_surfaceRepairSuppressed = true;
-    copyMainSurfaceToRendererWithWarFog(0, 0, width - 1, height - 1);
+    // Only the source of the transform reaches the screen. The fog works in 16x8 blocks, so
+    // widen the rect to them (the surface size is a multiple of both, checked above).
+    const int copyLeft = transform.source.x & ~15;
+    const int copyTop = transform.source.y & ~7;
+    const int copyRight = std::min(width, (transform.source.x + transform.source.width + 15) & ~15);
+    const int copyBottom = std::min(height, (transform.source.y + transform.source.height + 7) & ~7);
+    copyMainSurfaceToRendererWithWarFog(copyLeft, copyTop, copyRight - 1, copyBottom - 1);
     g_surfaceRepairSuppressed = wasSuppressed;
     g_moduleState->surface.renderer = renderer;
     g_moduleState->pitch = pitch;
@@ -3577,8 +3583,8 @@ void __declspec(noinline) __fastcall GameDllHooks::drawMinimapViewportRect(
     UiElementBase* self, void* /*dummy*/, int x, int y, int width, int height, int color)
 {
     Zoom::State& zoom = Zoom::GetState();
-    const int scaledWidth = Zoom::ViewportExtent(width, zoom.scale());
-    const int scaledHeight = Zoom::ViewportExtent(height, zoom.scale());
+    const int scaledWidth = Zoom::ViewportExtentFine(width, zoom.fineScale());
+    const int scaledHeight = Zoom::ViewportExtentFine(height, zoom.fineScale());
     x += zoom.viewportOffsetX(width);
     y += zoom.viewportOffsetY(height);
 
@@ -4352,8 +4358,8 @@ void GameDllHooks::drawFogOnStrategicMap(UiStrategicMapElement* mapData, const F
     const int nativeLeft = static_cast<int>(mapData->screenSurfaceWidth / 2 + data.mapPosX / scale);
     const int nativeBottom = static_cast<int>(mapData->verticalCenterMargin + data.mapPosY / scale);
     Zoom::State& zoom = Zoom::GetState();
-    const int rectWidth = Zoom::ViewportExtent(nativeRectWidth, zoom.scale());
-    const int rectHeight = Zoom::ViewportExtent(nativeRectHeight, zoom.scale());
+    const int rectWidth = Zoom::ViewportExtentFine(nativeRectWidth, zoom.fineScale());
+    const int rectHeight = Zoom::ViewportExtentFine(nativeRectHeight, zoom.fineScale());
 
     int left = nativeLeft + zoom.viewportOffsetX(nativeRectWidth);
     int right = left + rectWidth - 1;
@@ -4416,8 +4422,8 @@ void GameDllHooks::drawScreenRectOnStrategicMap(UiStrategicMapElement* mapData, 
 
     auto drawRect = [&](int centerX, int centerY)
         {
-            const int rectWidth = Zoom::ViewportExtent(nativeRectWidth, zoom.scale());
-            const int rectHeight = Zoom::ViewportExtent(nativeRectHeight, zoom.scale());
+            const int rectWidth = Zoom::ViewportExtentFine(nativeRectWidth, zoom.fineScale());
+            const int rectHeight = Zoom::ViewportExtentFine(nativeRectHeight, zoom.fineScale());
 
             int left = static_cast<int>(width / 2 + centerX / scale) +
                 zoom.viewportOffsetX(nativeRectWidth);
@@ -5324,7 +5330,7 @@ bool GameDllHooks::areaOwnsPoint(UiEventArea* areas, UiEventArea* area, int x, i
     if (x < r.x || y < r.y || x >= r.x + r.width || y >= r.y + r.height)
         return false;
 
-    if (Zoom::GetState().scale() != Zoom::kMinScale && area->tag == 'FILD' &&
+    if (Zoom::GetState().zoomed() && area->tag == 'FILD' &&
         !Zoom::GetState().battlefieldDragging() &&
         battlefieldAt(areas, x, y, eventTag) != area)
         return false;
@@ -5353,6 +5359,16 @@ GameDllHooks::UiEventArea* GameDllHooks::battlefieldAt(UiEventArea* areas, int x
         }
     }
     return battlefield;
+}
+
+// HS2Engine (an [HS2Engine] section in the ini) or its CustomGameDLL release. Their own
+// behaviour keys on this; any other game dll stays as upstream.
+bool GameDllHooks::hs2EngineGame()
+{
+    char section[4] = { 0 };
+    const std::string ini = GameIni::Path();
+    return DllVersionDetector::GetInstance().IsCustomGameDll() ||
+           (!ini.empty() && GetPrivateProfileSectionA("HS2Engine", section, sizeof(section), ini.c_str()) > 0);
 }
 
 int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const DispatchWndMessageData& data)
@@ -5390,12 +5406,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
     // HS2Engine (an [HS2Engine] section in the ini) and its CustomGameDLL release steer units
     // with the keypad, whose keys send the arrow codes with NumLock off: only the real arrow
     // keys (extended, lParam bit 24) pan then. Any other game dll, as upstream.
-    static const bool hs2Engine = [] {
-        char section[4] = { 0 };
-        const std::string ini = GameIni::Path();
-        return DllVersionDetector::GetInstance().IsCustomGameDll() ||
-               (!ini.empty() && GetPrivateProfileSectionA("HS2Engine", section, sizeof(section), ini.c_str()) > 0);
-    }();
+    static const bool hs2Engine = hs2EngineGame();
     const auto setPanKey = [&zoom, a3, a4](bool pressed)
         {
             if (hs2Engine && !(a4 & (1 << 24)))
@@ -5530,7 +5541,7 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
                 if (UiEventArea* area = battlefieldAt(data.uiEventAreas, *mouseX, *mouseY))
                 {
                     zoom.setBattlefield({ area->x, area->y, area->width, area->height });
-                    zoom.resetScale();
+                    zoom.zoomOutFully();
                     zoom.noteZoomInput(GetTickCount());
                 }
             }

@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cassert>
+#include <cstdlib>
 #include <vector>
 
 void ParallelRows(int begin, int end, int, const std::function<void(int, int)>& fn)
@@ -598,4 +599,98 @@ int main()
     assert(trackedBack == originalBack);
     assert(!isolation.trackingWorldWrites());
 
+
+    // Fine units: a quarter scale gives the same sizes as its fine scale.
+    for (int extent : { 1, 7, 100, 1080, 1920, 3840 })
+        for (int scale = kMinScale; scale <= kMaxScale; ++scale)
+            assert(ViewportExtentFine(extent, scale * kFineSteps) == ViewportExtent(extent, scale));
+    for (int scale = kMinScale; scale <= kMaxScale; ++scale)
+    {
+        const Transform a = MakeTransform({ 10, 20, 100, 80 }, scale, 3, -2);
+        const Transform b = MakeTransformFine({ 10, 20, 100, 80 }, scale * kFineSteps, 3, -2);
+        assert(a.source.x == b.source.x && a.source.y == b.source.y &&
+            a.source.width == b.source.width && a.source.height == b.source.height);
+    }
+
+    // Steps (upstream): the fine scale jumps with the wheel.
+    State stepped;
+    stepped.setMode(Mode::On);
+    assert(stepped.addWheelDelta(120) && stepped.fineScale() == 5 * kFineSteps && !stepped.animating());
+
+    // Smooth: one wheel step moves over kSmoothZoomMs, eased out, then settles.
+    State smooth;
+    smooth.setMode(Mode::On);
+    smooth.setSmooth(true);
+    smooth.setBattlefield({ 0, 0, 1600, 800 });
+    assert(smooth.addWheelDelta(120) && smooth.scale() == 5);
+    assert(smooth.fineScale() == kMinFineScale && smooth.animating() && smooth.zoomed());
+    smooth.updatePan(0, 0, 1000); // starts the clock
+    assert(smooth.fineScale() == kMinFineScale);
+    smooth.updatePan(0, 0, 1000 + kSmoothZoomMs / 2);
+    const int half = smooth.fineScale();
+    assert(half > kMinFineScale + kFineSteps / 2 && half < 5 * kFineSteps); // ease-out: past halfway
+    assert(smooth.transform().source.width == ViewportExtentFine(1600, half));
+    assert(std::abs(smooth.animatedScale() - half / static_cast<float>(kFineSteps)) < 0.001f);
+    smooth.updatePan(0, 0, 1000 + kSmoothZoomMs);
+    assert(smooth.fineScale() == 5 * kFineSteps && !smooth.animating());
+    smooth.updatePan(0, 0, 1000 + 2 * kSmoothZoomMs);
+    assert(smooth.fineScale() == 5 * kFineSteps);
+
+    // A new step during the movement starts again from the scale on screen.
+    assert(smooth.addWheelDelta(120) && smooth.scale() == 6);
+    smooth.updatePan(0, 0, 2000);
+    smooth.updatePan(0, 0, 2000 + kSmoothZoomMs / 3);
+    const int partway = smooth.fineScale();
+    assert(partway > 5 * kFineSteps && partway < 6 * kFineSteps);
+    assert(smooth.addWheelDelta(120) && smooth.scale() == 7);
+    smooth.updatePan(0, 0, 2100);
+    assert(smooth.fineScale() == partway);
+    smooth.updatePan(0, 0, 2100 + kSmoothZoomMs - 1);
+    assert(smooth.fineScale() > 6 * kFineSteps && smooth.fineScale() <= 7 * kFineSteps);
+    smooth.updatePan(0, 0, 2100 + kSmoothZoomMs);
+    assert(smooth.fineScale() == 7 * kFineSteps);
+
+    // The middle button goes back to 1x smoothly and forgets the pan at the end.
+    smooth.setPanDirection(State::PanLeft, true);
+    smooth.updatePan(0, 0, 3000);
+    smooth.updatePan(0, 0, 3016);
+    smooth.setPanDirection(State::PanLeft, false);
+    smooth.zoomOutFully();
+    assert(smooth.scale() == kMinScale && smooth.zoomed());
+    smooth.updatePan(0, 0, 4000);
+    smooth.updatePan(0, 0, 4000 + kSmoothZoomMs / 2);
+    assert(smooth.fineScale() > kMinFineScale && smooth.zoomed());
+    smooth.updatePan(0, 0, 4000 + kSmoothZoomMs);
+    assert(smooth.fineScale() == kMinFineScale && !smooth.zoomed());
+    assert(smooth.transform().source.x == 0 && smooth.transform().source.width == 1600);
+    assert(smooth.viewportOffsetX(1600) == 0);
+
+    // Zoom on the cursor: the point under the pointer stays there during the movement.
+    State anchored;
+    anchored.setMode(Mode::On);
+    anchored.setSmooth(true);
+    anchored.setZoomOnCursor(true);
+    anchored.setBattlefield({ 0, 0, 1600, 800 });
+    anchored.setPointer(1200, 600);
+    assert(anchored.addWheelDelta(480) && anchored.scale() == kMaxScale);
+    for (uint32_t t = 0; t <= kSmoothZoomMs; t += 10)
+    {
+        anchored.updatePan(0, 0, 5000 + t);
+        anchored.markPresented();
+        assert(std::abs(anchored.mapX(1200) - 1200) <= 2 && std::abs(anchored.mapY(600) - 600) <= 2);
+    }
+    assert(anchored.fineScale() == kMaxFineScale);
+
+    // The camera speed follows the scale on screen: at 2x, half.
+    State speed;
+    speed.setMode(Mode::On);
+    speed.setSmooth(true);
+    speed.setBattlefield({ 0, 0, 1600, 800 });
+    speed.addWheelDelta(480);
+    speed.updatePan(0, 0, 0);
+    speed.updatePan(0, 0, kSmoothZoomMs);
+    speed.markPresented();
+    int dx = 8, dy = -8;
+    speed.scaleCameraMovement(dx, dy);
+    assert(dx == 4 && dy == -4);
 }

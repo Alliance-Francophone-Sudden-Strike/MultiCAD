@@ -1331,6 +1331,7 @@ private:
 
 public:
     static void configureWorldIsolation(GameVersion version);
+    static bool hs2EngineGame();
     static void shutdown()
     {
         configureWorldIsolation(GameVersion::UNKNOWN);

@@ -172,16 +172,28 @@ namespace Zoom
     constexpr uint32_t kIndicatorFadeMs = 250;
     constexpr uint32_t kIndicatorAnimMs = 1;
 
-    constexpr int ViewportExtent(int nativeExtent, int scale)
+    // The smooth zoom moves between the quarter steps in fine units: 16 per
+    // quarter, so 64 == 1x and 128 == 2x. A quarter scale q is the fine scale
+    // 16q exactly, and every size below comes out the same for both.
+    constexpr int kFineSteps = 16;
+    constexpr int kMinFineScale = kMinScale * kFineSteps;
+    constexpr int kMaxFineScale = kMaxScale * kFineSteps;
+    constexpr uint32_t kSmoothZoomMs = 150; // one wheel step
+
+    constexpr int ViewportExtentFine(int nativeExtent, int fineScale)
     {
-        return std::max(1, nativeExtent * kMinScale / std::clamp(scale, kMinScale, kMaxScale));
+        return std::max(1, nativeExtent * kMinFineScale / std::clamp(fineScale, kMinFineScale, kMaxFineScale));
     }
 
-    inline Transform MakeTransform(Rect battlefield, int scale = kMinScale, int panX = 0, int panY = 0)
+    constexpr int ViewportExtent(int nativeExtent, int scale)
     {
-        scale = std::clamp(scale, kMinScale, kMaxScale);
-        const int width = std::max(1, battlefield.width * kMinScale / scale);
-        const int height = std::max(1, battlefield.height * kMinScale / scale);
+        return ViewportExtentFine(nativeExtent, std::clamp(scale, kMinScale, kMaxScale) * kFineSteps);
+    }
+
+    inline Transform MakeTransformFine(Rect battlefield, int fineScale, int panX = 0, int panY = 0)
+    {
+        const int width = ViewportExtentFine(battlefield.width, fineScale);
+        const int height = ViewportExtentFine(battlefield.height, fineScale);
         const int marginX = battlefield.width - width;
         const int marginY = battlefield.height - height;
         return {
@@ -193,6 +205,11 @@ namespace Zoom
             },
             battlefield
         };
+    }
+
+    inline Transform MakeTransform(Rect battlefield, int scale = kMinScale, int panX = 0, int panY = 0)
+    {
+        return MakeTransformFine(battlefield, std::clamp(scale, kMinScale, kMaxScale) * kFineSteps, panX, panY);
     }
 
     constexpr size_t ScaleScratchSize(size_t destinationWidth)
@@ -306,6 +323,14 @@ namespace Zoom
         Mode mode() const { return mode_; }
         int scale() const { return scale_; }
         int presentedScale() const { return presentedScale_; }
+        // The scale on screen now, in fine units; scale() is where it is going.
+        int fineScale() const { return fineScale_; }
+        int presentedFineScale() const { return presentedFine_; }
+        bool zoomed() const { return scale_ != kMinScale || fineScale_ != kMinFineScale; }
+        bool animating() const { return animating_; }
+        // Smooth: a wheel step moves the scale over kSmoothZoomMs. Off: it jumps (upstream).
+        void setSmooth(bool smooth) { smooth_ = smooth; }
+        bool smooth() const { return smooth_; }
         bool dragging() const { return dragButtons_ != 0; }
         bool battlefieldDragging() const { return battlefieldDragButtons_ != 0; }
         IndicatorAnchor indicatorAnchor() const { return indicatorAnchor_; }
@@ -396,9 +421,10 @@ namespace Zoom
         }
         void updatePan(int cameraX, int cameraY, uint32_t tick)
         {
+            advanceScale(tick);
             advanceIndicatorAnimation(tick);
 
-            if (mode_ == Mode::Off || scale_ == kMinScale)
+            if (mode_ == Mode::Off || !zoomed())
             {
                 lastCameraStepX_ = 0;
                 lastCameraStepY_ = 0;
@@ -452,7 +478,7 @@ namespace Zoom
         }
         Transform transform() const
         {
-            return MakeTransform(battlefield_, scale_, panX_, panY_);
+            return MakeTransformFine(battlefield_, fineScale_, panX_, panY_);
         }
         Transform presentedTransform() const { return presented_; }
 
@@ -461,10 +487,10 @@ namespace Zoom
         // Report a change once so the caller can replay that notification.
         bool takeViewportChange()
         {
-            if (scale_ == notifiedScale_ && panX_ == notifiedPanX_ && panY_ == notifiedPanY_)
+            if (fineScale_ == notifiedScale_ && panX_ == notifiedPanX_ && panY_ == notifiedPanY_)
                 return false;
 
-            notifiedScale_ = scale_;
+            notifiedScale_ = fineScale_;
             notifiedPanX_ = panX_;
             notifiedPanY_ = panY_;
             return true;
@@ -474,6 +500,7 @@ namespace Zoom
         {
             presented_ = transform();
             presentedScale_ = scale_;
+            presentedFine_ = fineScale_;
             hasPresented_ = true;
         }
 
@@ -489,7 +516,7 @@ namespace Zoom
 
         void scaleCameraMovement(int& dx, int& dy, int frameUs = kReferenceFrameUs)
         {
-            const int movementScale = mode_ == Mode::Off ? kMinScale : presentedScale_;
+            const int movementScale = mode_ == Mode::Off ? kMinFineScale : presentedFine_;
             if (movementScale != cameraMovementScale_)
             {
                 cameraMovementScale_ = movementScale;
@@ -501,7 +528,7 @@ namespace Zoom
             const int64_t divisor = int64_t{ movementScale } * kReferenceFrameUs;
             const auto scaleDelta = [elapsed, divisor](int delta, int& remainder)
             {
-                const int64_t total = delta * kMinScale * elapsed + remainder;
+                const int64_t total = delta * kMinFineScale * elapsed + remainder;
                 remainder = static_cast<int>(total % divisor);
                 return static_cast<int>(total / divisor);
             };
@@ -544,9 +571,24 @@ namespace Zoom
             if (scale_ == oldScale)
                 return false;
 
-            if (zoomOnCursor_)
-                anchorPanToPointer(oldScale);
+            if (smooth_)
+                startScaleAnimation();
+            else
+                applyFineScale(scale_ * kFineSteps);
             return true;
+        }
+
+        // The middle button: back to 1x, smoothly when the zoom is smooth.
+        void zoomOutFully()
+        {
+            if (!smooth_)
+            {
+                resetScale();
+                return;
+            }
+            scale_ = kMinScale;
+            wheelRemainder_ = 0;
+            startScaleAnimation();
         }
 
         void reset()
@@ -558,12 +600,13 @@ namespace Zoom
             battlefield_ = {};
             presented_ = {};
             presentedScale_ = kMinScale;
+            presentedFine_ = kMinFineScale;
             hasPresented_ = false;
             presentationValid_ = false;
             routed_ = false;
             worldIsolated_ = false;
             indicatorActive_ = false;
-            cameraMovementScale_ = kMinScale;
+            cameraMovementScale_ = kMinFineScale;
             cameraRemainderX_ = 0;
             cameraRemainderY_ = 0;
         }
@@ -571,6 +614,8 @@ namespace Zoom
         void resetScale()
         {
             scale_ = kMinScale;
+            fineScale_ = kMinFineScale;
+            animating_ = false;
             wheelRemainder_ = 0;
             panX_ = 0;
             panY_ = 0;
@@ -814,8 +859,15 @@ namespace Zoom
         Rect battlefield_{};
         Transform presented_{};
         int presentedScale_{ kMinScale };
+        int fineScale_{ kMinFineScale };
+        int presentedFine_{ kMinFineScale };
+        bool smooth_{};
+        bool animating_{};
+        bool animStarted_{};
+        int animFrom_{ kMinFineScale };
+        uint32_t animStart_{};
         bool hasPresented_{};
-        int cameraMovementScale_{ kMinScale };
+        int cameraMovementScale_{ kMinFineScale };
         int cameraRemainderX_{};
         int cameraRemainderY_{};
         bool presentationValid_{};
@@ -834,7 +886,7 @@ namespace Zoom
         bool animValid_{};
         int panX_{};
         int panY_{};
-        int notifiedScale_{ kMinScale };
+        int notifiedScale_{ kMinFineScale };
         int notifiedPanX_{};
         int notifiedPanY_{};
         int panDirections_{};
@@ -911,8 +963,71 @@ namespace Zoom
         }
 
 
+        // A new step (or a new target during a movement) starts from the scale on
+        // screen; the first tick after it sets the clock.
+        void startScaleAnimation()
+        {
+            animating_ = true;
+            animStarted_ = false;
+        }
+
+        // Ease-out: fast at the start, so the wheel feels direct, slow at the end.
+        void advanceScale(uint32_t tick)
+        {
+            if (!animating_)
+                return;
+            if (!animStarted_)
+            {
+                animFrom_ = fineScale_;
+                animStart_ = tick;
+                animStarted_ = true;
+            }
+
+            const int target = scale_ * kFineSteps;
+            const uint32_t elapsed = tick - animStart_;
+            int next = target;
+            if (elapsed < kSmoothZoomMs)
+            {
+                const int64_t duration = kSmoothZoomMs;
+                const int64_t left = duration - elapsed;
+                next = animFrom_ + static_cast<int>(
+                    (target - animFrom_) * (duration * duration - left * left) / (duration * duration));
+            }
+            else
+            {
+                animating_ = false;
+            }
+            applyFineScale(next);
+
+            if (!animating_ && target == kMinFineScale)
+            {
+                panX_ = 0;
+                panY_ = 0;
+                lastCameraStepX_ = 0;
+                lastCameraStepY_ = 0;
+                cameraValid_ = false;
+            }
+        }
+
+        void applyFineScale(int fineScale)
+        {
+            fineScale = std::clamp(fineScale, kMinFineScale, kMaxFineScale);
+            if (fineScale == fineScale_)
+                return;
+            const int oldFineScale = fineScale_;
+            fineScale_ = fineScale;
+            if (zoomOnCursor_)
+                anchorPanToPointer(oldFineScale);
+        }
+
         void advanceIndicatorAnimation(uint32_t tick)
         {
+            if (smooth_)
+            {
+                animatedScale_ = static_cast<float>(fineScale_) / kFineSteps;
+                animValid_ = true;
+                return;
+            }
             if (!animValid_)
             {
                 animatedScale_ = static_cast<float>(scale_);
@@ -928,24 +1043,24 @@ namespace Zoom
 
         int scaledPanOffset(int nativeExtent, int battlefieldExtent, int pan) const
         {
-            const int margin = nativeExtent - ViewportExtent(nativeExtent, scale_);
-            const int battlefieldMargin = battlefieldExtent - ViewportExtent(battlefieldExtent, scale_);
+            const int margin = nativeExtent - ViewportExtentFine(nativeExtent, fineScale_);
+            const int battlefieldMargin = battlefieldExtent - ViewportExtentFine(battlefieldExtent, fineScale_);
             return battlefieldMargin > 0 ?
                 std::clamp(margin / 2 + pan * margin / battlefieldMargin, 0, margin) : 0;
         }
 
-        void anchorPanToPointer(int oldScale)
+        void anchorPanToPointer(int oldFineScale)
         {
             if (!pointerValid_ ||
                 pointerX_ < battlefield_.x || pointerX_ >= battlefield_.x + battlefield_.width ||
                 pointerY_ < battlefield_.y || pointerY_ >= battlefield_.y + battlefield_.height)
                 return;
 
-            const auto anchor = [oldScale, this](int& pan, int pointer, int origin, int extent)
+            const auto anchor = [oldFineScale, this](int& pan, int pointer, int origin, int extent)
             {
                 const int cursor = std::clamp(pointer - origin, 0, extent - 1);
-                const int oldViewport = ViewportExtent(extent, oldScale);
-                const int viewport = ViewportExtent(extent, scale_);
+                const int oldViewport = ViewportExtentFine(extent, oldFineScale);
+                const int viewport = ViewportExtentFine(extent, fineScale_);
                 const int oldMargin = extent - oldViewport;
                 const int margin = extent - viewport;
                 const int offset = std::clamp(oldMargin / 2 + pan, 0, oldMargin) +
@@ -964,7 +1079,7 @@ namespace Zoom
             else if (!cameraStopped)
                 pan += pan < 0 ? std::min(step, -pan) : -std::min(step, pan);
 
-            const int margin = battlefieldExtent - ViewportExtent(battlefieldExtent, scale_);
+            const int margin = battlefieldExtent - ViewportExtentFine(battlefieldExtent, fineScale_);
             pan = std::clamp(pan, -margin / 2, margin - margin / 2);
         }
     };
