@@ -619,10 +619,13 @@ namespace Zoom
         // Report a change once so the caller can replay that notification.
         bool takeViewportChange()
         {
-            if (fineScale_ == notifiedScale_ && panX_ == notifiedPanX_ && panY_ == notifiedPanY_)
+            // engineFine_: the game's view resizes a frame or more after the zoom step (view mode).
+            if (fineScale_ == notifiedScale_ && panX_ == notifiedPanX_ && panY_ == notifiedPanY_ &&
+                engineFine_ == notifiedEngine_)
                 return false;
 
             notifiedScale_ = fineScale_;
+            notifiedEngine_ = engineFine_;
             notifiedPanX_ = panX_;
             notifiedPanY_ = panY_;
             return true;
@@ -1064,6 +1067,7 @@ namespace Zoom
         int panX_{};
         int panY_{};
         int notifiedScale_{ kMinFineScale };
+        int notifiedEngine_{ kMinFineScale };
         int notifiedPanX_{};
         int notifiedPanY_{};
         int panDirections_{};

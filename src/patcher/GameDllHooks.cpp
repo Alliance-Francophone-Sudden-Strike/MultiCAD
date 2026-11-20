@@ -122,6 +122,10 @@ namespace
     // decorations are written there again, as in g_uiRepaint.
     bool g_worldUnderCursor = false;
 
+    // The minimap/strategic-map viewport rectangles were redrawn for a zoom or pan change
+    // (prepareUiElements): repaint the whole screen, or the old rectangle stays on it.
+    bool g_viewportRepaint = false;
+
     // Where the cursor is on the surface now (the game's save-under rectangle).
     CursorRect cursorRectOf(const int* x, const int* y, const int* width, const int* height)
     {
@@ -1614,6 +1618,7 @@ void GameDllHooks::prepareUiElements(UiElementBase* ui)
     // strategic map, closed already, the world showed in the panels' logical shape.
     if (Zoom::GetState().takeViewportChange())
     {
+        g_viewportRepaint = true;  // the game marks only the stock rectangle's edges for the screen
         for (UiElementBase* element = ui; element; element = element->prev)
             element->vtable->fn12(element, 0, 0);
         for (UiElementBase* element = ui; element; element = element->prev)
@@ -3713,6 +3718,35 @@ void __declspec(noinline) __fastcall GameDllHooks::drawMinimapViewportRect(
     y += zoom.viewportOffsetY(height);
 
     auto* const g = globals_;
+    // The game repaints the minimap only around its own (unzoomed) rectangle: put the map back
+    // under the lines drawn last time (0x1009A050: left, top, right, bottom, inclusive), or a
+    // zoom change leaves them on it. The caller draws the units after this.
+    static const UiElementBase* lastSelf = nullptr;
+    static int last[4] = {};  // x, y, width, height
+    const auto drawMap = g->getFn<void(__thiscall)(UiElementBase*, int, int, int, int)>(0x9A050);
+    const int now[4] = { x, y, scaledWidth, scaledHeight };
+    if (lastSelf == self && !std::equal(now, now + 4, last))
+    {
+        // Inside the surface's buffer ([+0x21], buffer pixels, inclusive), as the draw does not
+        // clip; not its clip rectangle, which the game narrows to its own rectangle's area.
+        const auto* surface = *reinterpret_cast<UiElementBase* const*>(reinterpret_cast<const uint8_t*>(self) + 0x21);
+        const int area[4] = { 0, 0, surface->rightX - surface->leftX, surface->bottomY - surface->topY };
+        const int l = last[0], t = last[1], r = last[0] + last[2] - 1, b = last[1] + last[3] - 1;
+        const auto line = [&](int x0, int y0, int x1, int y1)
+        {
+            x0 = std::max(x0, area[0]); y0 = std::max(y0, area[1]);
+            x1 = std::min(x1, area[2]); y1 = std::min(y1, area[3]);
+            if (x0 <= x1 && y0 <= y1)
+                drawMap(self, x0, y0, x1, y1);
+        };
+        line(l, t, r, t);
+        line(l, b, r, b);
+        line(l, t, l, b);
+        line(r, t, r, b);
+    }
+    lastSelf = self;
+    std::copy(now, now + 4, last);
+
     const auto drawHorizontal = g->getFn<void(__thiscall)(UiElementBase*, int, int, int, int)>(0x995C0);
     const auto drawVertical = g->getFn<void(__thiscall)(UiElementBase*, int, int, int, int)>(0x99640);
     drawHorizontal(self, x, y, scaledWidth, color);
@@ -5107,9 +5141,10 @@ bool GameDllHooks::invalidateOnUiListChange(const DrawDecorUiElementData& data, 
         }
     }
 
-    if (hash == last)
+    if (hash == last && !g_viewportRepaint)
         return false;
     last = hash;
+    g_viewportRepaint = false;
     if (cover)
         cover->vtable->fn2(cover);
     else
