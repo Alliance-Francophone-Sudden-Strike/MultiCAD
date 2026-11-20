@@ -1797,7 +1797,9 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         transform.destination.x < 0 || transform.destination.y < 0 ||
         transform.destination.x + transform.destination.width > width ||
         transform.destination.y + transform.destination.height > height ||
-        screenCoveredByUi(data.uiElement, width, height))
+        // In native mode the game's screen (the strategic map too) is the presented corner of the frame.
+        screenCoveredByUi(data.uiElement, zoom.native() ? Screen::presentWidth_ : width,
+            zoom.native() ? Screen::presentHeight_ : height))
     {
         return false;
     }
