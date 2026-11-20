@@ -264,6 +264,18 @@ public:
         return Zoom::ParseMode(buffer) == Zoom::Mode::On;
     }
 
+    // HS2Engine's zoom out to 0.5x ([Game] ZoomOut, off by default): the view mode.
+    static bool GetZoomOut()
+    {
+        const std::string iniPath = GameIni::Path();
+        if (iniPath.empty())
+            return false;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "ZoomOut", "off", buffer, sizeof(buffer), iniPath.c_str());
+        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
+    }
+
     static int GetRenderThreads()
     {
         const std::string iniPath = GameIni::Path();

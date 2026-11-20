@@ -846,8 +846,9 @@ int main()
         view.setBattlefield({ 0, 0, 3840, 2160 });
         assert(view.addWheelDelta(-120) && view.fineScale() == 48);
         assert(view.addWheelDelta(-120) && view.fineScale() == 43);
-        view.setViewRatio(1920, 1080, 1920, 1080);                    // no view mode
+        view.setViewRatio(1920, 1080, 1920, 1080);                    // no view mode ([Game] ZoomOut=off)
         assert(view.fullFineScale() == kMinFineScale);
         assert(!view.addWheelDelta(-120));
+        assert(view.levelCount() == 5 && view.homeLevel() == 0);       // 1 1.5 2 2.5 3
     }
 }
