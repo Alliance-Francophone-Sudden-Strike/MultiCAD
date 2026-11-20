@@ -4315,8 +4315,9 @@ void GameDllHooks::readStrategicMapFromFile(UiStrategicMapElement* mapData, cons
 
         data.closeHandle(miniMapFileHandle);
 
-        const int screenWidth = data.cadPtr->surface.width;
-        const int screenHeight = data.cadPtr->surface.height;
+        // The screen the game lays its UI out on: in the view mode the surface is the larger frame.
+        const int screenWidth = Screen::ViewMode() ? Screen::presentWidth_ : data.cadPtr->surface.width;
+        const int screenHeight = Screen::ViewMode() ? Screen::presentHeight_ : data.cadPtr->surface.height;
         mapData->screenSurfaceWidth = screenWidth;
         mapData->screenSurfaceHeight = screenHeight;
 
