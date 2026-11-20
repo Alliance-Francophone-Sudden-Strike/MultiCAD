@@ -1673,7 +1673,14 @@ namespace
     }
 }
 
-void NoteViewWorldFrame() { g_viewWorldSeen = g_viewWorldDrawn = true; }
+void LeaveViewCentreCrop();  // GameDllHooks.cpp
+void NoteViewWorldFrame()
+{
+    const bool cropEnds = !g_viewWorldSeen;
+    g_viewWorldSeen = g_viewWorldDrawn = true;
+    if (cropEnds && Screen::ViewMode())
+        LeaveViewCentreCrop();
+}
 void HoldViewPresent(int frames)
 {
     if (g_viewHold == 0)

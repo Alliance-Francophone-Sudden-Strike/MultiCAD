@@ -5519,6 +5519,18 @@ GameDllHooks::UiEventArea* GameDllHooks::battlefieldAt(UiEventArea* areas, int x
 // behaviour keys on this; any other game dll stays as upstream.
 void ForgetGameMouse() { g_wndMouse = nullptr; }
 
+// The centre crop ends (the first battlefield frame, renderer.cpp): the game's position leaves the
+// crop's space at once, before its next edge-scroll test; drawDecorUiElements comes later in the
+// frame. A mission starts at 1x: to the screen (native); drawDecorUiElements carries it on if not.
+void LeaveViewCentreCrop()
+{
+    if (!g_wndMouse || g_wndMouseSpace != MouseSpace::Crop)
+        return;
+    g_wndMouse[0] -= (Screen::width_ - Screen::presentWidth_) / 2;
+    g_wndMouse[1] -= (Screen::height_ - Screen::presentHeight_) / 2;
+    g_wndMouseSpace = MouseSpace::Native;
+}
+
 bool GameDllHooks::hs2EngineGame()
 {
     char section[4] = { 0 };
