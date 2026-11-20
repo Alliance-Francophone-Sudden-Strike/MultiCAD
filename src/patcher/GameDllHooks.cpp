@@ -1784,7 +1784,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     const int height = data.surfaceHeight;
 
     if (zoom.mode() == Zoom::Mode::Off ||
-        ((zoom.engineIndicator() || !zoom.indicatorPending()) && !zoom.zoomed() &&
+        (!zoom.indicatorPending() && !zoom.zoomed() &&  // pending: the frames after a zoom change repaint the decorations
             zoom.presentedFineScale() == zoom.unzoomedFineScale()) ||
         !g_moduleState || !g_moduleState->surface.renderer ||
         width != Screen::width_ || height != Screen::height_ ||
