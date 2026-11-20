@@ -1995,23 +1995,36 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
                 field = ui->uiEventArea;
         if (field && field->width > 0 && field->height > 0)
             zoom.setBattlefield({ field->x, field->y, field->width, field->height });
-        // The mouse messages are in the frame's pixels below 1x, the screen's in native mode:
-        // carry the position the game holds over, or it stays where an edge scroll sees it.
+        // The mouse messages are in the frame's pixels below 1x, the screen's in native mode and
+        // the screen's plus the crop offset before the first battlefield frame (the mission
+        // objectives): carry the position the game holds over, or it stays where an edge scroll sees it.
+        enum class MouseSpace { Crop, Native, Frame };
         static bool wasNative = false;
+        static MouseSpace lastSpace = MouseSpace::Native;
         static int lastFieldW = 0, lastFieldH = 0;
         const bool native = zoom.native();
+        int cropX = 0, cropY = 0;
+        const MouseSpace space = ViewCentreCrop(&cropX, &cropY) ? MouseSpace::Crop
+            : native ? MouseSpace::Native : MouseSpace::Frame;
         // The mode or the game's view changes: the game redraws them over the next frames.
         if (native != wasNative || zoom.battlefield().width != lastFieldW || zoom.battlefield().height != lastFieldH)
             HoldViewPresent(2);
         lastFieldW = zoom.battlefield().width;
         lastFieldH = zoom.battlefield().height;
-        if (native != wasNative && g_wndMouse)
+        if (space != lastSpace && g_wndMouse)
         {
             const int pw = Screen::presentWidth_, ph = Screen::presentHeight_;
             const int vw = Screen::width_, vh = Screen::height_;
-            g_wndMouse[0] = native ? g_wndMouse[0] * pw / vw : g_wndMouse[0] * vw / pw;
-            g_wndMouse[1] = native ? g_wndMouse[1] * ph / vh : g_wndMouse[1] * vh / ph;
+            const int cx = (vw - pw) / 2, cy = (vh - ph) / 2;  // the crop offset (ViewCentreCrop)
+            int x = g_wndMouse[0], y = g_wndMouse[1];  // to the presented screen
+            if (lastSpace == MouseSpace::Crop) { x -= cx; y -= cy; }
+            else if (lastSpace == MouseSpace::Frame) { x = x * pw / vw; y = y * ph / vh; }
+            if (space == MouseSpace::Crop) { x += cx; y += cy; }  // to the new space
+            else if (space == MouseSpace::Frame) { x = x * vw / pw; y = y * vh / ph; }
+            g_wndMouse[0] = x;
+            g_wndMouse[1] = y;
         }
+        lastSpace = space;
         wasNative = native;
         UIScale::Suspend(native);
     }
