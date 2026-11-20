@@ -252,6 +252,36 @@ int GetViewOriginExport(int* x, int* y)
     return 1;
 }
 
+// HS2Engine draws the zoom indicator as a UI element. The first call stops MultiCAD's own
+// indicator. `size` is the caller's sizeof(ZoomIndicatorInfo); fields may only be added.
+// Zero for any other game dll (no HS2Engine zoom): MultiCAD keeps its indicator.
+struct ZoomIndicatorInfo
+{
+    int size;
+    int count;     // the levels (notches), 0.5x .. 3x at 1080p
+    int home;      // the 1x level's index
+    int position;  // the shown scale on the levels, 256 for each level, 0 = the lowest
+    int visible;   // [Game] ZoomIndicator / PersistentZoomIndicator, 1.5 s after a zoom change
+    int right;     // [Game] ZoomIndicator=right
+};
+
+int GetZoomIndicatorExport(ZoomIndicatorInfo* info)
+{
+#pragma comment(linker, "/EXPORT:" "GetZoomIndicator=" __FUNCDNAME__)
+
+    Zoom::State& zoom = Zoom::GetState();
+    if (!info || info->size < static_cast<int>(sizeof(ZoomIndicatorInfo)) || !zoom.hs2Zoom() ||
+        zoom.mode() == Zoom::Mode::Off)
+        return 0;
+    zoom.setEngineIndicator(true);
+    info->count = zoom.levelCount();
+    info->home = zoom.homeLevel();
+    info->position = zoom.levelPosition256();
+    info->visible = zoom.indicatorVisible(GetTickCount()) ? 1 : 0;
+    info->right = zoom.indicatorAnchor() == Zoom::IndicatorAnchor::Right ? 1 : 0;
+    return 1;
+}
+
 void* InitializeModule()
 {
 #pragma comment(linker, "/EXPORT:" "CADraw_Init=" __FUNCDNAME__)

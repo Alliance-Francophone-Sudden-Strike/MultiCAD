@@ -826,9 +826,17 @@ int main()
         assert(view.addWheelDelta(-120) && view.fineScale() == 32);  // 0.5x: the whole view
         assert(!view.zoomed() && view.transform().source.width == 3840);
         assert(!view.addWheelDelta(-120));                            // the limit
+        assert(view.levelCount() == 7 && view.homeLevel() == 2);       // 0.5 0.75 1 1.5 2 2.5 3
+        assert(view.levelPosition256() == 0);
+        view.noteZoomInput(1000);
+        view.setPersistentIndicator(true);
+        assert(view.indicatorVisible(1000 + kIndicatorHoldMs));      // below 1x counts as zoomed
+        view.setPersistentIndicator(false);
+        assert(!view.indicatorVisible(1000 + kIndicatorHoldMs));
         assert(view.addWheelDelta(120) && view.fineScale() == 48);
         assert(view.addWheelDelta(120) && view.fineScale() == 64);
         assert(view.addWheelDelta(120) && view.fineScale() == 96);   // 1.5x
+        assert(view.levelPosition256() == 3 * 256);
         assert(view.transform().source.width == 1280);                // 1920 / 1.5
         view.zoomOutFully();
         assert(view.fineScale() == kMinFineScale);                    // the middle button: 1x

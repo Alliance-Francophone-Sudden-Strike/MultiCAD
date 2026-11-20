@@ -21,6 +21,8 @@ extern "C" __declspec(dllexport) int SetUiScale(float scale, int logicalWidth, i
 extern int GetPresentedSizeExport(int* width, int* height);
 extern int GetViewSizeExport(int* width, int* height);
 extern int GetViewOriginExport(int* x, int* y);
+struct ZoomIndicatorInfo;  // cad.cpp
+extern int GetZoomIndicatorExport(ZoomIndicatorInfo* info);
 
 extern "C" __declspec(dllexport) int GetViewOrigin(int* x, int* y)
 {
@@ -50,4 +52,9 @@ void __verbose_terminate_handler()
 {
     std::abort();
 }
+}
+
+extern "C" __declspec(dllexport) int GetZoomIndicator(ZoomIndicatorInfo* info)
+{
+    return GetZoomIndicatorExport(info);
 }

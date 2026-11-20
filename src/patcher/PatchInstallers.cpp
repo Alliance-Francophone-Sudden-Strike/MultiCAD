@@ -121,6 +121,7 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     Zoom::GetState().setIndicatorShape(Screen::GetZoomIndicatorShape());
     Zoom::GetState().setIndicatorScale(Screen::GetZoomIndicatorScale());
     Zoom::GetState().setPersistentIndicator(Screen::GetPersistentZoomIndicator());
+    Zoom::GetState().setEngineIndicator(false);  // until HS2Engine calls GetZoomIndicator
     Zoom::GetState().setInvertZoom(Screen::GetInvertZoom());
     Zoom::GetState().setZoomOnCursor(Screen::GetZoomOnCursor());
     // The zoom to 3x is HS2Engine's, smooth with [Game] SmoothZoom; any other game keeps
@@ -147,6 +148,7 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
 bool UninstallGamePatches(TargetState& state)
 {
     Zoom::GetState().setMode(Zoom::Mode::Off);
+    Zoom::GetState().setEngineIndicator(false);
     // Out of the view mode: the menu draws at the screen's size.
     Screen::SetViewScale(1.0f);
     Zoom::GetState().setViewRatio(0, 0, 0, 0);

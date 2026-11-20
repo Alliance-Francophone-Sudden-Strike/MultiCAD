@@ -104,6 +104,7 @@ def tree_signature(root: str) -> str:
     for name in sorted(PATCHES):
         h.update(name.encode())
     h.update(open(__file__, "rb").read())
+    h.update(open(EXPORT_WRAPPER, "rb").read())
     return h.hexdigest()
 
 

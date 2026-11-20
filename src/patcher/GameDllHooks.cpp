@@ -1779,12 +1779,12 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         return false;
     const Zoom::Transform transform = zoom.transform();
     const uint32_t indicatorTick = GetTickCount();
-    const bool showIndicator = GetUIFilter().isEnabled() && zoom.indicatorVisible(indicatorTick);
+    const bool showIndicator = !zoom.engineIndicator() && GetUIFilter().isEnabled() && zoom.indicatorVisible(indicatorTick);
     const int width = data.surfaceWidth;
     const int height = data.surfaceHeight;
 
     if (zoom.mode() == Zoom::Mode::Off ||
-        (!zoom.indicatorPending() && !zoom.zoomed() &&
+        ((zoom.engineIndicator() || !zoom.indicatorPending()) && !zoom.zoomed() &&
             zoom.presentedFineScale() == zoom.unzoomedFineScale()) ||
         !g_moduleState || !g_moduleState->surface.renderer ||
         width != Screen::width_ || height != Screen::height_ ||

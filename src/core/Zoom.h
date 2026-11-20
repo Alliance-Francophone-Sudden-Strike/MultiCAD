@@ -467,6 +467,28 @@ namespace Zoom
             return static_cast<int>((kIndicatorHoldMs - elapsed) * 16 / kIndicatorFadeMs);
         }
         bool indicatorPending() const { return indicatorActive_; }
+        // HS2Engine draws the indicator itself (GetZoomIndicator): MultiCAD draws none.
+        bool engineIndicator() const { return engineIndicator_; }
+        void setEngineIndicator(bool engine) { engineIndicator_ = engine; }
+        int levelCount() const { return static_cast<int>(levels_.size()); }
+        int homeLevel() const  // the 1x level's index
+        {
+            for (size_t i = 0; i < levels_.size(); ++i)
+                if (levels_[i] == kMinFineScale)
+                    return static_cast<int>(i);
+            return 0;
+        }
+        // The shown scale as a place on the levels: 256 for each level, 0 = the lowest level.
+        int levelPosition256() const
+        {
+            if (levels_.size() < 2 || fineScale_ <= levels_.front())
+                return 0;
+            for (size_t i = 0; i + 1 < levels_.size(); ++i)
+                if (fineScale_ <= levels_[i + 1])
+                    return static_cast<int>(i) * 256 +
+                        (fineScale_ - levels_[i]) * 256 / (levels_[i + 1] - levels_[i]);
+            return static_cast<int>(levels_.size() - 1) * 256;
+        }
         // Eases toward scale() a little each updatePan() tick, so DrawIndicator16
         // can sweep a level's bar smoothly instead of snapping it.
         float animatedScale() const { return animatedScale_; }
@@ -1031,6 +1053,7 @@ namespace Zoom
         IndicatorShape indicatorShape_{ IndicatorShape::Squares };
         int indicatorScale_{ PanelScale::kMinQuarters };
         bool persistentIndicator_{};
+        bool engineIndicator_{};
         bool invertZoom_{};
         bool zoomOnCursor_{};
         bool indicatorActive_{};
