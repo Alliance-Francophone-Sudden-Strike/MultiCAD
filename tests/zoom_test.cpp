@@ -709,7 +709,7 @@ int main()
     far.setSmooth(false);
     assert(far.maxScale() == kMaxScale && far.stepScale() == 1 && far.scale() == kMinScale);
 
-    // Smooth zoom out retraces the zoom in, wherever the cursor is now: the point the
+    // Without the zoom on the cursor, a zoom out retraces the zoom in: the point the
     // zoom in was centred on stays still, and 1x is reached without a slide.
     State retrace;
     retrace.setMode(Mode::On);
@@ -721,6 +721,7 @@ int main()
     retrace.updatePan(0, 0, 6000);
     retrace.updatePan(0, 0, 6000 + kSmoothZoomMs);
     assert(retrace.fineScale() == kLimitScale * kFineSteps);
+    retrace.setZoomOnCursor(false);
     retrace.setPointer(100, 100); // the opposite corner
     for (int step = 0; step < (kLimitScale - kMinScale) / 2; ++step)
     {
@@ -735,6 +736,49 @@ int main()
     }
     assert(retrace.fineScale() == kMinFineScale && !retrace.zoomed());
     assert(retrace.transform().source.x == 0 && retrace.transform().source.width == 1600);
+
+    // With the zoom on the cursor, HS2Engine zooms out around the centre of the screen:
+    // the point there stays still while the margin allows it, then slides to 1x.
+    State centred;
+    centred.setMode(Mode::On);
+    centred.setSmooth(true);
+    centred.setZoomOnCursor(true);
+    centred.setBattlefield({ 0, 0, 1600, 800 });
+    centred.setPointer(1200, 600);
+    assert(centred.addWheelDelta(120 * 8) && centred.scale() == kLimitScale);
+    centred.updatePan(0, 0, 8000);
+    centred.updatePan(0, 0, 8000 + kSmoothZoomMs);
+    centred.markPresented();
+    const int centreX = centred.mapX(800), centreY = centred.mapY(400);
+    assert(centreX > 1000 && centreY > 450); // the crop is off-centre, towards the cursor
+    centred.setPointer(100, 100);
+    for (int step = 0; step < (kLimitScale - kMinScale) / 2; ++step)
+    {
+        assert(centred.addWheelDelta(-120));
+        const uint32_t start = 9000 + step * 1000;
+        for (uint32_t t = 0; t <= kSmoothZoomMs; t += 10)
+        {
+            centred.updatePan(0, 0, start + t);
+            centred.markPresented();
+            if (centred.fineScale() >= 6 * kFineSteps) // 1.5x: the margin still allows it
+                assert(std::abs(centred.mapX(800) - centreX) <= 3 && std::abs(centred.mapY(400) - centreY) <= 3);
+        }
+    }
+    assert(centred.fineScale() == kMinFineScale && !centred.zoomed());
+    assert(centred.transform().source.x == 0 && centred.transform().source.width == 1600);
+
+    // HS2Engine without SmoothZoom: the same steps, each one at once.
+    State instant;
+    instant.setMode(Mode::On);
+    instant.setSmooth(true, false);
+    instant.setBattlefield({ 0, 0, 1600, 800 });
+    assert(instant.hs2Zoom() && !instant.smooth());
+    assert(instant.maxScale() == kLimitScale && instant.stepScale() == 2);
+    assert(instant.addWheelDelta(120) && instant.scale() == 6);
+    assert(instant.fineScale() == 6 * kFineSteps && !instant.animating());
+    assert(instant.addWheelDelta(120 * 10) && instant.fineScale() == kLimitScale * kFineSteps);
+    instant.zoomOutFully();
+    assert(instant.fineScale() == kMinFineScale && !instant.zoomed() && !instant.animating());
 
     // Steps (upstream) keep zooming out around the cursor.
     State steppedOut;

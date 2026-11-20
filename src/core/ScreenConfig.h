@@ -214,6 +214,18 @@ public:
         return Zoom::ParseMode(buffer) == Zoom::Mode::On;
     }
 
+    // HS2Engine only: each zoom step moves over a short time instead of jumping.
+    static bool GetSmoothZoom()
+    {
+        const std::string iniPath = GameIni::Path();
+        if (iniPath.empty())
+            return false;
+
+        char buffer[8]{};
+        GetPrivateProfileStringA("Game", "SmoothZoom", "off", buffer, sizeof(buffer), iniPath.c_str());
+        return Zoom::ParseMode(buffer) == Zoom::Mode::On;
+    }
+
     static int GetRenderThreads()
     {
         const std::string iniPath = GameIni::Path();

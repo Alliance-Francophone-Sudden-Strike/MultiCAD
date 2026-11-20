@@ -66,7 +66,7 @@ _Added by this AF version of the MultiCAD. Disabled by default._
 
 Zoom into the battlefield with the **mouse wheel**, from 1x up to 2x in four steps.
 
-With HS2Engine (an `[HS2Engine]` section in the ini) or its AF release `Game_Dll.dll`, the zoom goes from 1x up to 3x in steps of 0.5x. Each wheel step moves smoothly, in 150 ms, and the middle button goes back to 1x the same way. A zoom out retraces the zoom in, so it reaches 1x without a slide. Every other game keeps the four steps up to 2x.
+With HS2Engine (an `[HS2Engine]` section in the ini) or its AF release `Game_Dll.dll`, the zoom goes from 1x up to 3x in steps of 0.5x. With `SmoothZoom=on`, each wheel step moves smoothly, in 150 ms, and the middle button goes back to 1x the same way; without it, each step jumps. With `ZoomOnCursor=on`, the zoom in goes towards the cursor and the zoom out turns around the screen centre. Without it, a zoom out retraces the zoom in, so it reaches 1x without a slide. Every other game keeps the four steps up to 2x.
 
 > ```ini
 > [Game]
@@ -82,6 +82,7 @@ With HS2Engine (an `[HS2Engine]` section in the ini) or its AF release `Game_Dll
 | `PersistentZoomIndicator` | `on` / `off`                | `off`     | Keeps the indicator visible while zoomed in           |
 | `InvertZoom`              | `on` / `off`                | `off`     | Reverses the wheel direction                          |
 | `ZoomOnCursor`            | `on` / `off`                | `off`     | Zooms towards the cursor instead of the screen centre |
+| `SmoothZoom`              | `on` / `off`                | `off`     | HS2Engine only: each zoom step moves instead of jumping |
 
 Example configuration:
 

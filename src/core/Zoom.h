@@ -329,16 +329,19 @@ namespace Zoom
         int presentedFineScale() const { return presentedFine_; }
         bool zoomed() const { return scale_ != kMinScale || fineScale_ != kMinFineScale; }
         bool animating() const { return animating_; }
-        // HS2Engine's zoom: 1x to 3x in steps of 0.5x, each step moving over kSmoothZoomMs.
-        // Off: 1x to 2x in steps of 0.25x that jump (upstream).
-        void setSmooth(bool smooth)
+        // HS2Engine's zoom: 1x to 3x in steps of 0.5x; with `animate` ([Game] SmoothZoom) each
+        // step moves over kSmoothZoomMs, else it jumps. Off: 1x to 2x in steps of 0.25x that
+        // jump (upstream).
+        void setSmooth(bool hs2Zoom, bool animate = true)
         {
-            smooth_ = smooth;
-            maxScale_ = smooth ? kLimitScale : kMaxScale;
-            stepScale_ = smooth ? 2 : 1;
+            hs2Zoom_ = hs2Zoom;
+            smooth_ = hs2Zoom && animate;
+            maxScale_ = hs2Zoom ? kLimitScale : kMaxScale;
+            stepScale_ = hs2Zoom ? 2 : 1;
             resetScale();
         }
         bool smooth() const { return smooth_; }
+        bool hs2Zoom() const { return hs2Zoom_; }
         int maxScale() const { return maxScale_; }   // quarters
         int stepScale() const { return stepScale_; } // quarters for each wheel step
         bool dragging() const { return dragButtons_ != 0; }
@@ -871,6 +874,7 @@ namespace Zoom
         int presentedScale_{ kMinScale };
         int fineScale_{ kMinFineScale };
         int presentedFine_{ kMinFineScale };
+        bool hs2Zoom_{};
         bool smooth_{};
         int maxScale_{ kMaxScale };
         int stepScale_{ 1 };
@@ -1028,10 +1032,30 @@ namespace Zoom
                 return;
             const int oldFineScale = fineScale_;
             fineScale_ = fineScale;
-            if (smooth_ && fineScale < oldFineScale)
-                anchorPanToVanishingPoint(oldFineScale);
+            if (hs2Zoom_ && fineScale < oldFineScale)
+            {
+                // HS2Engine: a zoom on the cursor zooms out around the centre of the screen;
+                // without it, the zoom out retraces the zoom in (no slide at 1x).
+                if (zoomOnCursor_)
+                    anchorPanToCentre();
+                else
+                    anchorPanToVanishingPoint(oldFineScale);
+            }
             else if (zoomOnCursor_)
                 anchorPanToPointer(oldFineScale);
+        }
+
+        // The point at the centre of the screen stays there while the margin allows it;
+        // the pan is clamped, so an off-centre crop slides on the way to 1x.
+        void anchorPanToCentre()
+        {
+            const auto clamp = [this](int& pan, int extent)
+            {
+                const int margin = extent - ViewportExtentFine(extent, fineScale_);
+                pan = margin > 0 ? std::clamp(pan, -margin / 2, margin - margin / 2) : 0;
+            };
+            clamp(panX_, battlefield_.width);
+            clamp(panY_, battlefield_.height);
         }
 
         // Zooming out around the point that stays still all the way to 1x: for a crop at
