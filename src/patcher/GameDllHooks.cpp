@@ -113,6 +113,10 @@ namespace
     // tiles): the screen after a zoom or a UI list change, the tiles of gone decoration pixels.
     CursorRect g_uiRepaint;
     int* g_wndMouse = nullptr;  // the game's mouse position (x, y), as dispatchWndMessage writes it
+    // Where its last mouse message put it: the screen plus the crop offset before the first
+    // battlefield frame, the screen in native mode, the frame below 1x (dispatchWndMessage).
+    enum class MouseSpace { Crop, Native, Frame };
+    MouseSpace g_wndMouseSpace = MouseSpace::Native;
 
     // Whether this frame's present loop copied the world under the cursor: the scaled
     // decorations are written there again, as in g_uiRepaint.
@@ -1998,9 +2002,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
         // The mouse messages are in the frame's pixels below 1x, the screen's in native mode and
         // the screen's plus the crop offset before the first battlefield frame (the mission
         // objectives): carry the position the game holds over, or it stays where an edge scroll sees it.
-        enum class MouseSpace { Crop, Native, Frame };
         static bool wasNative = false;
-        static MouseSpace lastSpace = MouseSpace::Native;
         static int lastFieldW = 0, lastFieldH = 0;
         const bool native = zoom.native();
         int cropX = 0, cropY = 0;
@@ -2011,6 +2013,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             HoldViewPresent(2);
         lastFieldW = zoom.battlefield().width;
         lastFieldH = zoom.battlefield().height;
+        const MouseSpace lastSpace = g_wndMouseSpace;  // the stored position's, from its last message
         if (space != lastSpace && g_wndMouse)
         {
             const int pw = Screen::presentWidth_, ph = Screen::presentHeight_;
@@ -2024,7 +2027,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
             g_wndMouse[0] = x;
             g_wndMouse[1] = y;
         }
-        lastSpace = space;
+        g_wndMouseSpace = space;
         wasNative = native;
         UIScale::Suspend(native);
     }
@@ -5534,16 +5537,22 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
     // the game works in the view (the wheel carries screen coordinates: left alone).
     // Before the first battlefield frame the frame's centre is shown 1:1 (the mission objectives).
     int cropX, cropY;
-    if (a2 >= WM_MOUSEFIRST && a2 <= WM_MOUSELAST && a2 != WM_MOUSEWHEEL && ViewCentreCrop(&cropX, &cropY))
+    const bool mouseMessage = a2 >= WM_MOUSEFIRST && a2 <= WM_MOUSELAST && a2 != WM_MOUSEWHEEL;
+    if (mouseMessage && ViewCentreCrop(&cropX, &cropY))
+    {
         a4 = static_cast<int>(MAKELONG(static_cast<WORD>(static_cast<short>(LOWORD(a4)) + cropX),
                                        static_cast<WORD>(static_cast<short>(HIWORD(a4)) + cropY)));
-    else if (Screen::ViewMode() && !Zoom::GetState().native() && a2 >= WM_MOUSEFIRST && a2 <= WM_MOUSELAST &&
-        a2 != WM_MOUSEWHEEL)
+        g_wndMouseSpace = MouseSpace::Crop;
+    }
+    else if (mouseMessage && Screen::ViewMode() && !Zoom::GetState().native())
     {
+        g_wndMouseSpace = MouseSpace::Frame;
         const int x = static_cast<short>(LOWORD(a4)) * Screen::width_ / Screen::presentWidth_;
         const int y = static_cast<short>(HIWORD(a4)) * Screen::height_ / Screen::presentHeight_;
         a4 = static_cast<int>(MAKELONG(static_cast<WORD>(x), static_cast<WORD>(y)));
     }
+    else if (mouseMessage)
+        g_wndMouseSpace = MouseSpace::Native;
 
     int* const dword_1106F6F0 = data.dword_1106F6F0;
     int* const mouseX = dword_1106F6F0 + 1;
