@@ -4325,6 +4325,45 @@ static inline int strategicMapDrawWidth(int screenSurfaceWidth)
     return s_strategicMapDrawWidth > 0 ? s_strategicMapDrawWidth : screenSurfaceWidth;
 }
 
+// The picture (srcBuf) is built once, on the surface; the mis_mini file's size and the build size.
+static int s_strategicPicture[2] = {}, s_strategicBuilt[2] = {};
+
+// The map's layout on the screen it shows on: the picture fitted and centred in width x height.
+template<typename Map>  // GameDllHooks::UiStrategicMapElement (private there)
+static void layStrategicMap(Map* mapData, int width, int height)
+{
+    double scale = static_cast<double>(s_strategicPicture[0]) / width;
+    int drawWidth = width;
+    int drawHeight = static_cast<int>(s_strategicPicture[1] / scale);
+    if (drawHeight > height)
+    {
+        scale = static_cast<double>(s_strategicPicture[1]) / height;
+        drawHeight = height;
+        drawWidth = static_cast<int>(s_strategicPicture[0] / scale);
+    }
+    mapData->screenSurfaceWidth = width;
+    mapData->screenSurfaceHeight = height;
+    mapData->verticalCenterMargin = (height - drawHeight) / 2;
+    s_strategicMapDrawWidth = drawWidth;
+}
+
+// The view mode: the map (an element as large as the frame) shows its top-left screen-sized
+// corner at 1x and above (native), the whole frame reduced below 1x. Lay it out on what shows;
+// the click handler (0x100AD200) reads the same fields. True when the layout changed.
+template<typename Map>
+static bool relayStrategicMap(Map* mapData)
+{
+    if (s_strategicPicture[0] <= 0 || s_strategicBuilt[0] <= 0)
+        return false;
+    const bool native = Screen::ViewMode() && Zoom::GetState().native();
+    const int width = native ? Screen::presentWidth_ : s_strategicBuilt[0];
+    const int height = native ? Screen::presentHeight_ : s_strategicBuilt[1];
+    if (mapData->screenSurfaceWidth == width && mapData->screenSurfaceHeight == height)
+        return false;
+    layStrategicMap(mapData, width, height);
+    return true;
+}
+
 void GameDllHooks::readStrategicMapFromFile(UiStrategicMapElement* mapData, const ReadStrategicMapData& data)
 {
     if (mapData->isMapLoaded)
@@ -4349,9 +4388,12 @@ void GameDllHooks::readStrategicMapFromFile(UiStrategicMapElement* mapData, cons
 
         data.closeHandle(miniMapFileHandle);
 
-        // The screen the game lays its UI out on: in the view mode the surface is the larger frame.
-        const int screenWidth = Screen::ViewMode() ? Screen::presentWidth_ : data.cadPtr->surface.width;
-        const int screenHeight = Screen::ViewMode() ? Screen::presentHeight_ : data.cadPtr->surface.height;
+        const int screenWidth = data.cadPtr->surface.width;
+        const int screenHeight = data.cadPtr->surface.height;
+        s_strategicPicture[0] = mapWidth;
+        s_strategicPicture[1] = mapHeight;
+        s_strategicBuilt[0] = screenWidth;
+        s_strategicBuilt[1] = screenHeight;
         mapData->screenSurfaceWidth = screenWidth;
         mapData->screenSurfaceHeight = screenHeight;
 
@@ -4447,10 +4489,20 @@ void GameDllHooks::drawFogOnStrategicMap(UiStrategicMapElement* mapData, const F
     const uint8_t* fog3 = fog0 + 0x201;
     const uint8_t* fog4 = fog0 + 0x400;
 
+    const bool relaid = relayStrategicMap(mapData);
     data.fnResetUiImage(mapData);
 
     int clip[4];
     data.fnWriteClipRect(clip, mapData->clipLeft, mapData->clipTop, mapData->clipRight, mapData->clipBottom);
+    if (relaid && mapData->dstBuf)
+    {
+        // A new layout: paint the whole map again, the frame around the diamond black.
+        clip[0] = clip[1] = 0;
+        clip[2] = std::min(mapData->rightX - mapData->leftX, mapData->screenSurfaceWidth - 1);
+        clip[3] = std::min(mapData->bottomY - mapData->topY, mapData->screenSurfaceHeight - 1);
+        for (int y = 0; y <= mapData->bottomY - mapData->topY; ++y)
+            std::fill_n(mapData->dstBuf + static_cast<size_t>(y) * mapData->stride, mapData->rightX - mapData->leftX + 1, uint16_t{ 0 });
+    }
 
     // clipRight/clipBottom are inclusive and the +16/+8 rounds up to the fog cell grid, so both
     // must be clamped: srcBuf and dstBuf only hold screenSurfaceWidth * screenSurfaceHeight pixels
@@ -4486,7 +4538,10 @@ void GameDllHooks::drawFogOnStrategicMap(UiStrategicMapElement* mapData, const F
             if (mapY1 < 1 || mapY2 < 1 || mapY1 >= data.mapHeight - 1 || mapY2 >= data.mapWidth - 1)
                 continue;
 
-            uint8_t* src = &mapData->srcBuf[3 * x + 3 * mapData->screenSurfaceWidth * (screenH - y - 1)];
+            // srcBuf holds the picture as built (bottom-up rows); the layout may be smaller (view mode).
+            const int sx = static_cast<int>(static_cast<int64_t>(x) * s_strategicBuilt[0] / mapData->screenSurfaceWidth);
+            const int sy = static_cast<int>(static_cast<int64_t>(y) * s_strategicBuilt[1] / screenH);
+            uint8_t* src = &mapData->srcBuf[3 * (sx + static_cast<size_t>(s_strategicBuilt[0]) * (s_strategicBuilt[1] - sy - 1))];
 
             int r = src[2];
             int gCol = src[1];
