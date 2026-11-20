@@ -126,6 +126,13 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
     // The zoom to 3x is HS2Engine's, smooth with [Game] SmoothZoom; any other game keeps
     // the upstream steps.
     Zoom::GetState().setSmooth(GameDllHooks::hs2EngineGame(), Screen::GetSmoothZoom());
+    // HS2Engine's zoom out: the game draws a view of screen / 0.5 and the renderer reduces it;
+    // the zoom then goes down to 0.5x. The same fixed limit for every player.
+    Screen::SetViewScale(GameDllHooks::hs2EngineGame() && version == GameVersion::HS_2 &&
+        !state.patchEngine->skippedUnverified() && Zoom::GetState().mode() != Zoom::Mode::Off
+            ? Zoom::kZoomOutScale : 1.0f);
+    Zoom::GetState().setViewRatio(Screen::presentWidth_, Screen::presentHeight_, Screen::width_, Screen::height_);
+    ResetViewWorldFrame();
     SetRenderThreads(Screen::GetRenderThreads());
     g_frameStats = Screen::GetFrameStats();
 
@@ -140,6 +147,12 @@ bool InstallGamePatches(TargetState& state, uintptr_t base, size_t size, const s
 bool UninstallGamePatches(TargetState& state)
 {
     Zoom::GetState().setMode(Zoom::Mode::Off);
+    // Out of the view mode: the menu draws at the screen's size.
+    Screen::SetViewScale(1.0f);
+    Zoom::GetState().setViewRatio(0, 0, 0, 0);
+    UIScale::Suspend(false);
+    ResetViewWorldFrame();
+    ForgetGameMouse();
 
     if (state.active)
     {

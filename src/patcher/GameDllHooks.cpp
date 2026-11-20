@@ -81,6 +81,16 @@ namespace
     // The scaled decorations on the screen (key elsewhere): this frame's, last frame's, and their boxes.
     std::vector<Pixel> g_decorLast, g_decorNow;
     std::vector<U8> g_decorFade;  // with g_decorNow: a fading pixel's vanish level (0..31), 0 if opaque
+    // Where each decoration buffer holds anything but the key (0 for g_decorFade): the next
+    // frame clears only that box, not the whole frame. The boxes swap with the buffers.
+    Zoom::Rect g_decorNowContent, g_decorLastContent, g_coverDecorContent, g_decorFadeContent;
+
+    template<typename T>
+    void fillRect(std::vector<T>& buffer, const Zoom::Rect& box, T value, int stride)
+    {
+        for (int y = box.y; y < box.y + box.height; ++y)
+            std::fill_n(buffer.begin() + static_cast<size_t>(y) * stride + box.x, box.width, value);
+    }
     bool g_decorLastValid = false;
     Zoom::Rect g_decorBox, g_decorLastBox;
     // Under the strategic map: the scaled decorations above it (key elsewhere), which the map
@@ -102,6 +112,7 @@ namespace
     // Where scaled UI pixels are written again this frame, under the cursor too (whole 16 x 8
     // tiles): the screen after a zoom or a UI list change, the tiles of gone decoration pixels.
     CursorRect g_uiRepaint;
+    int* g_wndMouse = nullptr;  // the game's mouse position (x, y), as dispatchWndMessage writes it
 
     // Whether this frame's present loop copied the world under the cursor: the scaled
     // decorations are written there again, as in g_uiRepaint.
@@ -127,6 +138,19 @@ namespace
     void buildTaps(std::vector<Tap>& taps, int first, int count, int real, int logical, int origin, int inSize)
     {
         taps.resize(count);
+        // View mode (HS2Engine zoom out): the frame is reduced back to the logical size at present, taking screen
+        // pixel MapX(p) for logical pixel p. Fill each logical pixel's span with that pixel alone,
+        // so the round trip gives the UI 1:1 (bilinear would blend it with its neighbour).
+        if (Screen::ViewMode())
+        {
+            for (int n = 0; n < count; ++n)
+            {
+                const int p = static_cast<int>(((first + n + 1LL) * logical - 1) / real) - origin;
+                const int i0 = std::clamp(p, 0, inSize - 1);
+                taps[n] = { i0, i0, 0 };
+            }
+            return;
+        }
         for (int n = 0; n < count; ++n)
         {
             float u = (first + n + 0.5f) * logical / real - 0.5f - origin;
@@ -140,6 +164,15 @@ namespace
     // `key` does not count; the result is false when less than half the weight is left.
     bool blendPixels(const Pixel (&p)[4], int wx, int wy, bool keyed, Pixel key, Pixel& out)
     {
+        // All the weight on the first tap (the view mode's taps, an aligned pixel): the same
+        // result as below, without the divisions.
+        if (wx == 0 && wy == 0)
+        {
+            if (keyed && p[0] == key)
+                return false;
+            out = p[0];
+            return true;
+        }
         const int w[4] = { (256 - wx) * (256 - wy), wx * (256 - wy), (256 - wx) * wy, wx * wy };
         int sum = 0, r = 0, g = 0, b = 0;
         for (int i = 0; i < 4; ++i)
@@ -1700,6 +1733,23 @@ void GameDllHooks::updateBattlefieldHover(
     }
 }
 
+namespace
+{
+    void __cdecl skipCursorDraw() {}
+}
+
+void GameDllHooks::drawWorldCursor(int rect)
+{
+    auto* const draw = globals_->getPtr<uintptr_t>(0x106E864);
+    const bool skip = Screen::ViewMode() && !Zoom::GetState().native();
+    const uintptr_t saved = *draw;
+    if (skip)
+        *draw = reinterpret_cast<uintptr_t>(&skipCursorDraw);
+    globals_->getFn<void(__cdecl)(int)>(0x9F310)(rect);
+    if (skip)
+        *draw = saved;
+}
+
 void GameDllHooks::calculateCursorTypeAtZoom(
     int x,
     int y,
@@ -1707,6 +1757,12 @@ void GameDllHooks::calculateCursorTypeAtZoom(
     UiEventArea* areas,
     void(__cdecl* fn)(int, int, int*))
 {
+    // HS_2 only (the view mode): the cursor pass draws the cursor at 0x1009F200, the cursor-only
+    // redraw at 0x1009F506, both on the game's pointer (0x1106E900, 0x1106E8FC).
+    if (Screen::ViewMode())
+        SetViewCursorDrawSites(reinterpret_cast<uintptr_t>(globals_->getPtr<void>(0x9F206)),
+                               reinterpret_cast<uintptr_t>(globals_->getPtr<void>(0x9F50C)),
+                               globals_->getPtr<int>(0x106E900), globals_->getPtr<int>(0x106E8FC));
     const MouseMapGuard guard;
     if (guard.outermost && battlefieldAt(areas, x, y))
     {
@@ -1719,6 +1775,8 @@ void GameDllHooks::calculateCursorTypeAtZoom(
 bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
 {
     Zoom::State& zoom = Zoom::GetState();
+    if (zoom.viewMode() && zoom.battlefield().width <= 0)  // no FILD yet (drawDecorUiElements)
+        return false;
     const Zoom::Transform transform = zoom.transform();
     const uint32_t indicatorTick = GetTickCount();
     const bool showIndicator = GetUIFilter().isEnabled() && zoom.indicatorVisible(indicatorTick);
@@ -1727,7 +1785,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
 
     if (zoom.mode() == Zoom::Mode::Off ||
         (!zoom.indicatorPending() && !zoom.zoomed() &&
-            zoom.presentedFineScale() == Zoom::kMinFineScale) ||
+            zoom.presentedFineScale() == zoom.unzoomedFineScale()) ||
         !g_moduleState || !g_moduleState->surface.renderer ||
         width != Screen::width_ || height != Screen::height_ ||
         (width & 15) != 0 || (height & 7) != 0 ||
@@ -1745,6 +1803,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         return false;
 
     const LONGLONG stats = frameStatsStart();
+    LONGLONG mark = stats;
     Pixel* const world = zoom.worldBuffer();
 
     void* const renderer = g_moduleState->surface.renderer;
@@ -1760,15 +1819,19 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
     const int copyRight = std::min(width, (transform.source.x + transform.source.width + 15) & ~15);
     const int copyBottom = std::min(height, (transform.source.y + transform.source.height + 7) & ~7);
     copyMainSurfaceToRendererWithWarFog(copyLeft, copyTop, copyRight - 1, copyBottom - 1);
+    frameStatsMark(FRAME_STATS_ZFOG, mark);
     g_surfaceRepairSuppressed = wasSuppressed;
     g_moduleState->surface.renderer = renderer;
     g_moduleState->pitch = pitch;
 
+    mark = frameStatsStart();
     zoom.beginPresentation(
         g_moduleState->surface.renderer,
         g_moduleState->pitch,
         width,
         height);
+    frameStatsMark(FRAME_STATS_ZBEGIN, mark);
+    mark = frameStatsStart();
 
     scaleWorldToPresentation(
         world,
@@ -1777,14 +1840,16 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
         static_cast<int>(g_moduleState->pitch / sizeof(Pixel)),
         transform,
         zoom.rowScratch());
+    frameStatsMark(FRAME_STATS_ZSCALE, mark);
+    mark = frameStatsStart();
 
     if (showIndicator)
         Zoom::DrawIndicator16(
             zoom.indicatorShape(),
             static_cast<Pixel*>(g_moduleState->surface.renderer),
             g_moduleState->pitch / sizeof(Pixel),
-            width,
-            height,
+            zoom.native() ? zoom.presentWidth() : width,
+            zoom.native() ? zoom.presentHeight() : height,
             zoom.animatedScale(),
             zoom.indicatorAnchor() == Zoom::IndicatorAnchor::Right,
             zoom.indicatorOpacity(indicatorTick),
@@ -1832,6 +1897,7 @@ bool GameDllHooks::prepareZoomPresentation(const DrawDecorUiElementData& data)
                 ui->stride, ui->sprites);
     }
 
+    frameStatsMark(FRAME_STATS_ZUI, mark);
     frameStatsAdd(FRAME_STATS_ZOOM, stats);
     return true;
 }
@@ -1915,14 +1981,51 @@ void GameDllHooks::putOverCover(UiElementBase* cover, int left, int top, int rig
 
 void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
 {
+    if (Zoom::State& zoom = Zoom::GetState(); zoom.viewMode())
+    {
+        // The game's view follows the zoom: its FILD area is the battlefield, every frame. At
+        // 1x and above the game draws the UI itself (native); the change of UIScale::Active()
+        // makes invalidateOnUiListChange repaint the whole screen.
+        const UiEventArea* field = nullptr;
+        for (UiElementBase* ui = data.uiElement; ui && !field; ui = ui->prev)
+            if (ui->uiEventArea && ui->uiEventArea->tag == 'FILD')
+                field = ui->uiEventArea;
+        for (UiElementBase* ui = data.uiElement; ui && !field; ui = ui->next)
+            if (ui->uiEventArea && ui->uiEventArea->tag == 'FILD')
+                field = ui->uiEventArea;
+        if (field && field->width > 0 && field->height > 0)
+            zoom.setBattlefield({ field->x, field->y, field->width, field->height });
+        // The mouse messages are in the frame's pixels below 1x, the screen's in native mode:
+        // carry the position the game holds over, or it stays where an edge scroll sees it.
+        static bool wasNative = false;
+        static int lastFieldW = 0, lastFieldH = 0;
+        const bool native = zoom.native();
+        // The mode or the game's view changes: the game redraws them over the next frames.
+        if (native != wasNative || zoom.battlefield().width != lastFieldW || zoom.battlefield().height != lastFieldH)
+            HoldViewPresent(2);
+        lastFieldW = zoom.battlefield().width;
+        lastFieldH = zoom.battlefield().height;
+        if (native != wasNative && g_wndMouse)
+        {
+            const int pw = Screen::presentWidth_, ph = Screen::presentHeight_;
+            const int vw = Screen::width_, vh = Screen::height_;
+            g_wndMouse[0] = native ? g_wndMouse[0] * pw / vw : g_wndMouse[0] * vw / pw;
+            g_wndMouse[1] = native ? g_wndMouse[1] * ph / vh : g_wndMouse[1] * vh / ph;
+        }
+        wasNative = native;
+        UIScale::Suspend(native);
+    }
     const uint32_t tick = GetTickCount();
     Zoom::GetState().updatePan(data.cameraX, data.cameraY, tick);
     UiElementBase* const cover = UIScale::Active()
         ? realScreenCover(data.uiElement, data.surfaceWidth, data.surfaceHeight) : nullptr;
     const bool uiListChanged = invalidateOnUiListChange(data, cover);
     Zoom::Rect decorGone;
+    const LONGLONG decorMark = frameStatsStart();
     const bool decorChanged = composeScaledDecor(data, cover, decorGone);  // marks the world under gone pixels
+    frameStatsMark(FRAME_STATS_DECOR, decorMark);
     const bool zoomed = prepareZoomPresentation(data);
+    const LONGLONG restMark = frameStatsStart();
     g_uiRepaint = {};
     g_worldUnderCursor = false;
     if (zoomed || uiListChanged)
@@ -2042,6 +2145,7 @@ void GameDllHooks::drawDecorUiElements(const DrawDecorUiElementData& data)
     auto cad_2A90 = *reinterpret_cast<void(__cdecl**)(int, int, int, int)>(data.cadPtr + off2);
 
     int* div16Ptr = data.closedAreaGameDataArray;
+    frameStatsMark(FRAME_STATS_UIREST, restMark);
     const LONGLONG presentStats = frameStatsStart();
     const CursorRect cursorNow = cursorRectOf(
         data.cursorSavedX, data.cursorSavedY, data.cursorSavedWidth, data.cursorSavedHeight);
@@ -3585,8 +3689,8 @@ void __declspec(noinline) __fastcall GameDllHooks::drawMinimapViewportRect(
     UiElementBase* self, void* /*dummy*/, int x, int y, int width, int height, int color)
 {
     Zoom::State& zoom = Zoom::GetState();
-    const int scaledWidth = Zoom::ViewportExtentFine(width, zoom.fineScale());
-    const int scaledHeight = Zoom::ViewportExtentFine(height, zoom.fineScale());
+    const int scaledWidth = zoom.viewportExtent(width);
+    const int scaledHeight = zoom.viewportExtent(height);
     x += zoom.viewportOffsetX(width);
     y += zoom.viewportOffsetY(height);
 
@@ -4360,8 +4464,8 @@ void GameDllHooks::drawFogOnStrategicMap(UiStrategicMapElement* mapData, const F
     const int nativeLeft = static_cast<int>(mapData->screenSurfaceWidth / 2 + data.mapPosX / scale);
     const int nativeBottom = static_cast<int>(mapData->verticalCenterMargin + data.mapPosY / scale);
     Zoom::State& zoom = Zoom::GetState();
-    const int rectWidth = Zoom::ViewportExtentFine(nativeRectWidth, zoom.fineScale());
-    const int rectHeight = Zoom::ViewportExtentFine(nativeRectHeight, zoom.fineScale());
+    const int rectWidth = zoom.viewportExtent(nativeRectWidth);
+    const int rectHeight = zoom.viewportExtent(nativeRectHeight);
 
     int left = nativeLeft + zoom.viewportOffsetX(nativeRectWidth);
     int right = left + rectWidth - 1;
@@ -4424,8 +4528,8 @@ void GameDllHooks::drawScreenRectOnStrategicMap(UiStrategicMapElement* mapData, 
 
     auto drawRect = [&](int centerX, int centerY)
         {
-            const int rectWidth = Zoom::ViewportExtentFine(nativeRectWidth, zoom.fineScale());
-            const int rectHeight = Zoom::ViewportExtentFine(nativeRectHeight, zoom.fineScale());
+            const int rectWidth = zoom.viewportExtent(nativeRectWidth);
+            const int rectHeight = zoom.viewportExtent(nativeRectHeight);
 
             int left = static_cast<int>(width / 2 + centerX / scale) +
                 zoom.viewportOffsetX(nativeRectWidth);
@@ -4484,6 +4588,9 @@ UIScale::Rect GameDllHooks::scaledUiRect(const UiElementBase* self)
 
 UIScale::Rect GameDllHooks::areaScreenRect(const UiEventArea* area)
 {
+    // View mode: the game's view (FILD) is presented over the whole frame.
+    if (area->tag == 'FILD' && Zoom::GetState().viewMode() && !Zoom::GetState().native())
+        return { area->x, area->y, Screen::width_ - area->x, Screen::height_ - area->y };
     if (UIScale::Active() && isScalableUiTag(area->tag) && area->width > 0 && area->height > 0)
         return UIScale::MapRect(
             area->x, area->y, area->x + area->width - 1, area->y + area->height - 1, Screen::width_, Screen::height_);
@@ -4729,23 +4836,50 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElem
         buildTaps(rows, y0, y1 - y0, height, lh, 0, lh);
         try
         {
-            g_decorNow.assign(screenPixels, kKey);
-            g_decorFade.assign(screenPixels, 0);
+            if (g_decorNow.size() != screenPixels)
+            {
+                g_decorNow.assign(screenPixels, kKey);
+                g_decorNowContent = {};
+            }
+            else
+                fillRect(g_decorNow, g_decorNowContent, kKey, width);
+            if (g_decorFade.size() != screenPixels)
+            {
+                g_decorFade.assign(screenPixels, 0);
+                g_decorFadeContent = {};
+            }
+            else
+                fillRect(g_decorFade, g_decorFadeContent, U8{ 0 }, width);
+            g_decorNowContent = g_decorFadeContent = { x0, y0, x1 - x0, y1 - y0 };
         }
         catch (...)
         {
             g_decorLastValid = false;
             return false;
         }
+        // View mode: only the first screen pixel of each logical pixel reaches the screen (the
+        // renderer's reduction); the others stay the key, which is never presented.
+        const bool lattice = Screen::ViewMode();
+        static std::vector<U8> latticeColumns;
+        if (lattice)
+        {
+            latticeColumns.resize(x1 - x0);
+            for (int x = x0; x < x1; ++x)
+                latticeColumns[x - x0] = UIScale::MapX(columns[x - x0].i0, width) == x;
+        }
         for (int y = y0; y < y1; ++y)
         {
             const Tap& ty = rows[y - y0];
+            if (lattice && UIScale::MapY(ty.i0, height) != y)
+                continue;
             const Pixel* const row0 = scratch.data() + static_cast<size_t>(ty.i0) * lw;
             const Pixel* const row1 = scratch.data() + static_cast<size_t>(ty.i1) * lw;
             const U8* const fade0 = levels.data() + static_cast<size_t>(ty.i0) * lw;
             const U8* const fade1 = levels.data() + static_cast<size_t>(ty.i1) * lw;
             for (int x = x0; x < x1; ++x)
             {
+                if (lattice && !latticeColumns[x - x0])
+                    continue;
                 const Tap& tx = columns[x - x0];
                 const Pixel taps[4] = { row0[tx.i0], row0[tx.i1], row1[tx.i0], row1[tx.i1] };
                 Pixel mixed;
@@ -4780,6 +4914,7 @@ bool GameDllHooks::composeScaledDecor(const DrawDecorUiElementData& data, UiElem
         if (changed)
         {
             g_coverDecor.swap(g_decorNow);
+            std::swap(g_coverDecorContent, g_decorNowContent);
             g_coverDecorBox = g_decorBox;
             cover->vtable->fn2(cover);
         }
@@ -4921,6 +5056,7 @@ void GameDllHooks::drawScaledDecor(const DrawDecorUiElementData& data)
     }
 
     g_decorLast.swap(g_decorNow);
+    std::swap(g_decorLastContent, g_decorNowContent);
     g_decorLastBox = g_decorBox;
     g_decorLastValid = true;
 }
@@ -5365,6 +5501,8 @@ GameDllHooks::UiEventArea* GameDllHooks::battlefieldAt(UiEventArea* areas, int x
 
 // HS2Engine (an [HS2Engine] section in the ini) or its CustomGameDLL release. Their own
 // behaviour keys on this; any other game dll stays as upstream.
+void ForgetGameMouse() { g_wndMouse = nullptr; }
+
 bool GameDllHooks::hs2EngineGame()
 {
     char section[4] = { 0 };
@@ -5377,11 +5515,27 @@ int __declspec(noinline) __cdecl     GameDllHooks::dispatchWndMessage(const Disp
 {
     const int a2 = data.a2;
     const int a3 = data.a3;
-    const int a4 = data.a4;
+    int a4 = data.a4;
+
+    // View mode (HS2Engine zoom out): the client pointer of a mouse message is on the presented frame;
+    // the game works in the view (the wheel carries screen coordinates: left alone).
+    // Before the first battlefield frame the frame's centre is shown 1:1 (the mission objectives).
+    int cropX, cropY;
+    if (a2 >= WM_MOUSEFIRST && a2 <= WM_MOUSELAST && a2 != WM_MOUSEWHEEL && ViewCentreCrop(&cropX, &cropY))
+        a4 = static_cast<int>(MAKELONG(static_cast<WORD>(static_cast<short>(LOWORD(a4)) + cropX),
+                                       static_cast<WORD>(static_cast<short>(HIWORD(a4)) + cropY)));
+    else if (Screen::ViewMode() && !Zoom::GetState().native() && a2 >= WM_MOUSEFIRST && a2 <= WM_MOUSELAST &&
+        a2 != WM_MOUSEWHEEL)
+    {
+        const int x = static_cast<short>(LOWORD(a4)) * Screen::width_ / Screen::presentWidth_;
+        const int y = static_cast<short>(HIWORD(a4)) * Screen::height_ / Screen::presentHeight_;
+        a4 = static_cast<int>(MAKELONG(static_cast<WORD>(x), static_cast<WORD>(y)));
+    }
 
     int* const dword_1106F6F0 = data.dword_1106F6F0;
     int* const mouseX = dword_1106F6F0 + 1;
     int* const mouseY = dword_1106F6F0 + 2;
+    g_wndMouse = mouseX;
     int* const dword_1106F6FC = dword_1106F6F0 + 3;
     int* const dword_1106F700 = dword_1106F6F0 + 4;
     int* const dword_11070710 = data.wndClickGlobals;

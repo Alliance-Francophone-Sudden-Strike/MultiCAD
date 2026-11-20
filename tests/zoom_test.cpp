@@ -802,4 +802,44 @@ int main()
     assert(IndicatorLevelFraction(10.f, 1, kLimitScale, 2) == 1.f);  // 2.5x lights its dot
     assert(IndicatorLevelFraction(10.f, 0, kLimitScale, 2) == 0.f);  // not the 3x one
     assert(IndicatorLevelFraction(11.f, 0, kLimitScale, 2) == 0.5f); // halfway to 3x
+
+    // HS2Engine view mode: a 3840 px view on a 1920 px screen zooms out to 0.5x.
+    {
+        State view;
+        view.setMode(Mode::On);
+        view.setSmooth(true, false);
+        view.setViewRatio(1920, 1080, 3840, 2160);
+        int vw = 0, vh = 0;
+        assert(view.requestedView(vw, vh) && vw == 1920 && vh == 1080);  // the game draws 1x
+        assert(view.fullFineScale() == 32);
+        view.setBattlefield({ 0, 0, 3840, 2160 });
+        assert(view.fineScale() == kMinFineScale && view.zoomed()); // a mission starts at 1x
+        assert(!view.native());                                       // the game's view is not the screen yet
+        view.setBattlefield({ 0, 0, 1920, 1080 });                    // the game resized it
+        assert(view.native() && !view.zoomed());                      // native 1x: the stock frame
+        assert(view.transform().destination.width == 1920);
+        view.setBattlefield({ 0, 0, 3840, 2160 });
+        assert(view.transform().source.width == 1920 && view.transform().source.height == 1080);
+        assert(view.addWheelDelta(-120) && view.fineScale() == 48);  // 0.75x
+        assert(view.requestedView(vw, vh) && vw == 2560 && vh == 1440);
+        assert(view.transform().source.width == 2560);
+        assert(view.addWheelDelta(-120) && view.fineScale() == 32);  // 0.5x: the whole view
+        assert(!view.zoomed() && view.transform().source.width == 3840);
+        assert(!view.addWheelDelta(-120));                            // the limit
+        assert(view.addWheelDelta(120) && view.fineScale() == 48);
+        assert(view.addWheelDelta(120) && view.fineScale() == 64);
+        assert(view.addWheelDelta(120) && view.fineScale() == 96);   // 1.5x
+        assert(view.transform().source.width == 1280);                // 1920 / 1.5
+        view.zoomOutFully();
+        assert(view.fineScale() == kMinFineScale);                    // the middle button: 1x
+        assert(view.viewportExtent(3840) == 1920);
+        view.setViewRatio(2560, 1440, 3840, 2160);                    // capped view: 0.67x, then 0.75x
+        assert(view.fullFineScale() == 43);
+        view.setBattlefield({ 0, 0, 3840, 2160 });
+        assert(view.addWheelDelta(-120) && view.fineScale() == 48);
+        assert(view.addWheelDelta(-120) && view.fineScale() == 43);
+        view.setViewRatio(1920, 1080, 1920, 1080);                    // no view mode
+        assert(view.fullFineScale() == kMinFineScale);
+        assert(!view.addWheelDelta(-120));
+    }
 }

@@ -168,6 +168,7 @@ namespace Zoom
     constexpr int kMinScale = 4; // quarter units: 4 == 1x
     constexpr int kMaxScale = 8; // 8 == 2x, the upstream limit
     constexpr int kLimitScale = 12; // 12 == 3x, the HS2Engine limit
+    constexpr float kZoomOutScale = 0.5f; // HS2Engine view mode: the zoom-out limit
     constexpr int kReferenceFrameUs = 1'000'000 / 60;
     constexpr uint32_t kIndicatorHoldMs = 1500;
     constexpr uint32_t kIndicatorFadeMs = 250;
@@ -181,9 +182,11 @@ namespace Zoom
     constexpr int kMaxFineScale = kLimitScale * kFineSteps;
     constexpr uint32_t kSmoothZoomMs = 150; // one wheel step
 
-    constexpr int ViewportExtentFine(int nativeExtent, int fineScale)
+    // `fullFine`: the fine scale that shows the whole battlefield. 64 (1x), or less in the
+    // HS2Engine view mode, where the game draws a view larger than the screen (zoom out).
+    constexpr int ViewportExtentFine(int nativeExtent, int fineScale, int fullFine = kMinFineScale)
     {
-        return std::max(1, nativeExtent * kMinFineScale / std::clamp(fineScale, kMinFineScale, kMaxFineScale));
+        return std::max(1, nativeExtent * fullFine / std::clamp(fineScale, fullFine, kMaxFineScale));
     }
 
     constexpr int ViewportExtent(int nativeExtent, int scale)
@@ -191,10 +194,11 @@ namespace Zoom
         return ViewportExtentFine(nativeExtent, std::clamp(scale, kMinScale, kLimitScale) * kFineSteps);
     }
 
-    inline Transform MakeTransformFine(Rect battlefield, int fineScale, int panX = 0, int panY = 0)
+    inline Transform MakeTransformFine(Rect battlefield, int fineScale, int panX = 0, int panY = 0,
+        int fullFine = kMinFineScale)
     {
-        const int width = ViewportExtentFine(battlefield.width, fineScale);
-        const int height = ViewportExtentFine(battlefield.height, fineScale);
+        const int width = ViewportExtentFine(battlefield.width, fineScale, fullFine);
+        const int height = ViewportExtentFine(battlefield.height, fineScale, fullFine);
         const int marginX = battlefield.width - width;
         const int marginY = battlefield.height - height;
         return {
@@ -322,12 +326,35 @@ namespace Zoom
         }
 
         Mode mode() const { return mode_; }
-        int scale() const { return scale_; }
-        int presentedScale() const { return presentedScale_; }
+        // Quarters (4 == 1x), rounded down; the state keeps fine units (64 == 1x).
+        int scale() const { return scale_ / kFineSteps; }
+        int presentedScale() const { return presentedScale_ / kFineSteps; }
+        int targetFineScale() const { return scale_; }
+        // The fine scale that shows the whole battlefield: 64, or less in the view mode.
+        int fullFineScale() const { return fullFine_; }
+        int viewportExtent(int nativeExtent) const { return ViewportExtentFine(nativeExtent, fineScale_, engineFine_); }
         // The scale on screen now, in fine units; scale() is where it is going.
         int fineScale() const { return fineScale_; }
         int presentedFineScale() const { return presentedFine_; }
-        bool zoomed() const { return scale_ != kMinScale || fineScale_ != kMinFineScale; }
+        // View mode: the world always goes through the zoom pass, but at the whole view
+        // (the limit, the game's view as large as the frame).
+        bool zoomed() const
+        {
+            const int none = native() ? kMinFineScale : fullFine_;  // native: 1x is not zoomed
+            return scale_ != none || fineScale_ != none ||
+                (viewMode_ && !native() && (battlefield_.width != viewW_ || battlefield_.height != viewH_));
+        }
+        // View mode at 1x and above, once the game's view is the screen: the game draws the UI
+        // itself in the top-left screen-sized corner of the frame, which is presented 1:1, and
+        // the zoom in works there as without the view mode.
+        bool native() const
+        {
+            return viewMode_ && std::min(scale_, animating_ ? animFrom_ : scale_) >= kMinFineScale &&
+                battlefield_.width == presentW_ && battlefield_.height == presentH_;
+        }
+        int unzoomedFineScale() const { return native() ? kMinFineScale : fullFine_; }
+        int presentWidth() const { return presentW_; }
+        int presentHeight() const { return presentH_; }
         bool animating() const { return animating_; }
         // HS2Engine's zoom: 1x to 3x in steps of 0.5x; with `animate` ([Game] SmoothZoom) each
         // step moves over kSmoothZoomMs, else it jumps. Off: 1x to 2x in steps of 0.25x that
@@ -338,7 +365,59 @@ namespace Zoom
             smooth_ = hs2Zoom && animate;
             maxScale_ = hs2Zoom ? kLimitScale : kMaxScale;
             stepScale_ = hs2Zoom ? 2 : 1;
+            rebuildLevels();
             resetScale();
+        }
+        // HS2Engine view mode: the game draws a view `view` pixels wide for a screen `screen`
+        // pixels wide (MultiCAD reduces it at present). The zoom then goes below 1x, down to
+        // the whole view: 0.5x for a view of screen / 0.5, with a step at 0.75x
+        // (a limit of 0.75x has a step at 0.875x instead).
+        //
+        // The game's view follows the zoom (requestedView): below 1x it is screen * 64 / scale,
+        // at 1x and above the screen, at the origin of the frame. The battlefield (its FILD
+        // area) is that view; the transform crops it and presents the crop over the whole
+        // frame, which the renderer reduces to the screen.
+        void setViewRatio(int presentWidth, int presentHeight, int viewWidth, int viewHeight)
+        {
+            viewMode_ = presentWidth > 0 && presentHeight > 0 && viewWidth > presentWidth;
+            presentW_ = presentWidth;
+            presentH_ = presentHeight;
+            viewW_ = viewWidth;
+            viewH_ = viewHeight;
+            fullFine_ = viewMode_
+                ? std::clamp((kMinFineScale * presentWidth + viewWidth - 1) / viewWidth, kMinFineScale / 2, kMinFineScale)
+                : kMinFineScale;
+            engineFine_ = kMinFineScale;
+            rebuildLevels();
+            resetScale();
+        }
+        bool viewMode() const { return viewMode_; }
+        Rect battlefield() const { return battlefield_; }
+        // The view the game must draw now: for the target scale, or during a smooth step the
+        // larger of its two ends, so a step resizes the game's view once.
+        // Where requestedView goes, from the origin of the game's view now, in its pixels.
+        // Smaller: on the crop shown now (a zoom in keeps what is on screen, on the cursor
+        // with ZoomOnCursor); larger: around the centre (decision 9).
+        bool requestedOrigin(int& x, int& y) const
+        {
+            int width = 0, height = 0;
+            if (!requestedView(width, height) || battlefield_.width <= 0 || battlefield_.height <= 0)
+                return false;
+            const Transform t = transform();
+            x = width <= battlefield_.width
+                ? t.source.x - battlefield_.x + (t.source.width - width) / 2 : (battlefield_.width - width) / 2;
+            y = height <= battlefield_.height
+                ? t.source.y - battlefield_.y + (t.source.height - height) / 2 : (battlefield_.height - height) / 2;
+            return true;
+        }
+        bool requestedView(int& width, int& height) const
+        {
+            if (!viewMode_)
+                return false;
+            const int fine = std::min({ scale_, animating_ ? animFrom_ : scale_, kMinFineScale });
+            width = std::min(viewW_, (presentW_ * kMinFineScale / fine) & ~15);
+            height = std::min(viewH_, (presentH_ * kMinFineScale / fine) & ~7);
+            return true;
         }
         bool smooth() const { return smooth_; }
         bool hs2Zoom() const { return hs2Zoom_; }
@@ -373,14 +452,14 @@ namespace Zoom
         bool indicatorVisible(uint32_t tick) const
         {
             return mode_ != Mode::Off && indicatorAnchor_ != IndicatorAnchor::Hidden &&
-                ((persistentIndicator_ && scale_ != kMinScale) ||
+                ((persistentIndicator_ && scale_ != kMinFineScale) ||
                     (indicatorActive_ && tick - indicatorTick_ < kIndicatorHoldMs));
         }
         int indicatorOpacity(uint32_t tick) const
         {
             if (!indicatorVisible(tick))
                 return 0;
-            if (persistentIndicator_ && scale_ != kMinScale)
+            if (persistentIndicator_ && scale_ != kMinFineScale)
                 return 16;
             const uint32_t elapsed = tick - indicatorTick_;
             if (elapsed + kIndicatorFadeMs <= kIndicatorHoldMs)
@@ -403,7 +482,10 @@ namespace Zoom
                 return;
 
             battlefield_ = battlefield;
-            presented_ = MakeTransform(battlefield_);
+            if (viewMode_ && battlefield.width > 0)  // the scale of the game's view
+                engineFine_ = std::clamp((kMinFineScale * presentW_ + battlefield.width / 2) / battlefield.width,
+                    fullFine_, kMinFineScale);
+            presented_ = viewMode_ ? transform() : MakeTransformFine(battlefield_, fullFine_, 0, 0, fullFine_);
             hasPresented_ = true;
             panX_ = 0;
             panY_ = 0;
@@ -491,7 +573,22 @@ namespace Zoom
         }
         Transform transform() const
         {
-            return MakeTransformFine(battlefield_, fineScale_, panX_, panY_);
+            Transform t = MakeTransformFine(battlefield_, fineScale_, panX_, panY_, engineFine_);
+            if (viewMode_ && !native())
+            {
+                // The game's view is about to shrink to this crop: put it on the game's 16 x 8
+                // grid, where the resized view lands (0x1009D460 snaps its target), so the
+                // picture does not shift when the view replaces the crop.
+                int w = 0, h = 0;
+                if (!animating_ && requestedView(w, h) && w <= battlefield_.width && h <= battlefield_.height &&
+                    (w < battlefield_.width || h < battlefield_.height))
+                {
+                    t.source.x = battlefield_.x + ((t.source.x - battlefield_.x) & ~15);
+                    t.source.y = battlefield_.y + ((t.source.y - battlefield_.y) & ~7);
+                }
+                t.destination = { 0, 0, viewW_, viewH_ };
+            }
+            return t;
         }
         Transform presentedTransform() const { return presented_; }
 
@@ -573,12 +670,12 @@ namespace Zoom
             const int oldScale = scale_;
             while (wheelRemainder_ >= 120)
             {
-                scale_ = std::min(scale_ + stepScale_, maxScale_);
+                scale_ = nextLevel(scale_, true);
                 wheelRemainder_ -= 120;
             }
             while (wheelRemainder_ <= -120)
             {
-                scale_ = std::max(scale_ - stepScale_, kMinScale);
+                scale_ = nextLevel(scale_, false);
                 wheelRemainder_ += 120;
             }
             if (scale_ == oldScale)
@@ -587,7 +684,7 @@ namespace Zoom
             if (smooth_)
                 startScaleAnimation();
             else
-                applyFineScale(scale_ * kFineSteps);
+                applyFineScale(scale_);
             return true;
         }
 
@@ -599,7 +696,7 @@ namespace Zoom
                 resetScale();
                 return;
             }
-            scale_ = kMinScale;
+            scale_ = kMinFineScale;
             wheelRemainder_ = 0;
             startScaleAnimation();
         }
@@ -612,7 +709,7 @@ namespace Zoom
             battlefieldDragButtons_ = 0;
             battlefield_ = {};
             presented_ = {};
-            presentedScale_ = kMinScale;
+            presentedScale_ = kMinFineScale;
             presentedFine_ = kMinFineScale;
             hasPresented_ = false;
             presentationValid_ = false;
@@ -626,7 +723,7 @@ namespace Zoom
 
         void resetScale()
         {
-            scale_ = kMinScale;
+            scale_ = kMinFineScale;
             fineScale_ = kMinFineScale;
             animating_ = false;
             wheelRemainder_ = 0;
@@ -830,14 +927,37 @@ namespace Zoom
             worldIsolated_ = false;
         }
 
+        // View mode: only these pixels of the frame reach the screen (the renderer's
+        // reduction), so the presentation copies move only them. Null: the whole frame.
+        void setPresentLattice(const int* columns, const int* rows, int width, int height)
+        {
+            latticeColumns_ = columns;
+            latticeRows_ = rows;
+            latticeWidth_ = columns && rows ? width : 0;
+            latticeHeight_ = columns && rows ? height : 0;
+        }
+
         void beginPresentation(void*& renderer, uint32_t& pitch, int width, int height)
         {
             const auto* source = static_cast<const uint8_t*>(renderer);
-            ParallelRows(0, height, 1, [&](int first, int last)
-            {
-                for (int y = first; y < last; ++y)
-                    std::memcpy(presentation_.data() + y * width, source + y * pitch, width * sizeof(uint16_t));
-            });
+            if (latticeWidth_ > 0)
+                ParallelRows(0, latticeHeight_, 8, [&](int first, int last)
+                {
+                    for (int q = first; q < last; ++q)
+                    {
+                        const int y = latticeRows_[q];
+                        const auto* in = reinterpret_cast<const uint16_t*>(source + static_cast<size_t>(y) * pitch);
+                        uint16_t* out = presentation_.data() + static_cast<size_t>(y) * width;
+                        for (int p = 0; p < latticeWidth_; ++p)
+                            out[latticeColumns_[p]] = in[latticeColumns_[p]];
+                    }
+                });
+            else
+                ParallelRows(0, height, 1, [&](int first, int last)
+                {
+                    for (int y = first; y < last; ++y)
+                        std::memcpy(presentation_.data() + y * width, source + y * pitch, width * sizeof(uint16_t));
+                });
             presentationValid_ = true;
 
             actualRenderer_ = renderer;
@@ -853,11 +973,24 @@ namespace Zoom
                 return;
 
             auto* destination = static_cast<uint8_t*>(actualRenderer_);
-            ParallelRows(0, height, 1, [&](int first, int last)
-            {
-                for (int y = first; y < last; ++y)
-                    std::memcpy(destination + y * actualPitch_, presentation_.data() + y * width, width * sizeof(uint16_t));
-            });
+            if (latticeWidth_ > 0)
+                ParallelRows(0, latticeHeight_, 8, [&](int first, int last)
+                {
+                    for (int q = first; q < last; ++q)
+                    {
+                        const int y = latticeRows_[q];
+                        const uint16_t* in = presentation_.data() + static_cast<size_t>(y) * width;
+                        auto* out = reinterpret_cast<uint16_t*>(destination + static_cast<size_t>(y) * actualPitch_);
+                        for (int p = 0; p < latticeWidth_; ++p)
+                            out[latticeColumns_[p]] = in[latticeColumns_[p]];
+                    }
+                });
+            else
+                ParallelRows(0, height, 1, [&](int first, int last)
+                {
+                    for (int y = first; y < last; ++y)
+                        std::memcpy(destination + y * actualPitch_, presentation_.data() + y * width, width * sizeof(uint16_t));
+                });
             renderer = actualRenderer_;
             pitch = actualPitch_;
             routed_ = false;
@@ -865,13 +998,18 @@ namespace Zoom
 
     private:
         Mode mode_{ Mode::Off };
-        int scale_{ kMinScale };
+        int scale_{ kMinFineScale };  // the target, fine units
+        int fullFine_{ kMinFineScale };
+        int engineFine_{ kMinFineScale };  // view mode: the scale of the game's view (64 = the screen)
+        bool viewMode_{};
+        int presentW_{}, presentH_{}, viewW_{}, viewH_{};
+        std::vector<int> levels_{ 64, 80, 96, 112, 128 };  // the wheel steps, fine units (upstream)
         int wheelRemainder_{};
         int dragButtons_{};
         int battlefieldDragButtons_{};
         Rect battlefield_{};
         Transform presented_{};
-        int presentedScale_{ kMinScale };
+        int presentedScale_{ kMinFineScale };
         int fineScale_{ kMinFineScale };
         int presentedFine_{ kMinFineScale };
         bool hs2Zoom_{};
@@ -917,6 +1055,10 @@ namespace Zoom
         bool cameraValid_{};
         static constexpr int kCursorPitch = 64;
         void* actualRenderer_{};
+        const int* latticeColumns_{};
+        const int* latticeRows_{};
+        int latticeWidth_{};
+        int latticeHeight_{};
         uint32_t actualPitch_{};
         std::vector<uint16_t> world_;
         std::vector<uint16_t> presentation_;
@@ -983,8 +1125,40 @@ namespace Zoom
         // screen; the first tick after it sets the clock.
         void startScaleAnimation()
         {
+            if (!animating_)
+                animFrom_ = fineScale_;
             animating_ = true;
             animStarted_ = false;
+        }
+
+        void rebuildLevels()
+        {
+            levels_.clear();
+            if (hs2Zoom_ && fullFine_ < kMinFineScale)
+            {
+                levels_.push_back(fullFine_);  // the whole view
+                if (fullFine_ < kMinFineScale * 3 / 4)
+                    levels_.push_back(kMinFineScale * 3 / 4);  // 0.75x
+                else if (fullFine_ < kMinFineScale * 7 / 8)
+                    levels_.push_back(kMinFineScale * 7 / 8);  // 0.875x
+            }
+            for (int q = kMinScale; q <= maxScale_; q += stepScale_)
+                levels_.push_back(q * kFineSteps);
+        }
+
+        int nextLevel(int from, bool up) const
+        {
+            if (up)
+            {
+                for (int level : levels_)
+                    if (level > from)
+                        return level;
+                return levels_.empty() ? from : levels_.back();
+            }
+            for (auto it = levels_.rbegin(); it != levels_.rend(); ++it)
+                if (*it < from)
+                    return *it;
+            return levels_.empty() ? from : levels_.front();
         }
 
         // Ease-out: fast at the start, so the wheel feels direct, slow at the end.
@@ -999,7 +1173,7 @@ namespace Zoom
                 animStarted_ = true;
             }
 
-            const int target = scale_ * kFineSteps;
+            const int target = scale_;
             const uint32_t elapsed = tick - animStart_;
             int next = target;
             if (elapsed < kSmoothZoomMs)
@@ -1015,7 +1189,7 @@ namespace Zoom
             }
             applyFineScale(next);
 
-            if (!animating_ && target == kMinFineScale)
+            if (!animating_ && target == fullFine_)
             {
                 panX_ = 0;
                 panY_ = 0;
@@ -1027,7 +1201,7 @@ namespace Zoom
 
         void applyFineScale(int fineScale)
         {
-            fineScale = std::clamp(fineScale, kMinFineScale, kMaxFineScale);
+            fineScale = std::clamp(fineScale, fullFine_, kMaxFineScale);
             if (fineScale == fineScale_)
                 return;
             const int oldFineScale = fineScale_;
@@ -1051,7 +1225,7 @@ namespace Zoom
         {
             const auto clamp = [this](int& pan, int extent)
             {
-                const int margin = extent - ViewportExtentFine(extent, fineScale_);
+                const int margin = extent - ViewportExtentFine(extent, fineScale_, engineFine_);
                 pan = margin > 0 ? std::clamp(pan, -margin / 2, margin - margin / 2) : 0;
             };
             clamp(panX_, battlefield_.width);
@@ -1066,8 +1240,8 @@ namespace Zoom
         {
             const auto anchor = [oldFineScale, this](int& pan, int extent)
             {
-                const int oldMargin = extent - ViewportExtentFine(extent, oldFineScale);
-                const int margin = extent - ViewportExtentFine(extent, fineScale_);
+                const int oldMargin = extent - ViewportExtentFine(extent, oldFineScale, engineFine_);
+                const int margin = extent - ViewportExtentFine(extent, fineScale_, engineFine_);
                 if (oldMargin <= 0 || margin <= 0)
                 {
                     pan = 0;
@@ -1091,7 +1265,7 @@ namespace Zoom
             }
             if (!animValid_)
             {
-                animatedScale_ = static_cast<float>(scale_);
+                animatedScale_ = static_cast<float>(scale_) / kFineSteps;
                 animTick_ = tick;
                 animValid_ = true;
                 return;
@@ -1099,13 +1273,13 @@ namespace Zoom
             const uint32_t elapsed = tick - animTick_;
             animTick_ = tick;
             const float factor = std::min(1.f, elapsed / static_cast<float>(kIndicatorAnimMs));
-            animatedScale_ += (static_cast<float>(scale_) - animatedScale_) * factor;
+            animatedScale_ += (static_cast<float>(scale_) / kFineSteps - animatedScale_) * factor;
         }
 
         int scaledPanOffset(int nativeExtent, int battlefieldExtent, int pan) const
         {
-            const int margin = nativeExtent - ViewportExtentFine(nativeExtent, fineScale_);
-            const int battlefieldMargin = battlefieldExtent - ViewportExtentFine(battlefieldExtent, fineScale_);
+            const int margin = nativeExtent - ViewportExtentFine(nativeExtent, fineScale_, engineFine_);
+            const int battlefieldMargin = battlefieldExtent - ViewportExtentFine(battlefieldExtent, fineScale_, engineFine_);
             return battlefieldMargin > 0 ?
                 std::clamp(margin / 2 + pan * margin / battlefieldMargin, 0, margin) : 0;
         }
@@ -1120,8 +1294,8 @@ namespace Zoom
             const auto anchor = [oldFineScale, this](int& pan, int pointer, int origin, int extent)
             {
                 const int cursor = std::clamp(pointer - origin, 0, extent - 1);
-                const int oldViewport = ViewportExtentFine(extent, oldFineScale);
-                const int viewport = ViewportExtentFine(extent, fineScale_);
+                const int oldViewport = ViewportExtentFine(extent, oldFineScale, engineFine_);
+                const int viewport = ViewportExtentFine(extent, fineScale_, engineFine_);
                 const int oldMargin = extent - oldViewport;
                 const int margin = extent - viewport;
                 const int offset = std::clamp(oldMargin / 2 + pan, 0, oldMargin) +
@@ -1140,7 +1314,7 @@ namespace Zoom
             else if (!cameraStopped)
                 pan += pan < 0 ? std::min(step, -pan) : -std::min(step, pan);
 
-            const int margin = battlefieldExtent - ViewportExtentFine(battlefieldExtent, fineScale_);
+            const int margin = battlefieldExtent - ViewportExtentFine(battlefieldExtent, fineScale_, engineFine_);
             pan = std::clamp(pan, -margin / 2, margin - margin / 2);
         }
     };

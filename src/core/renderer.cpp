@@ -309,6 +309,13 @@ bool initWindowDxSurface(S32 width, S32 height)
 {
     releaseDxSurface();
 
+    // View mode (HS2Engine zoom out): DirectDraw gets the presented size, the game keeps the view (Screen).
+    if (Screen::ViewMode())
+    {
+        width = Screen::presentWidth_;
+        height = Screen::presentHeight_;
+    }
+
     if (g_moduleState->isFullScreen)
     {
         if (FAILED(g_moduleState->directX.instance->SetDisplayMode(width, height, Graphics::kBitsPerPixel16)))
@@ -319,7 +326,7 @@ bool initWindowDxSurface(S32 width, S32 height)
                 // it so the dialog won't reappear next launch.
                 if (ResolutionVerifier::GetInstance().ChooseResolution(width, height))
                 {
-                    Screen::UpdateSize(width, height);
+                    Screen::SetPresented(width, height);
                     Screen::SaveResolutionToIni(width, height);
                 }
             }
@@ -327,7 +334,7 @@ bool initWindowDxSurface(S32 width, S32 height)
             {
                 // Native default: snap to the closest mode, no prompt.
                 if (ResolutionVerifier::GetInstance().FindNearest(width, height, Graphics::kBitsPerPixel16))
-                    Screen::UpdateSize(width, height);
+                    Screen::SetPresented(width, height);
             }
 
             if (FAILED(g_moduleState->directX.instance->SetDisplayMode(width, height, Graphics::kBitsPerPixel16)))
@@ -445,8 +452,8 @@ bool initWindowDxSurface(S32 width, S32 height)
 
     g_moduleState->windowRect.x = 0;
     g_moduleState->windowRect.y = 0;
-    g_moduleState->windowRect.width = width - 1;
-    g_moduleState->windowRect.height = height - 1;
+    g_moduleState->windowRect.width = (Screen::ViewMode() ? Screen::width_ : width) - 1;
+    g_moduleState->windowRect.height = (Screen::ViewMode() ? Screen::height_ : height) - 1;
 
     return true;
 }
@@ -1559,6 +1566,179 @@ void moveStencilSurface(const S32 x, const S32 y, const S32 width, const S32 hei
 
 
 // 0x100028f0
+// HS2Engine view mode (zoom out): the game draws into this view-size buffer; unlockDxSurface
+// reduces it into the locked DirectDraw surface (presented size). The reduction takes view
+// pixel (columns[x], rows[y]) for presented pixel (x, y): the UI scale (buildTaps) and the
+// zoomed world (scaleWorldToPresentation) write exactly those pixels, so both reach the
+// screen 1:1; only the world at the whole view (0.75x) is resampled.
+namespace
+{
+    struct ViewSamples
+    {
+        std::vector<int> columns, rows;
+        std::vector<int> identityColumns, identityRows;  // native mode: the top-left corner 1:1
+        int key[4]{};
+    };
+
+    const ViewSamples& viewSamples()
+    {
+        static ViewSamples samples;
+        const int key[4] = { Screen::width_, Screen::height_, Screen::presentWidth_, Screen::presentHeight_ };
+        if (std::memcmp(key, samples.key, sizeof key) != 0)
+        {
+            samples.columns.resize(key[2]);
+            for (int x = 0; x < key[2]; ++x)
+                samples.columns[x] = static_cast<int>(static_cast<long long>(x) * key[0] / key[2]);
+            samples.rows.resize(key[3]);
+            for (int y = 0; y < key[3]; ++y)
+                samples.rows[y] = static_cast<int>(static_cast<long long>(y) * key[1] / key[3]);
+            samples.identityColumns.resize(key[2]);
+            for (int x = 0; x < key[2]; ++x)
+                samples.identityColumns[x] = x;
+            samples.identityRows.resize(key[3]);
+            for (int y = 0; y < key[3]; ++y)
+                samples.identityRows[y] = y;
+            std::memcpy(samples.key, key, sizeof key);
+        }
+        return samples;
+    }
+
+    std::vector<Pixel> g_viewTarget;
+    bool g_viewWorldSeen = false;
+
+    struct ViewCursor
+    {
+        bool valid = false;
+        const ImagePaletteSprite* sprite = nullptr;
+        const void* pal = nullptr;
+        int mouseX = 0, mouseY = 0;
+    };
+    ViewCursor g_viewCursor;
+    ImageSpriteUI g_viewCursorTarget{};
+    uintptr_t g_cursorSites[2];
+    const int* g_cursorMouse[2];
+    int g_viewHold = 0;
+    int g_viewHoldPresents = 0;   // presents held so far: the cap if the world is not drawn
+    bool g_viewWorldDrawn = false; // the world was drawn since the last present
+
+    bool viewCursorMode() { return Screen::ViewMode() && !Zoom::GetState().native(); }
+    void* g_presentSurface = nullptr;
+    LONG g_presentPitch = 0;
+
+    void routeToViewTarget()
+    {
+        const size_t pixels = static_cast<size_t>(Screen::width_) * Screen::height_;
+        if (g_viewTarget.size() != pixels)
+            g_viewTarget.assign(pixels, 0);
+        g_presentSurface = g_moduleState->surface.renderer;
+        g_presentPitch = static_cast<LONG>(g_moduleState->pitch);
+        g_moduleState->surface.renderer = g_viewTarget.data();
+        g_moduleState->pitch = Screen::widthInBytes_;
+    }
+
+    // Rows [bandTop, bandBottom) go to `band` (pw wide) instead of the surface: the cursor's rows.
+    void reduceViewTarget(int bandTop = 0, int bandBottom = 0, Pixel* band = nullptr)
+    {
+        const int vw = Screen::width_;
+        const int pw = Screen::presentWidth_, ph = Screen::presentHeight_;
+        const bool native = Zoom::GetState().native();
+        if (!g_viewWorldSeen || native)
+        {
+            // The loading screen at the centre of the frame; native mode: the top-left corner.
+            const Pixel* const centre = native ? g_viewTarget.data() : g_viewTarget.data() +
+                static_cast<size_t>((Screen::height_ - ph) / 2) * vw + (vw - pw) / 2;
+            auto* const out = static_cast<uint8_t*>(g_presentSurface);
+            for (int y = 0; y < ph; ++y)
+                std::memcpy(out + static_cast<size_t>(y) * g_presentPitch, centre + static_cast<size_t>(y) * vw,
+                    pw * sizeof(Pixel));
+            return;
+        }
+        const ViewSamples& samples = viewSamples();
+        const int* const columns = samples.columns.data();
+        const int* const rows = samples.rows.data();
+        const Pixel* const source = g_viewTarget.data();
+        auto* const destination = static_cast<uint8_t*>(g_presentSurface);
+        const LONG pitch = g_presentPitch;
+        ParallelRows(0, ph, 8, [&](int first, int last)
+        {
+            for (int y = first; y < last; ++y)
+            {
+                const Pixel* row = source + static_cast<size_t>(rows[y]) * vw;
+                Pixel* out = y >= bandTop && y < bandBottom ? band + static_cast<size_t>(y - bandTop) * pw :
+                    reinterpret_cast<Pixel*>(destination + static_cast<size_t>(y) * pitch);
+                for (int x = 0; x < pw; ++x)
+                    out[x] = row[columns[x]];
+            }
+        });
+    }
+}
+
+void NoteViewWorldFrame() { g_viewWorldSeen = g_viewWorldDrawn = true; }
+void HoldViewPresent(int frames)
+{
+    if (g_viewHold == 0)
+        g_viewHoldPresents = 0;
+    g_viewHold = std::max(g_viewHold, frames);
+}
+
+void SetViewCursorDrawSites(uintptr_t pass, uintptr_t moved, const int* mouseX, const int* mouseY)
+{
+    g_cursorSites[0] = pass;
+    g_cursorSites[1] = moved;
+    g_cursorMouse[0] = mouseX;
+    g_cursorMouse[1] = mouseY;
+}
+
+namespace
+{
+    std::vector<Pixel> g_cursorBand;
+    // The reduced frame with the cursor at the screen's size. The cursor's rows are reduced into a
+    // band, the cursor drawn there, then copied: the presenter (the ddraw wrapper's thread) never
+    // sees those rows without the cursor, so it does not blink. The game drew it into its box, so
+    // the cursor goes on the pointer, as the game anchors it (drawUiSprite adds the sprite's offset).
+    void reduceWithViewCursor()
+    {
+        const ViewCursor& c = g_viewCursor;
+        const int vw = Screen::width_, vh = Screen::height_;
+        const int pw = Screen::presentWidth_, ph = Screen::presentHeight_;
+        if (!c.sprite)
+        {
+            reduceViewTarget();
+            return;
+        }
+        const int x = c.mouseX * pw / vw;
+        const int y = c.mouseY * ph / vh;
+        const int top = std::clamp(y + c.sprite->y, 0, ph);
+        const int bottom = std::clamp(y + c.sprite->y + c.sprite->height, 0, ph);
+        if (top >= bottom)
+        {
+            reduceViewTarget();
+            return;
+        }
+        const size_t size = static_cast<size_t>(bottom - top) * pw;
+        if (g_cursorBand.size() < size)
+            g_cursorBand.resize(size);
+        Pixel* const band = g_cursorBand.data();
+        reduceViewTarget(top, bottom, band);
+        g_viewCursorTarget = { reinterpret_cast<Addr>(band - static_cast<ptrdiff_t>(top) * pw), static_cast<U32>(pw),
+            0, top, pw - 1, bottom - 1 };
+        drawUiSprite(x, y, c.sprite, c.pal, &g_viewCursorTarget);
+        auto* const out = static_cast<uint8_t*>(g_presentSurface);
+        for (int row = top; row < bottom; ++row)
+            std::memcpy(out + static_cast<size_t>(row) * g_presentPitch, band + static_cast<size_t>(row - top) * pw,
+                pw * sizeof(Pixel));
+    }
+}
+void ResetViewWorldFrame() { g_viewWorldSeen = false; }
+bool ViewCentreCrop(int* x, int* y)
+{
+    if (!Screen::ViewMode() || g_viewWorldSeen)
+        return false;
+    *x = (Screen::width_ - Screen::presentWidth_) / 2;
+    *y = (Screen::height_ - Screen::presentHeight_) / 2;
+    return true;
+}
+
 bool lockDxSurface()
 {
     DDSURFACEDESC desc;
@@ -1578,6 +1758,19 @@ bool lockDxSurface()
             g_moduleState->pitch = desc.lPitch;
 
             g_moduleState->surface.renderer = desc.lpSurface;
+
+            if (Screen::ViewMode())
+            {
+                routeToViewTarget();
+                const ViewSamples& samples = viewSamples();
+                const bool native = Zoom::GetState().native();
+                Zoom::GetState().setPresentLattice(
+                    native ? samples.identityColumns.data() : samples.columns.data(),
+                    native ? samples.identityRows.data() : samples.rows.data(),
+                    Screen::presentWidth_, Screen::presentHeight_);
+            }
+            else
+                Zoom::GetState().setPresentLattice(nullptr, nullptr, 0, 0);
 
             return true;
         }
@@ -1607,7 +1800,8 @@ namespace
         int count;
     };
 
-    constexpr const char* kFrameStatNames[] = { "world", "zoom", "present", "unlock", "frame", "game" };
+    constexpr const char* kFrameStatNames[] = { "world", "zoom", "present", "unlock", "frame", "game", "reduce",
+        "decor", "zfog", "zbegin", "zscale", "zui", "uirest" };
     FrameStat g_frameStatValues[std::size(kFrameStatNames)]{};
     LONGLONG g_frameStatsSpent = 0;
     LONGLONG g_frameStatsLast = 0;
@@ -1674,7 +1868,7 @@ namespace
 
         g_frameStatsReport = now;
         const double ms = 1000.0 / frequency.QuadPart;
-        char line[512];
+        char line[1024];
         int length = snprintf(line, sizeof(line), "MultiCAD frame stats, ms (count mean max):");
         for (size_t i = 0; i < std::size(kFrameStatNames); ++i)
         {
@@ -1691,6 +1885,12 @@ namespace
 LONGLONG frameStatsStart()
 {
     return g_frameStats ? queryCounter() : 0;
+}
+
+void frameStatsMark(FrameStatsPhase phase, LONGLONG start)
+{
+    if (g_frameStats)
+        recordFrameStat(phase, queryCounter() - start);
 }
 
 void frameStatsAdd(FrameStatsPhase phase, LONGLONG start)
@@ -1724,6 +1924,47 @@ void unlockDxSurface()
         g_moduleState->pitch,
         Screen::width_,
         Screen::height_);
+
+    if (g_presentSurface)
+    {
+        // The surface keeps the last picture. Only a present after a world redraw counts: the
+        // cursor-only redraw presents too, before the game has drawn the new view.
+        // Below 1x while the game's view is still the screen: the game drew the frame for the native
+        // mode; keep the last picture until it resizes its view (at most 30 presents).
+        const Zoom::Rect field = Zoom::GetState().battlefield();
+        const bool stale = g_viewWorldSeen && !Zoom::GetState().native() &&
+            field.width == Screen::presentWidth_ && field.height == Screen::presentHeight_;
+        static bool staleCapped = false;  // the game did not resize within the cap: show what it draws
+        staleCapped = staleCapped && stale;
+        if (stale && !staleCapped && g_viewHold == 0)
+            HoldViewPresent(1);
+        if (g_viewHold > 0 && ++g_viewHoldPresents <= 30)
+        {
+            if (g_viewWorldDrawn && !stale)
+                --g_viewHold;
+        }
+        else
+        {
+            const LONGLONG reduceStart = g_frameStats ? queryCounter() : 0;
+            if (!viewCursorMode())
+                g_viewCursor.valid = false;
+            if (g_viewCursor.valid && g_viewWorldSeen)
+                reduceWithViewCursor();
+            else
+                reduceViewTarget();
+            if (g_frameStats)
+                recordFrameStat(FRAME_STATS_REDUCE, queryCounter() - reduceStart);
+        }
+        if (g_viewHoldPresents > 30)
+        {
+            staleCapped = stale;
+            g_viewHold = 0;
+        }
+        g_viewWorldDrawn = false;
+        g_moduleState->surface.renderer = g_presentSurface;
+        g_moduleState->pitch = static_cast<U32>(g_presentPitch);
+        g_presentSurface = nullptr;
+    }
 
     if (g_moduleState->isFullScreen)
     {
@@ -2138,6 +2379,38 @@ void scaleWorldToPresentation(const Pixel* world, int worldPitch, Pixel* destina
                               const Zoom::Transform& transform, Pixel* scratch)
 {
     std::atomic<int> band{};
+    if (Screen::ViewMode() && !Zoom::GetState().native())
+    {
+        // Scale to the presented size, then put each pixel where the reduction takes it.
+        const ViewSamples& samples = viewSamples();
+        const int vw = Screen::width_, vh = Screen::height_;
+        const int pw = Screen::presentWidth_, ph = Screen::presentHeight_;
+        const Zoom::Rect& d = transform.destination;
+        Zoom::Transform presented = transform;
+        presented.destination.x = d.x * pw / vw;
+        presented.destination.y = d.y * ph / vh;
+        presented.destination.width = (d.x + d.width) * pw / vw - presented.destination.x;
+        presented.destination.height = (d.y + d.height) * ph / vh - presented.destination.y;
+        if (presented.destination.width <= 0 || presented.destination.height <= 0)
+            return;
+        static std::vector<Pixel> frame;
+        frame.resize(static_cast<size_t>(pw) * ph);
+        const int left = presented.destination.x, right = left + presented.destination.width;
+        ParallelRows(presented.destination.y, presented.destination.y + presented.destination.height, 1,
+            [&](int first, int last)
+            {
+                Zoom::ScaleSharp16(world, worldPitch, frame.data(), pw, presented,
+                    scratch + Zoom::ScaleScratchSize(presented.destination.width) * band++, first, last);
+                for (int y = first; y < last; ++y)
+                {
+                    Pixel* const out = destination + static_cast<size_t>(samples.rows[y]) * destinationPitch;
+                    const Pixel* const in = frame.data() + static_cast<size_t>(y) * pw;
+                    for (int x = left; x < right; ++x)
+                        out[samples.columns[x]] = in[x];
+                }
+            });
+        return;
+    }
     ParallelRows(transform.destination.y, transform.destination.y + transform.destination.height, 1,
         [&](int first, int last)
         {
@@ -7022,6 +7295,15 @@ void drawMainSurfaceActualSprite(S32 x, S32 y, U16 level, const Pixel* const pal
 // 0x10008ecd
 void drawUiSprite(S32 x, S32 y, const ImagePaletteSprite* const sprite, const void* pal, const ImageSpriteUI* const uiSprite)
 {
+    // View mode below 1x: the game's cursor, drawn at the screen's size after the reduction.
+    const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    if (caller && (caller == g_cursorSites[0] || caller == g_cursorSites[1]) && viewCursorMode() &&
+        g_cursorMouse[0] && g_cursorMouse[1])
+    {
+        g_viewCursor = { true, sprite, pal, *g_cursorMouse[0], *g_cursorMouse[1] };
+        return;
+    }
+
     // Early exit just in case
     switch (sprite->type)
     {

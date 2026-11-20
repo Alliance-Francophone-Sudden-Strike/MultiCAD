@@ -34,12 +34,35 @@ enum FrameStatsPhase
     FRAME_STATS_PRESENT,
     FRAME_STATS_UNLOCK,
     FRAME_STATS_FRAME,
-    FRAME_STATS_GAME
+    FRAME_STATS_GAME,
+    FRAME_STATS_REDUCE,     // View mode (HS2Engine zoom out): view -> presented, inside unlock
+    // Parts of the phases above, for profiling (frameStatsMark: not added to the frame's spent time)
+    FRAME_STATS_DECOR,      // composeScaledDecor
+    FRAME_STATS_ZFOG,       // zoom: the world with its fog into the world buffer
+    FRAME_STATS_ZBEGIN,     // zoom: beginPresentation
+    FRAME_STATS_ZSCALE,     // zoom: scaleWorldToPresentation
+    FRAME_STATS_ZUI,        // zoom: the panels repainted over the zoomed world
+    FRAME_STATS_UIREST      // drawDecorUiElements after the zoom pass, before the present
 };
 
 extern bool g_frameStats;
+// View mode: until the first battlefield frame of a mission (the loading screen, drawn
+// straight into the frame), present the centre of the view 1:1 instead of reducing it.
+void NoteViewWorldFrame();
+void ResetViewWorldFrame();
+// View mode below 1x: the game draws its cursor (into its save-under box) from these call sites
+// (return addresses of its drawUiSprite calls). The renderer keeps it out of the frame and draws
+// it at the screen's size on the pointer (mouseX, mouseY: the game's position in the frame).
+void SetViewCursorDrawSites(uintptr_t pass, uintptr_t moved, const int* mouseX, const int* mouseY);
+// View mode before the first battlefield frame (loading screen, mission objectives): the centre of
+// the frame is shown 1:1. (x, y): its top-left corner in the frame.
+bool ViewCentreCrop(int* x, int* y);
+// View mode: keep the picture on screen for `frames` presents (the mode or the game's view changed;
+// the game redraws its view and UI first).
+void HoldViewPresent(int frames);
 LONGLONG frameStatsStart();
 void frameStatsAdd(FrameStatsPhase phase, LONGLONG start);
+void frameStatsMark(FrameStatsPhase phase, LONGLONG start);
 int framePeriodUs();
 
 extern void (*g_surfaceRegionRepair)(int left, int top, int right, int bottom);

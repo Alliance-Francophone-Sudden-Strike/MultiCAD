@@ -2,6 +2,11 @@
 
 #include "cad.h"
 #include "ImportHooks.h"
+#include "Zoom.h"
+
+#include <cstdlib>
+
+bool ViewCentreCrop(int* x, int* y);  // renderer.h
 
 // The game treats GetCursorPos and ClipCursor as client coordinates, which only
 // holds fullscreen, where the client area is the screen. In a window both are
@@ -29,6 +34,19 @@ namespace CursorMapping
         if (point != nullptr && NeedsTranslation())
             ScreenToClient(g_moduleState->hwnd, point);
 
+        // View mode (HS2Engine zoom out): the game works in the view, the player points on the presented frame.
+        int cropX, cropY;
+        if (point != nullptr && ViewCentreCrop(&cropX, &cropY))
+        {
+            point->x += cropX;
+            point->y += cropY;
+        }
+        else if (point != nullptr && Screen::ViewMode() && !Zoom::GetState().native())
+        {
+            point->x = point->x * Screen::width_ / Screen::presentWidth_;
+            point->y = point->y * Screen::height_ / Screen::presentHeight_;
+        }
+
         return TRUE;
     }
 
@@ -38,14 +56,39 @@ namespace CursorMapping
             return FALSE;
 
         // A null rect releases the cursor - the same in either mode.
-        if (rect == nullptr || !NeedsTranslation())
+        if (rect == nullptr || (!NeedsTranslation() && !Screen::ViewMode()))
             return g_originalClipCursor(rect);
 
-        POINT origin{ 0, 0 };
-        ClientToScreen(g_moduleState->hwnd, &origin);
-
         RECT onScreen = *rect;
-        OffsetRect(&onScreen, origin.x, origin.y);
+        // The box selection clips to the game's view, which is presented over the whole
+        // frame; a dialog keeps the box it asks for. Native mode: the screen's coordinates.
+        int cropX, cropY;
+        const bool crop = ViewCentreCrop(&cropX, &cropY);  // the frame's centre shown 1:1
+        const bool scaled = Screen::ViewMode() && !crop;  // the engine maps its clips to the frame in both modes
+        if (crop)
+            OffsetRect(&onScreen, -cropX, -cropY);
+        if (scaled)
+        {
+            const Zoom::Rect field = Zoom::GetState().battlefield();
+            if (rect->left == field.x && rect->top == field.y &&
+                std::abs(rect->right - (field.x + field.width)) <= 1 &&
+                std::abs(rect->bottom - (field.y + field.height)) <= 1)
+                onScreen = { 0, 0, Screen::width_, Screen::height_ };
+        }
+        if (scaled)
+        {
+            onScreen.left = onScreen.left * Screen::presentWidth_ / Screen::width_;
+            onScreen.right = onScreen.right * Screen::presentWidth_ / Screen::width_;
+            onScreen.top = onScreen.top * Screen::presentHeight_ / Screen::height_;
+            onScreen.bottom = onScreen.bottom * Screen::presentHeight_ / Screen::height_;
+        }
+
+        if (NeedsTranslation())
+        {
+            POINT origin{ 0, 0 };
+            ClientToScreen(g_moduleState->hwnd, &origin);
+            OffsetRect(&onScreen, origin.x, origin.y);
+        }
 
         return g_originalClipCursor(&onScreen);
     }

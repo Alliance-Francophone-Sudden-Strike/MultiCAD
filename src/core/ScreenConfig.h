@@ -42,8 +42,35 @@ public:
 
     static bool resolutionFromIni_;
 
+    // The presented (display) size. Equal to width_/height_ except in the HS2Engine view
+    // mode (zoom out), where width_/height_ are the larger view the game draws and the
+    // renderer reduces it to this size at present.
+    static S32 presentWidth_;
+    static S32 presentHeight_;
+    static float viewScale_;
+
+    static bool ViewMode() { return presentWidth_ != width_ || presentHeight_ != height_; }
+
+    // The presented size; the view follows it (screen / scale, 16x8 down, capped).
+    static void SetPresented(S32 width, S32 height)
+    {
+        S32 vw = width, vh = height;
+        if (viewScale_ > 0.0f && viewScale_ < 1.0f)
+        {
+            vw = static_cast<S32>(width / viewScale_) & ~15;
+            vh = static_cast<S32>(height / viewScale_) & ~7;
+            if (vw > static_cast<S32>(Graphics::kMaxWidth))  vw = Graphics::kMaxWidth;
+            if (vh > static_cast<S32>(Graphics::kMaxHeight)) vh = Graphics::kMaxHeight;
+        }
+        UpdateSize(vw, vh);
+        presentWidth_ = width;
+        presentHeight_ = height;
+    }
+
     static void UpdateSize(S32 width, S32 height)
     {
+        presentWidth_ = width;
+        presentHeight_ = height;
         width_ = width;
         height_ = height;
 
@@ -60,6 +87,8 @@ public:
         constexpr S32 width = 1024;
         constexpr S32 height = 768;
 
+        presentWidth_ = width;
+        presentHeight_ = height;
         width_ = width;
         height_ = height;
 
@@ -134,7 +163,16 @@ public:
         targetResolved_ = false;
         S32 width, height;
         ResolveTargetResolution(width, height);
-        UpdateSize(width, height);
+        viewScale_ = 1.0f;
+        SetPresented(width, height);
+    }
+
+    // The view mode, after the game dll is patched (before its mission starts): a scale
+    // below 1 draws a view of presented / scale (capped at kMaxWidth x kMaxHeight). 1 turns it off.
+    static void SetViewScale(float scale)
+    {
+        viewScale_ = scale;
+        SetPresented(presentWidth_, presentHeight_);
     }
 
     static void SaveResolutionToIni(S32 width, S32 height)

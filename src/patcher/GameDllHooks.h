@@ -668,6 +668,9 @@ constexpr uint32_t kFogDoubleLineByteSize = kFogLineByteSize * 2;
 
 struct GameTag {};
 
+// The game dll unloads: its mouse position is gone (the view mode carried it over).
+void ForgetGameMouse();
+
 class GameDllHooks : public DllHooksBase<GameTag>
 {
 private:
@@ -1406,6 +1409,7 @@ public:
         auto* const g = globals_;
         constexpr auto& A = UiTraits<V>::addresses;
         const LONGLONG stats = frameStatsStart();
+        NoteViewWorldFrame();
         withBattlefieldMouseCoordinates(
             g->getPtr<int>(A.mouseX),
             g->getPtr<int>(A.mouseY),
@@ -1460,6 +1464,9 @@ public:
             g->getValue<UiEventArea*>(A.uiEventAreas),
             g->getFn<void(__cdecl)(int, int, int*)>(A.fnCalculateCursorType));
     }
+    // HS_2: the world redraw (0x10098010) also draws the cursor into the world (0x1009F310); below 1x
+    // that copy would be scaled with the world, so it is left out (the renderer draws the cursor).
+    static void __declspec(noinline) __cdecl drawWorldCursor(int rect);
     static void __declspec(noinline) __stdcall  sub_1006AEA0();
     static void __declspec(noinline) __stdcall  sub_1006AEA0_hd();
     static void __declspec(noinline) __cdecl    sub_1006B1C0(char mask, int* a2);

@@ -1,3 +1,6 @@
 EXPORTS
     CADraw_Init
     SetUiScale
+    GetPresentedSize
+    GetViewSize
+    GetViewOrigin

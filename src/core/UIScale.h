@@ -21,6 +21,7 @@ namespace UIScale
         bool allowed = false;
         int logicalWidth = 0;
         int logicalHeight = 0;
+        bool suspended = false;  // HS2Engine view mode at 1x and above: the game draws the UI itself
     };
 
     inline State& GetState()
@@ -29,7 +30,8 @@ namespace UIScale
         return state;
     }
 
-    inline bool Active() { const State& s = GetState(); return s.allowed && s.logicalWidth > 0 && s.logicalHeight > 0; }
+    inline bool Active() { const State& s = GetState(); return s.allowed && !s.suspended && s.logicalWidth > 0 && s.logicalHeight > 0; }
+    inline void Suspend(bool suspended) { GetState().suspended = suspended; }
 
     inline void Allow(bool allowed) { GetState() = State{ allowed, 0, 0 }; }
 

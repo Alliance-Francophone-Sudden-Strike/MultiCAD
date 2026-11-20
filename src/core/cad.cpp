@@ -206,6 +206,52 @@ int SetUiScaleExport(float /*scale*/, int logicalWidth, int logicalHeight)
     return UIScale::Active();
 }
 
+// HS2Engine's zoom out: nonzero when the game draws a view larger than the screen; then
+// `width` x `height` is the screen the player sees, which the engine lays the UI out on.
+int GetPresentedSizeExport(int* width, int* height)
+{
+#pragma comment(linker, "/EXPORT:" "GetPresentedSize=" __FUNCDNAME__)
+
+    if (!Screen::ViewMode())
+        return 0;
+    if (width)
+        *width = Screen::presentWidth_;
+    if (height)
+        *height = Screen::presentHeight_;
+    return 1;
+}
+
+// HS2Engine's zoom out: the view the game must draw now (it follows the zoom), at the
+// origin of the frame. Zero when the game draws its stock view.
+int GetViewSizeExport(int* width, int* height)
+{
+#pragma comment(linker, "/EXPORT:" "GetViewSize=" __FUNCDNAME__)
+
+    int w = 0, h = 0;
+    if (!Zoom::GetState().requestedView(w, h))
+        return 0;
+    if (width)
+        *width = w;
+    if (height)
+        *height = h;
+    return Zoom::GetState().native() ? 2 : 1;  // 2: native, the game draws its UI at the screen's size
+}
+
+// With GetViewSize: where that view goes, from the origin of the game's view now (world pixels).
+int GetViewOriginExport(int* x, int* y)
+{
+#pragma comment(linker, "/EXPORT:" "GetViewOrigin=" __FUNCDNAME__)
+
+    int ox = 0, oy = 0;
+    if (!Zoom::GetState().requestedOrigin(ox, oy))
+        return 0;
+    if (x)
+        *x = ox;
+    if (y)
+        *y = oy;
+    return 1;
+}
+
 void* InitializeModule()
 {
 #pragma comment(linker, "/EXPORT:" "CADraw_Init=" __FUNCDNAME__)
