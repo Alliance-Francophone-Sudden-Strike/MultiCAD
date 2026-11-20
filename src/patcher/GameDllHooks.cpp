@@ -4583,10 +4583,16 @@ void GameDllHooks::drawFogOnStrategicMap(UiStrategicMapElement* mapData, const F
     const int w = right - left + 1;
     const int h = top - bottom + 1;
 
-    data.drawHorLine(mapData, left, bottom, w, data.fogBorderColor);
-    data.drawHorLine(mapData, left, bottom + h - 1, w, data.fogBorderColor);
-    data.drawVertLine(mapData, left, bottom, h, data.fogBorderColor);
-    data.drawVertLine(mapData, left + w - 1, bottom, h, data.fogBorderColor);
+    // Below 1x the frame is reduced onto the screen, which skips pixel lines: draw 2 px there so
+    // 1 px always shows. The repaint (0x100AD2C0) covers the whole rectangle, the inner line too.
+    const int thickness = Screen::ViewMode() && !zoom.native() ? 2 : 1;
+    for (int i = 0; i < thickness && w > 2 * i && h > 2 * i; ++i)
+    {
+        data.drawHorLine(mapData, left + i, bottom + i, w - 2 * i, data.fogBorderColor);
+        data.drawHorLine(mapData, left + i, bottom + h - 1 - i, w - 2 * i, data.fogBorderColor);
+        data.drawVertLine(mapData, left + i, bottom + i, h - 2 * i, data.fogBorderColor);
+        data.drawVertLine(mapData, left + w - 1 - i, bottom + i, h - 2 * i, data.fogBorderColor);
+    }
 
     // This value (1.2f) was found empirically
     data.drawPlaneCrosses(
